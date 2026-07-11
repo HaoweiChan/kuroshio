@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import os
 import sys
 from pathlib import Path
 
@@ -238,6 +239,13 @@ def cmd_propose(args: argparse.Namespace) -> int:
         print("No proposals — portfolio is within policy.")
     else:
         print("\n\n".join(card.to_markdown() for card in cards))
+
+    if args.discord_webhook and cards:
+        from kuroshio.integrations.discord import post_cards
+
+        ok = post_cards(args.discord_webhook, cards)
+        print("posted proposals to Discord" if ok else "warning: Discord post failed", file=sys.stderr)
+
     return 0
 
 
@@ -353,6 +361,11 @@ def main(argv: list[str] | None = None) -> int:
     p_propose.add_argument("--market", choices=["us", "tw"], required=True)
     p_propose.add_argument("--candidates")
     p_propose.add_argument("--swaps-this-week", type=int, default=0)
+    p_propose.add_argument(
+        "--discord-webhook",
+        default=os.getenv("KUROSHIO_DISCORD_WEBHOOK"),
+        help="Discord webhook URL to post proposal cards to (default: env KUROSHIO_DISCORD_WEBHOOK)",
+    )
     p_propose.set_defaults(func=cmd_propose)
 
     p_validate = sub.add_parser("ips-validate", help="validate an IPS markdown file")
