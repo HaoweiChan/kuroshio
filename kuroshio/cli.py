@@ -1,8 +1,11 @@
-"""kuroshio CLI — screen | propose | ips-validate.
+"""kuroshio CLI — screen | propose | ips-validate | research.
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
-touches the network. Network calls happen only in the ``screen`` command.
+touches the network. Network calls happen only in the ``screen`` and
+``research`` commands; ``research`` additionally requires the optional
+``agents`` extra (LLM engine) and exits 2 with an install hint if it's
+missing.
 """
 
 from __future__ import annotations
@@ -181,6 +184,66 @@ def cmd_ips_validate(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- research ----------------------------------------------------------------
+
+
+def cmd_research(args: argparse.Namespace) -> int:
+    import copy
+
+    try:
+        from kuroshio.agents.engine.default_config import DEFAULT_CONFIG
+        from kuroshio.agents.engine.graph.trading_graph import TradingAgentsGraph
+    except ImportError:
+        print(
+            'error: the LLM research engine is not installed. Run: pip install "kuroshio[agents]" '
+            "and set an LLM API key env var (e.g. OPENAI_API_KEY).",
+            file=sys.stderr,
+        )
+        return 2
+
+    config = copy.deepcopy(DEFAULT_CONFIG)
+    config["market_region"] = args.market
+    config["output_lang"] = args.lang
+    trade_date = args.date or datetime.date.today().isoformat()
+    analysts = (
+        [a.strip() for a in args.analysts.split(",") if a.strip()]
+        if args.analysts
+        else list(config[f"default_{args.market}_analysts"])
+    )
+
+    seed_reports: dict[str, str] = {}
+    selected = analysts
+    if not args.no_cache:
+        from kuroshio.agents.engine.graph.facet_cache import plan_facets, write_back
+
+        selected, seed_reports = plan_facets(
+            facets_dir=config["facets_dir"],
+            ticker=args.ticker,
+            trade_date=trade_date,
+            available_facets=analysts,
+            ttl_days=int(config.get("fundamentals_ttl_days", 7)),
+        )
+
+    graph = TradingAgentsGraph(selected_analysts=selected, config=config)
+    final_state, decision = graph.propagate(args.ticker, trade_date, seed_reports=seed_reports)
+
+    if not args.no_cache:
+        write_back(
+            facets_dir=config["facets_dir"],
+            ticker=args.ticker,
+            trade_date=trade_date,
+            lang=config.get("output_lang", "en"),
+            regenerated_facets=selected,
+            final_state=final_state,
+        )
+
+    report_path = graph.save_reports(final_state, args.ticker, save_path=Path(args.out) / args.ticker / trade_date)
+    print(f"report: {report_path}")
+    if decision:
+        print(f"verdict: {decision}")
+    return 0
+
+
 # --- entry point -------------------------------------------------------------
 
 
@@ -210,6 +273,16 @@ def main(argv: list[str] | None = None) -> int:
     p_validate = sub.add_parser("ips-validate", help="validate an IPS markdown file")
     p_validate.add_argument("path")
     p_validate.set_defaults(func=cmd_ips_validate)
+
+    p_research = sub.add_parser("research", help="run the LLM multi-agent research pipeline for one ticker")
+    p_research.add_argument("ticker")
+    p_research.add_argument("--market", choices=["us", "tw"], default="us")
+    p_research.add_argument("--date", help="YYYY-MM-DD, default: today")
+    p_research.add_argument("--lang", choices=["en", "zh-TW"], default="en")
+    p_research.add_argument("--analysts", help="comma-separated analyst keys, default: the market's full set")
+    p_research.add_argument("--no-cache", action="store_true", help="bypass the facet cache; run every analyst")
+    p_research.add_argument("--out", default="./reports", help="report output directory (default: ./reports)")
+    p_research.set_defaults(func=cmd_research)
 
     args = parser.parse_args(argv)
     return args.func(args)
