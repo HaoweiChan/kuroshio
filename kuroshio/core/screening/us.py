@@ -1,8 +1,7 @@
 """US leadership profile.
 
-Ported from the Hermes prototype (``trading-research/scripts/us_screener.py``,
-``_indicators`` + ``evaluate`` — the reference the tinboker US service mirrors,
-issue #449). Point-in-time S&P membership, the congress/13F/polymarket
+Ported from a production-validated US screener prototype (``_indicators``
++ ``evaluate``). Point-in-time S&P membership, the congress/13F/polymarket
 overlays, the regime report and the backtest are out of scope here (see
 ARCHITECTURE.md) — this ports only the Stage-1 gate + factor scoring.
 
@@ -59,16 +58,20 @@ def screen(
     reference-instrument set: any panel column that is the benchmark or a
     sector ETF target is reference data, not a candidate stock.
     """
-    close, volume = panel.close, panel.volume
+    close = panel.close
     if close.empty:
         return []
     asof = asof if asof is not None else str(close.index[-1])
     if asof not in close.index:
         return []
+    # Row-align volume to close's index — a date missing from panel.volume (e.g. a
+    # partial-outage panel) becomes an all-NaN row instead of a KeyError on .loc[asof];
+    # those NaNs then flow through the existing per-ticker NaN skip below.
+    volume = panel.volume.reindex(close.index)
 
     ind = _indicators(close, volume)
     row_close = close.loc[asof]
-    row_vol = volume.loc[asof] if asof in volume.index else pd.Series(dtype=float)
+    row_vol = volume.loc[asof]
     ma_s, ma_m, ma_l = ind["ma_s"].loc[asof], ind["ma_m"].loc[asof], ind["ma_l"].loc[asof]
     high_hb = ind["high_hb"].loc[asof]
     avg_vol = ind["avg_vol"].loc[asof]

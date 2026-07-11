@@ -24,8 +24,11 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
 kuroshio ips-validate examples/ips-balanced.md
 
 # proposal cards: your holdings vs challengers, governed by your IPS
+printf -- '- {ticker: AAPL, weight: 0.08, theme: tech, score: 0.55}\n- {ticker: XOM, weight: 0.22, theme: energy, score: 0.30}\n' > holdings.yml
 kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
+
+Full walkthrough (including the LLM research pipeline): [examples/quickstart.md](examples/quickstart.md).
 
 ## Architecture
 

@@ -1,8 +1,8 @@
 """Cross-sectional scoring utilities shared by every market profile.
 
-Ported from tinboker's TW screener (``backend/src/services/screener_refresh.py``,
-``_pctrank``) — the TW and US profiles both rank their raw factors with this
-same function, so scores are comparable in shape (not magnitude) across markets.
+Ported from the maintainer's production TW screener (``_pctrank``) — the TW
+and US profiles both rank their raw factors with this same function, so
+scores are comparable in shape (not magnitude) across markets.
 """
 
 from __future__ import annotations

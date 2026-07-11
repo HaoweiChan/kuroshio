@@ -1,7 +1,6 @@
 """TW momentum-breakout profile.
 
-Ported from tinboker's production screener (issue #450,
-``backend/src/services/screener_refresh.py``): ``passes_universe``,
+Ported from the maintainer's production TW screener: ``passes_universe``,
 ``compute_stage1_metrics``, ``score_pool``. Only the DB plumbing changed —
 inputs now come from a :class:`~kuroshio.types.Panel` instead of SQLAlchemy
 queries against ``stock_daily_ohlc`` / ``stock_institutional_daily``.
@@ -15,7 +14,7 @@ from typing import Sequence
 from ...types import Candidate, Panel
 from .score import pctrank, weighted_score
 
-# --- Tunables (unchanged from tinboker) -----------------------------------
+# --- Tunables (unchanged from the production source) ----------------------
 MA_SHORT = 20
 MA_LONG = 60
 HIGH_SHORT = 20
@@ -133,7 +132,9 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
     window_start = max(0, pos - MA_LONG + 1)
     window_dates = close_df.index[window_start : pos + 1]
 
-    degraded = panel.institutional is None
+    # Global degraded: no institutional feed at all (None) or a total-outage empty
+    # frame (0 rows or 0 columns) -> no candidate gets an institution score.
+    global_degraded = panel.institutional is None or panel.institutional.empty
 
     pool: list[dict] = []
     for ticker in close_df.columns:
@@ -142,29 +143,35 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
         closes = close_df[ticker].reindex(window_dates)
         if closes.isna().any():  # any hole in the window -> not enough clean history
             continue
-        volume_col = panel.volume[ticker] if ticker in panel.volume.columns else None
-        volumes = (
-            volume_col.reindex(window_dates).fillna(0.0)
-            if volume_col is not None
-            else [0.0] * len(window_dates)
-        )
-        metrics = compute_stage1_metrics(list(window_dates), closes.tolist(), list(volumes))
+        if ticker not in panel.volume.columns:
+            continue
+        volumes = panel.volume[ticker].reindex(window_dates)
+        if volumes.isna().any():  # any hole in the volume window -> baseline can't be trusted
+            continue
+        metrics = compute_stage1_metrics(list(window_dates), closes.tolist(), volumes.tolist())
         if metrics is None:
             continue
 
-        if not degraded:
-            insti_col = panel.institutional[ticker] if ticker in panel.institutional.columns else None
-            if insti_col is not None:
+        ticker_degraded = global_degraded
+        if not global_degraded:
+            if ticker in panel.institutional.columns:
+                # Missing DATES within the window fillna(0) correctly -> no reported flow that day.
                 insti_sum = float(
-                    insti_col.reindex(window_dates).fillna(0.0).tail(INSTITUTION_LOOKBACK).sum()
+                    panel.institutional[ticker]
+                    .reindex(window_dates)
+                    .fillna(0.0)
+                    .tail(INSTITUTION_LOOKBACK)
+                    .sum()
+                )
+                metrics["institution_raw"] = (
+                    insti_sum / metrics["mean20_vol"] if metrics["mean20_vol"] > 0 else 0.0
                 )
             else:
-                insti_sum = 0.0
-            metrics["institution_raw"] = (
-                insti_sum / metrics["mean20_vol"] if metrics["mean20_vol"] > 0 else 0.0
-            )
+                # Ticker has no institutional column at all -> don't fabricate a value.
+                ticker_degraded = True
 
         metrics["ticker"] = ticker
+        metrics["degraded"] = ticker_degraded
         pool.append(metrics)
 
     if not pool:
@@ -173,13 +180,18 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
     r_ma20 = pctrank([p["close_ma20"] - 1.0 for p in pool])
     r_ma60 = pctrank([p["close_ma60"] - 1.0 for p in pool])
     r_vol = pctrank([p["vol_mult"] for p in pool])
-    r_inst = None if degraded else pctrank([p["institution_raw"] for p in pool])
+
+    # pctrank the institution factor over only the candidates that have it.
+    insti_pool = [p for p in pool if "institution_raw" in p]
+    r_inst_by_ticker = dict(
+        zip((p["ticker"] for p in insti_pool), pctrank([p["institution_raw"] for p in insti_pool]))
+    )
 
     candidates: list[Candidate] = []
     for idx, p in enumerate(pool):
         scores = {"momentum": (r_ma20[idx] + r_ma60[idx] + r_vol[idx]) / 3.0}
-        if r_inst is not None:
-            scores["institution"] = r_inst[idx]
+        if p["ticker"] in r_inst_by_ticker:
+            scores["institution"] = r_inst_by_ticker[p["ticker"]]
         final = weighted_score(scores, WEIGHTS)
         factors = {k: p[k] for k in _FACTOR_KEYS if k in p}
         candidates.append(
@@ -193,7 +205,7 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
                 flags={
                     "is_60d_high": p["is_60d_high"],
                     "crowded": p["crowded"],
-                    "degraded": degraded,
+                    "degraded": p["degraded"],
                 },
             )
         )

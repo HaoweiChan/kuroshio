@@ -98,6 +98,58 @@ def test_tw_screen_degrades_without_institutional():
         assert c.final_score == pytest.approx(c.scores["momentum"])
 
 
+def test_tw_screen_degrades_when_institutional_frame_empty():
+    # Total-outage frame: present (not None) but zero columns -> same treatment as None.
+    panel = _tw_panel(with_institutional=True)
+    panel.institutional = panel.institutional.drop(columns=list(panel.institutional.columns))
+    assert panel.institutional.empty
+
+    candidates = tw.screen(panel)
+    assert candidates
+    for c in candidates:
+        assert c.flags["degraded"] is True
+        assert "institution" not in c.scores
+        assert 0.0 <= c.final_score <= 1.0
+
+
+def test_tw_screen_missing_ticker_column_degrades_only_that_candidate():
+    # Institutional frame is present and healthy, but 1102 has no column in it
+    # (e.g. FinMind returned nothing for that one ticker) -> only 1102 degrades;
+    # its institution_raw must not be fabricated as 0.0 and pctranked against
+    # tickers with real data.
+    panel = _tw_panel(with_institutional=True)
+    panel.institutional = panel.institutional.drop(columns=["1102"])
+
+    candidates = tw.screen(panel)
+    by_ticker = {c.ticker: c for c in candidates}
+    assert set(by_ticker) == {"1101", "1102"}
+
+    strong = by_ticker["1101"]
+    assert strong.flags["degraded"] is False
+    assert "institution" in strong.scores
+
+    missing = by_ticker["1102"]
+    assert missing.flags["degraded"] is True
+    assert "institution" not in missing.scores
+
+    for c in candidates:
+        assert 0.0 <= c.final_score <= 1.0
+
+
+def test_tw_screen_excludes_ticker_with_volume_nan_in_window():
+    # A NaN anywhere in the 60-session volume window must exclude the ticker
+    # entirely, not get fillna(0)'d (which would deflate the baseline and
+    # inflate vol_mult past the 1.5x gate).
+    panel = _tw_panel(with_institutional=True)
+    dates = panel.close.index
+    panel.volume.loc[dates[-10], "1101"] = float("nan")
+
+    candidates = tw.screen(panel)
+    tickers = {c.ticker for c in candidates}
+    assert "1101" not in tickers
+    assert "1102" in tickers  # unaffected ticker still passes
+
+
 # --- US --------------------------------------------------------------------
 def _us_panel() -> Panel:
     dates = _dates()
@@ -136,3 +188,14 @@ def test_us_screen_missing_sector_map_drops_sector_factor():
     assert "sector" not in amd.scores
     assert set(amd.scores) == {"momentum", "rs", "volume"}
     assert 0.0 <= amd.final_score <= 1.0
+
+
+def test_us_screen_asof_missing_from_volume_index_no_crash():
+    # asof (the latest close date) has no row in panel.volume at all -> must not
+    # KeyError on ind["avg_vol"].loc[asof]; the row-aligned reindex turns the
+    # missing date into an all-NaN row, which the per-ticker NaN skip handles.
+    panel = _us_panel()
+    panel.volume = panel.volume.iloc[:-1]
+
+    candidates = us.screen(panel, sector_map={"AMD": "SMH"})
+    assert isinstance(candidates, list)

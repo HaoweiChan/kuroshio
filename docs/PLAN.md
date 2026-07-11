@@ -15,9 +15,17 @@ never enter this repo). This file tracks the engine's build state only.
 - [x] `cli.py` — screen / propose / ips-validate (verified live against yfinance)
 - [x] `agents/engine/` — TradingAgents componentization (fresh copy, personal traces stripped,
       portfolio-state provider injected, `agents` optional extra)
-- [ ] `kuroshio research TICKER` CLI subcommand driving TradingAgentsGraph
-- [ ] examples/quickstart.md + docker-compose (self-host acceptance: clean machine, one command)
-- [ ] README with real architecture diagram + Phase-1 run data (pre-launch)
+- [x] `kuroshio research TICKER` CLI subcommand driving TradingAgentsGraph
+- [x] examples/quickstart.md
+- [ ] docker-compose (self-host acceptance: clean machine, one command — lands with server/)
+
+## Pre-launch checklist (repo public = launch)
+
+- [ ] Squash history into a single initial-release commit (fresh-history rule; dev history
+      references private projects)
+- [ ] README with architecture diagram + real daily-run track record
+- [ ] Register kuroshio.io; claim PyPI/npm `kuroshio` (0.0.1 placeholder)
+- [ ] Two weeks of the maintainer's own portfolio running on this engine
 
 ## Later phases (not in this repo yet)
 

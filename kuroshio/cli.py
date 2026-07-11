@@ -121,8 +121,16 @@ def cmd_screen(args: argparse.Namespace) -> int:
         extra = {"SPY"} | (set(sector_map.values()) if sector_map else set())
         fetch_tickers += [t for t in extra if t not in fetch_tickers]
 
-    provider = get_provider(provider_name)
-    panel = provider.fetch_panel(fetch_tickers, LOOKBACK_DAYS[market], end=args.asof)
+    try:
+        provider = get_provider(provider_name)
+        panel = provider.fetch_panel(fetch_tickers, LOOKBACK_DAYS[market], end=args.asof)
+    except ImportError:
+        print(
+            f'error: the {provider_name!r} provider is not installed. '
+            f'Run: pip install "kuroshio[{provider_name}]"',
+            file=sys.stderr,
+        )
+        return 2
 
     if market == "us":
         from kuroshio.core.screening.us import screen

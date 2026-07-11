@@ -1,6 +1,6 @@
 """Unit test for the constructor-injected portfolio_state_provider duck type
 added while componentizing graph/trading_graph.py (replaces the excluded
-Hermes-specific provider). Exercises _load_portfolio_snapshot /
+private broker integration). Exercises _load_portfolio_snapshot /
 _empty_portfolio_snapshot directly, bypassing __init__ (which needs LLM
 provider config) since these two methods only touch self.market_region and
 self.portfolio_state_provider.
