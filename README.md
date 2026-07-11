@@ -16,8 +16,15 @@ Kuroshio is an open-source **quantamental portfolio engine**:
 
 ```bash
 pip install -e ".[yfinance,dev]"
-kuroshio screen --market us --top 20
+
+# rank breakout candidates (zero API keys — yfinance default)
+kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,NFLX
+
+# check a policy file
 kuroshio ips-validate examples/ips-balanced.md
+
+# proposal cards: your holdings vs challengers, governed by your IPS
+kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
 
 ## Architecture
