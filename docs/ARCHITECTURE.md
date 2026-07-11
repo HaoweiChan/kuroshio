@@ -149,24 +149,16 @@ Pure function. v1 logic:
 5. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
 
-## `agents/facets`
+## `agents/engine` — facet cache
 
-Facet TTL cache — the cost-engineering core. LLM research reports cached per
-(ticker, facet, date) so a daily portfolio run re-generates only stale facets.
-
-```
-facets/<ticker>/<facet>-<date>.md      # body = report; YAML frontmatter:
-# generated_at, expires_at, source_events: []
-```
-
-`FacetStore(root: Path)`:
-- `get(ticker, facet, asof: str) -> str | None` — freshest non-expired report at `asof`
-- `put(ticker, facet, content, asof, ttl_days) -> Path`
-- `invalidate(ticker, facet | None)` — event-driven force refresh (earnings, TW monthly revenue)
-
-TTL policy table (module constant): technical/chips/sentiment/news = 1 day; fundamentals = 7 days.
-The TradingAgents engine adapter (seeding `create_initial_state` report fields from cache)
-lands with the vendored agents engine — `FacetStore` is deliberately engine-agnostic.
+Facet TTL cache — the cost-engineering core. LLM analyst reports are cached per
+(ticker, facet) so a daily portfolio run regenerates only stale facets: market/chip/
+sentiment/news refresh daily, fundamentals on a TTL (default 7 days). Lives in
+`agents/engine/graph/facet_cache.py` (`plan_facets` → stale analyst list + seed
+reports; `write_back` persists regenerated ones), production-validated, and wired
+into `TradingAgentsGraph.propagate(seed_reports=...)` →
+`create_initial_state`. One cache implementation, deliberately — an earlier
+standalone `FacetStore` was deleted rather than kept as a second store.
 
 ## `providers`
 
