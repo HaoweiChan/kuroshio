@@ -1,11 +1,11 @@
-"""kuroshio CLI — screen | propose | ips-validate | research.
+"""kuroshio CLI — screen | backtest | propose | ips-validate | research.
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
-touches the network. Network calls happen only in the ``screen`` and
-``research`` commands; ``research`` additionally requires the optional
-``agents`` extra (LLM engine) and exits 2 with an install hint if it's
-missing.
+touches the network. Network calls happen only in the ``screen``,
+``backtest``, and ``research`` commands; ``research`` additionally requires
+the optional ``agents`` extra (LLM engine) and exits 2 with an install hint
+if it's missing.
 """
 
 from __future__ import annotations
@@ -148,6 +148,68 @@ def cmd_screen(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- backtest ------------------------------------------------------------
+
+
+def cmd_backtest(args: argparse.Namespace) -> int:
+    import yaml
+
+    from kuroshio.core.backtest import walkforward
+    from kuroshio.providers import get_provider
+
+    market = args.market
+    provider_name = args.provider or DEFAULT_PROVIDER[market]
+    tickers = _parse_tickers(args.tickers, args.tickers_file)
+    if not tickers:
+        print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
+        return 2
+
+    sector_map = None
+    if args.sector_map:
+        sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
+
+    fetch_tickers = list(tickers)
+    if market == "us":
+        extra = {"SPY"} | (set(sector_map.values()) if sector_map else set())
+        fetch_tickers += [t for t in extra if t not in fetch_tickers]
+
+    # indicator warmup + horizon headroom; TW's shorter MA60 needs less than US's MA200.
+    lookback_days = args.weeks * 7 + (420 if market == "us" else 200)
+
+    try:
+        provider = get_provider(provider_name)
+        panel = provider.fetch_panel(fetch_tickers, lookback_days)
+    except ImportError:
+        print(
+            f'error: the {provider_name!r} provider is not installed. '
+            f'Run: pip install "kuroshio[{provider_name}]"',
+            file=sys.stderr,
+        )
+        return 2
+
+    if market == "us":
+        from kuroshio.core.screening.us import screen
+
+        result = walkforward(
+            panel, screen, horizon=args.horizon, top_k=args.top,
+            benchmark="SPY", min_history=210, sector_map=sector_map,
+        )
+    else:
+        from kuroshio.core.screening.tw import screen
+
+        result = walkforward(
+            panel, screen, horizon=args.horizon, top_k=args.top,
+            benchmark=None, min_history=65,
+        )
+
+    print(result.to_markdown())
+    print(
+        "\ncaveat: the supplied tickers ARE the universe — passing only today's "
+        "survivors introduces survivorship bias; point-in-time membership is on you."
+    )
+    return 0
+
+
 # --- propose -------------------------------------------------------------
 
 
@@ -272,6 +334,18 @@ def main(argv: list[str] | None = None) -> int:
     p_screen.add_argument("--asof", help="YYYY-MM-DD, default: latest session")
     p_screen.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
     p_screen.set_defaults(func=cmd_screen)
+
+    p_backtest = sub.add_parser("backtest", help="walk-forward check: does final_score predict forward returns")
+    p_backtest.add_argument("--market", choices=["us", "tw"], required=True)
+    p_backtest.add_argument("--provider")
+    bt_tickers_group = p_backtest.add_mutually_exclusive_group(required=True)
+    bt_tickers_group.add_argument("--tickers", help="comma-separated ticker list")
+    bt_tickers_group.add_argument("--tickers-file", help="newline-separated file, '#' comments allowed")
+    p_backtest.add_argument("--weeks", type=int, default=52)
+    p_backtest.add_argument("--horizon", type=int, default=20)
+    p_backtest.add_argument("--top", type=int, default=10)
+    p_backtest.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_backtest.set_defaults(func=cmd_backtest)
 
     p_propose = sub.add_parser("propose", help="propose portfolio swaps against an IPS")
     p_propose.add_argument("--ips", required=True)
