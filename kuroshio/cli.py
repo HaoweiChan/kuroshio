@@ -64,8 +64,10 @@ def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], d
 # --- screen ------------------------------------------------------------------
 
 
-def _print_screen_table(market: str, candidates: list[Candidate]) -> None:
-    asof = candidates[0].date if candidates else "n/a"
+def _print_screen_table(market: str, candidates: list[Candidate], asof_fallback: str = "n/a") -> None:
+    # 0 candidates is a normal outcome (strict Stage-1 gates); show which session
+    # was screened so it doesn't read as a fetch failure.
+    asof = candidates[0].date if candidates else asof_fallback
     print(f"market={market} asof={asof} candidates={len(candidates)}")
     if market == "tw" and candidates and candidates[0].flags.get("degraded"):
         print("notice: institutional data unavailable — institution factor dropped, momentum reweighted")
@@ -141,7 +143,8 @@ def cmd_screen(args: argparse.Namespace) -> int:
 
         candidates = screen(panel, asof=args.asof)
 
-    _print_screen_table(market, candidates[: args.top])
+    last_session = str(panel.close.index[-1]) if len(panel.close.index) else "n/a"
+    _print_screen_table(market, candidates[: args.top], asof_fallback=args.asof or last_session)
     return 0
 
 
