@@ -6,14 +6,18 @@ never enter this repo). This file tracks the engine's build state only.
 ## Phase 2 — engine repo (current)
 
 - [x] Repo bootstrap: Apache 2.0 + NOTICE (TradingAgents attribution), package skeleton, shared types
-- [ ] `providers/` — base ABC + yfinance (default, zero-key) + finmind (TW)
-- [ ] `core/screening/` — TW momentum-breakout + US leadership profiles (ported from production)
-- [ ] `core/ips/` — schema v1, parser, validate, three example presets
-- [ ] `core/allocator/` — challenger-vs-incumbent proposal engine
-- [ ] `agents/facets/` — facet TTL cache (engine-agnostic store)
-- [ ] `cli.py` — screen / propose / ips-validate
-- [ ] `agents/` — TradingAgents engine componentization (fresh copy, personal traces stripped,
-      portfolio-state provider injected; ~10K LOC, langgraph as optional extra)
+- [x] `providers/` — base ABC + yfinance (default, zero-key) + finmind (TW)
+- [x] `core/screening/` — TW momentum-breakout + US leadership profiles (ported from production)
+- [x] `core/ips/` — schema v1, parser, validate, three example presets
+- [x] `core/allocator/` — challenger-vs-incumbent proposal engine
+- [x] `agents/facets/` — facet TTL cache (engine-agnostic store)
+- [x] `cli.py` — screen / propose / ips-validate (verified live against yfinance)
+- [x] `agents/engine/` — TradingAgents componentization (fresh copy, personal traces stripped,
+      portfolio-state provider injected, `agents` optional extra)
+- [ ] Wire facets ↔ engine: replace engine's own facet_cache JSON store with `agents/facets`
+      FacetStore, or document why both exist (currently two cache implementations)
+- [ ] `kuroshio research TICKER` CLI subcommand driving TradingAgentsGraph
+- [ ] examples/quickstart.md + docker-compose (self-host acceptance: clean machine, one command)
 - [ ] README with real architecture diagram + Phase-1 run data (pre-launch)
 
 ## Later phases (not in this repo yet)

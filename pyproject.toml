@@ -14,6 +14,23 @@ dependencies = [
 yfinance = ["yfinance>=0.2.40"]
 finmind = ["requests>=2.31"]
 dev = ["pytest>=8.0"]
+# kuroshio.agents.engine — componentized TradingAgents LLM pipeline.
+# Data-vendor deps (yfinance, finmind) are separate extras; combine as needed,
+# e.g. pip install "kuroshio[agents,yfinance]".
+agents = [
+    "langchain-core>=0.3.81",
+    "langchain-anthropic>=0.3.15",
+    "langchain-google-genai>=4.0.0",
+    "langchain-openai>=0.3.23",
+    "langgraph>=0.4.8",
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    "pydantic>=2.0",
+    "requests>=2.32.4",
+    "stockstats>=0.6.5",
+    "parsel>=1.10.0",
+    "python-dateutil>=2.8",
+    "typing-extensions>=4.14.0",
+]
 
 [project.scripts]
 kuroshio = "kuroshio.cli:main"

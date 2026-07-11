@@ -1,0 +1,22 @@
+# Kuroshio Phase 1 F2 — zh-TW term glossary for presentation-layer output.
+#
+# Rendered into a prompt-tail directive by agents/utils/i18n.py::lang_directive()
+# so every analyst/trader/manager translates these terms the same way, instead
+# of each agent picking its own rendering. Extend as needed; keep entries to
+# uncontroversial 1:1 (or 1:few) mappings.
+overweight: 加碼/看多
+underweight: 減碼/看空
+buy: 買進
+sell: 賣出
+hold: 持有
+invalidation: 論述失效點
+stop: 停損
+stop-loss: 停損點
+target price: 目標價
+entry: 進場價
+position: 部位
+risk/reward: 風險報酬比
+time horizon: 持有期間
+executive summary: 執行摘要
+investment thesis: 投資論述
+rating: 評等
