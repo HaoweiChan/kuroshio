@@ -17,6 +17,7 @@ never enter this repo). This file tracks the engine's build state only.
       portfolio-state provider injected, `agents` optional extra)
 - [x] `kuroshio research TICKER` CLI subcommand driving TradingAgentsGraph
 - [x] examples/quickstart.md
+- [x] `core/backtest` — walk-forward harness + `kuroshio backtest` (survivorship caveat documented)
 - [ ] docker-compose (self-host acceptance: clean machine, one command — lands with server/)
 
 ## Pre-launch checklist (repo public = launch)
@@ -30,7 +31,6 @@ never enter this repo). This file tracks the engine's build state only.
 ## Later phases (not in this repo yet)
 
 - server/ + client/ + docker-compose (hosted + self-host one-click)
-- backtest framework
 - integrations/discord (proposal card → webhook)
 
 ## Non-goals (permanent)
