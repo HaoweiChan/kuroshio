@@ -28,10 +28,11 @@ never enter this repo). This file tracks the engine's build state only.
 - [ ] Register kuroshio.io; claim PyPI/npm `kuroshio` (0.0.1 placeholder)
 - [ ] Two weeks of the maintainer's own portfolio running on this engine
 
+- [x] `integrations/discord` — proposal cards → webhook (propose `--discord-webhook`)
+
 ## Later phases (not in this repo yet)
 
 - server/ + client/ + docker-compose (hosted + self-host one-click)
-- integrations/discord (proposal card → webhook)
 
 ## Non-goals (permanent)
 
