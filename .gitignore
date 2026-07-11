@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+dist/
+.pytest_cache/
+.DS_Store
+# runtime data — never commit user data or cached reports
+data/
+facets/
+*.env
