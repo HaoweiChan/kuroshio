@@ -13,6 +13,8 @@ from kuroshio.agents.engine.payloads.schema import (
 from kuroshio.agents.engine.portfolio.state import PortfolioSnapshot
 
 
+# Conservative built-in default; override via engine config `tw_margin_nav_cap`
+# (env KUROSHIO_TW_MARGIN_NAV_CAP) — see trading_graph.py's nav_cap resolution.
 TW_INITIAL_MARGIN_NAV_CAP = 0.075
 STANDARD_STOCK_SSF_MULTIPLIER = 2000
 MINI_STOCK_SSF_MULTIPLIER = 100

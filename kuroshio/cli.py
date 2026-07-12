@@ -16,14 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from kuroshio.core.screening import PROFILES, get_profile
 from kuroshio.types import Candidate, Holding
-
-# ponytail: lookback derived from each profile's longest MA window + margin
-# (US MA200 needs ~200 trading sessions -> 320 calendar days; TW MA60 needs
-# ~60 trading sessions -> 120 calendar days). Hardcoded, not computed from
-# the profile modules, to keep the CLI decoupled from their internals.
-LOOKBACK_DAYS = {"us": 320, "tw": 120}
-DEFAULT_PROVIDER = {"us": "yfinance", "tw": "finmind"}
 
 
 def _parse_tickers(tickers: str | None, tickers_file: str | None) -> list[str]:
@@ -70,7 +64,7 @@ def _print_screen_table(market: str, candidates: list[Candidate], asof_fallback:
     # was screened so it doesn't read as a fetch failure.
     asof = candidates[0].date if candidates else asof_fallback
     print(f"market={market} asof={asof} candidates={len(candidates)}")
-    if market == "tw" and candidates and candidates[0].flags.get("degraded"):
+    if any(c.flags.get("degraded") for c in candidates):
         print("notice: institutional data unavailable — institution factor dropped, momentum reweighted")
     if not candidates:
         return
@@ -109,7 +103,8 @@ def cmd_screen(args: argparse.Namespace) -> int:
     from kuroshio.providers import get_provider
 
     market = args.market
-    provider_name = args.provider or DEFAULT_PROVIDER[market]
+    profile = get_profile(market)
+    provider_name = args.provider or profile.default_provider
     tickers = _parse_tickers(args.tickers, args.tickers_file)
     if not tickers:
         print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
@@ -120,13 +115,14 @@ def cmd_screen(args: argparse.Namespace) -> int:
         sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
 
     fetch_tickers = list(tickers)
-    if market == "us":
-        extra = {"SPY"} | (set(sector_map.values()) if sector_map else set())
-        fetch_tickers += [t for t in extra if t not in fetch_tickers]
+    extra = {profile.benchmark} if profile.benchmark else set()
+    if profile.accepts_sector_map and sector_map:
+        extra |= set(sector_map.values())
+    fetch_tickers += [t for t in extra if t not in fetch_tickers]
 
     try:
         provider = get_provider(provider_name)
-        panel = provider.fetch_panel(fetch_tickers, LOOKBACK_DAYS[market], end=args.asof)
+        panel = provider.fetch_panel(fetch_tickers, profile.lookback_days, end=args.asof)
     except ImportError:
         print(
             f'error: the {provider_name!r} provider is not installed. '
@@ -135,14 +131,8 @@ def cmd_screen(args: argparse.Namespace) -> int:
         )
         return 2
 
-    if market == "us":
-        from kuroshio.core.screening.us import screen
-
-        candidates = screen(panel, asof=args.asof, sector_map=sector_map)
-    else:
-        from kuroshio.core.screening.tw import screen
-
-        candidates = screen(panel, asof=args.asof)
+    screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
+    candidates = profile.screen(panel, asof=args.asof, **screen_kwargs)
 
     last_session = str(panel.close.index[-1]) if len(panel.close.index) else "n/a"
     _print_screen_table(market, candidates[: args.top], asof_fallback=args.asof or last_session)
@@ -159,7 +149,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     from kuroshio.providers import get_provider
 
     market = args.market
-    provider_name = args.provider or DEFAULT_PROVIDER[market]
+    profile = get_profile(market)
+    provider_name = args.provider or profile.default_provider
     tickers = _parse_tickers(args.tickers, args.tickers_file)
     if not tickers:
         print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
@@ -170,12 +161,13 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
 
     fetch_tickers = list(tickers)
-    if market == "us":
-        extra = {"SPY"} | (set(sector_map.values()) if sector_map else set())
-        fetch_tickers += [t for t in extra if t not in fetch_tickers]
+    extra = {profile.benchmark} if profile.benchmark else set()
+    if profile.accepts_sector_map and sector_map:
+        extra |= set(sector_map.values())
+    fetch_tickers += [t for t in extra if t not in fetch_tickers]
 
-    # indicator warmup + horizon headroom; TW's shorter MA60 needs less than US's MA200.
-    lookback_days = args.weeks * 7 + (420 if market == "us" else 200)
+    # indicator warmup + horizon headroom; see MarketProfile.warmup_days for the derivation.
+    lookback_days = args.weeks * 7 + profile.warmup_days
 
     try:
         provider = get_provider(provider_name)
@@ -188,20 +180,11 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         )
         return 2
 
-    if market == "us":
-        from kuroshio.core.screening.us import screen
-
-        result = walkforward(
-            panel, screen, horizon=args.horizon, top_k=args.top,
-            benchmark="SPY", min_history=210, sector_map=sector_map,
-        )
-    else:
-        from kuroshio.core.screening.tw import screen
-
-        result = walkforward(
-            panel, screen, horizon=args.horizon, top_k=args.top,
-            benchmark=None, min_history=65,
-        )
+    screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
+    result = walkforward(
+        panel, profile.screen, horizon=args.horizon, top_k=args.top,
+        benchmark=profile.benchmark, min_history=profile.min_history, **screen_kwargs,
+    )
 
     print(result.to_markdown())
     print(
@@ -333,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_screen = sub.add_parser("screen", help="rank breakout candidates in a market")
-    p_screen.add_argument("--market", choices=["us", "tw"], required=True)
+    p_screen.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_screen.add_argument("--provider")
     tickers_group = p_screen.add_mutually_exclusive_group(required=True)
     tickers_group.add_argument("--tickers", help="comma-separated ticker list")
@@ -344,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     p_screen.set_defaults(func=cmd_screen)
 
     p_backtest = sub.add_parser("backtest", help="walk-forward check: does final_score predict forward returns")
-    p_backtest.add_argument("--market", choices=["us", "tw"], required=True)
+    p_backtest.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_backtest.add_argument("--provider")
     bt_tickers_group = p_backtest.add_mutually_exclusive_group(required=True)
     bt_tickers_group.add_argument("--tickers", help="comma-separated ticker list")

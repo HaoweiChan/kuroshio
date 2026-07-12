@@ -5,7 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from kuroshio.core.screening import pctrank, tw, us
+from kuroshio.core.screening import get_profile, pctrank, tw, us
+from kuroshio.providers import _REGISTRY as _PROVIDER_REGISTRY
 from kuroshio.types import Panel
 
 N = 210  # long enough for the US profile's MA200; plenty of slack for TW's MA60
@@ -199,3 +200,23 @@ def test_us_screen_asof_missing_from_volume_index_no_crash():
 
     candidates = us.screen(panel, sector_map={"AMD": "SMH"})
     assert isinstance(candidates, list)
+
+
+# --- market registry -----------------------------------------------------------
+
+
+@pytest.mark.parametrize("market", ["us", "tw"])
+def test_get_profile_returns_working_profile(market):
+    profile = get_profile(market)
+    assert profile.name == market
+    assert callable(profile.screen)
+    # Resolvable at the provider registry level (no ImportError from a missing
+    # optional SDK — this only checks the name is known, not that it imports).
+    assert profile.default_provider in _PROVIDER_REGISTRY
+
+
+def test_get_profile_unknown_market_raises():
+    with pytest.raises(ValueError) as exc:
+        get_profile("jp")
+    message = str(exc.value)
+    assert "us" in message and "tw" in message

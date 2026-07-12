@@ -26,11 +26,13 @@ kuroshio/
 ├── core/
 │   ├── screening/        # Stage-1 gates + cross-sectional pctrank scoring, per-market profiles
 │   ├── ips/              # IPS schema, parser, presets
-│   └── allocator/        # challenger-vs-incumbent swap proposals
+│   ├── allocator/        # challenger-vs-incumbent swap proposals
+│   └── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
 ├── agents/
-│   └── facets/           # facet TTL cache (LLM research reports, per ticker × facet × date)
+│   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
 ├── providers/            # data-source plugins: base ABC, yfinance (default), finmind (TW)
-└── cli.py                # `kuroshio screen|propose|ips-validate`
+├── integrations/         # edge adapters: discord webhook notifier
+└── cli.py                # `kuroshio screen|backtest|propose|ips-validate|research`
 ```
 
 ## Shared types (`kuroshio/types.py`)
@@ -93,6 +95,14 @@ Two market profiles ported from production code, sharing scoring utilities:
 Entry point per profile: `screen(panel: Panel, asof: str | None = None, **profile_kwargs) -> list[Candidate]`.
 Pure — no network, no DB. The US sector map is passed in as `sector_map: dict[str, str] | None`
 (ticker → sector ETF); sector factor drops out (renormalize) when absent.
+
+Markets are registered, not hardcoded: `MarketProfile` (a frozen dataclass — screen fn,
+default provider, lookback/warmup windows, benchmark, whether the profile accepts a sector
+map) and the `PROFILES = {"us": ..., "tw": ...}` dict live in `core/screening/__init__.py`;
+`get_profile(name)` resolves one or raises `ValueError` listing the known markets. The CLI
+reads everything (provider default, fetch lookback, backtest warmup/min-history, benchmark,
+screen kwargs) off the profile instead of branching on `market == "us"`. Adding a market is
+one registry entry — see `docs/adding-a-market.md`.
 
 ## `core/ips`
 
@@ -180,7 +190,8 @@ stay optional.
 ## CLI (`kuroshio/cli.py`)
 
 argparse, three subcommands (v1):
-- `kuroshio screen --market us|tw [--provider yfinance] [--top 20]` — regime-free candidate table
+- `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
+  `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
 - `kuroshio propose --ips path.md --holdings holdings.yml [--market us]` — proposal cards to stdout
 - `kuroshio ips-validate path.md`
 
