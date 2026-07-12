@@ -34,6 +34,13 @@ Full walkthrough (including the LLM research pipeline): [examples/quickstart.md]
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Maintenance & support
+
+Self-hosted engine, provided as-is — no SLA. Issues and PRs are triaged
+against the maintainer's roadmap on maintainer time, not on demand; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Security reports are the exception and
+always take priority; see [SECURITY.md](SECURITY.md).
+
 ## License
 
 Apache 2.0. Includes components derived from
