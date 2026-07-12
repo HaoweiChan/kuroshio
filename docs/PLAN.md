@@ -29,6 +29,9 @@ never enter this repo). This file tracks the engine's build state only.
 - [ ] Two weeks of the maintainer's own portfolio running on this engine
 
 - [x] `integrations/discord` — proposal cards → webhook (propose `--discord-webhook`)
+- [x] Genericization: MarketProfile registry (adding a market = one module + one entry,
+      docs/adding-a-market.md), CI (lint + 3.11–3.13 test matrix), ruff, py.typed,
+      CONTRIBUTING/SECURITY/maintenance boundary
 
 ## Later phases (not in this repo yet)
 

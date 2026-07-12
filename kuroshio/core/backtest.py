@@ -56,7 +56,9 @@ class BacktestResult:
         # collapsing to fewer than 5 bins on low-variance score data.
         pool["q"] = pd.qcut(pool["score"], 5, labels=False, duplicates="drop")
         by_q = pool.groupby("q")["fwd"].agg(["mean", "count"])
-        return {f"Q{int(q) + 1}": {"mean": float(r["mean"]), "n": int(r["count"])} for q, r in by_q.iterrows()}
+        return {
+            f"Q{int(q) + 1}": {"mean": float(r["mean"]), "n": int(r["count"])} for q, r in by_q.iterrows()
+        }
 
     def to_markdown(self) -> str:
         s = self.summary()
@@ -64,9 +66,13 @@ class BacktestResult:
         if s["n_rebalances"] == 0:
             lines.append("No rebalance dates produced candidates.")
             return "\n".join(lines)
-        lines.append(f"rebalances={s['n_rebalances']}  mean top-{self.top_k} fwd={s['mean_topk_fwd']:+.2%}")
+        lines.append(
+            f"rebalances={s['n_rebalances']}  mean top-{self.top_k} fwd={s['mean_topk_fwd']:+.2%}"
+        )
         if "mean_excess_vs_bench" in s:
-            lines.append(f"excess vs benchmark={s['mean_excess_vs_bench']:+.2%}  beat rate={s['beat_rate']:.0%}")
+            lines.append(
+                f"excess vs benchmark={s['mean_excess_vs_bench']:+.2%}  beat rate={s['beat_rate']:.0%}"
+            )
         if "mean_ic" in s:
             lines.append(f"mean rank-IC={s['mean_ic']:+.3f}")
         if s["quintiles"]:
@@ -122,12 +128,18 @@ def walkforward(
 
         ic = None
         if len(scored) > 2:
-            pair = pd.DataFrame({"score": [c.final_score for c, _ in scored], "fwd": [fwd for _, fwd in scored]})
+            pair = pd.DataFrame(
+                {"score": [c.final_score for c, _ in scored], "fwd": [fwd for _, fwd in scored]}
+            )
             ic = float(pair["score"].rank().corr(pair["fwd"].rank()))
 
-        records.append(
-            {"date": asof, "n_candidates": len(candidates), "topk_fwd": topk_fwd, "bench_fwd": bench_fwd, "ic": ic}
-        )
+        records.append({
+            "date": asof,
+            "n_candidates": len(candidates),
+            "topk_fwd": topk_fwd,
+            "bench_fwd": bench_fwd,
+            "ic": ic,
+        })
         pooled.extend((c.final_score, fwd) for c, fwd in scored)
 
     return BacktestResult(records=records, horizon=horizon, top_k=top_k, pooled=pooled)

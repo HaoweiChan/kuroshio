@@ -36,7 +36,13 @@ def test_prefers_standard_ssf_when_margin_cap_fits():
         rating="Buy",
         latest_price=1000,
         futures_candidates=[
-            {"symbol": "CDF", "underlying": "2330", "multiplier": 2000, "initial_margin_rate": 3.0, "margin_group": "Group1"},
+            {
+                "symbol": "CDF",
+                "underlying": "2330",
+                "multiplier": 2000,
+                "initial_margin_rate": 3.0,
+                "margin_group": "Group1",
+            },
             {"symbol": "QFF", "underlying": "2330", "multiplier": 100, "initial_margin": 5000},
         ],
         portfolio=_snapshot(nav=1_000_000),
@@ -90,7 +96,9 @@ def test_blocks_futures_when_nav_is_stale():
         ticker="2330.TW",
         rating="Buy",
         latest_price=1000,
-        futures_candidates=[{"symbol": "CDF", "underlying": "2330", "multiplier": 2000, "initial_margin": 50_000}],
+        futures_candidates=[
+            {"symbol": "CDF", "underlying": "2330", "multiplier": 2000, "initial_margin": 50_000}
+        ],
         portfolio=_snapshot(stale=True),
         analyst_signals={"technical_momentum": True, "chip_momentum": True},
     )
@@ -105,7 +113,9 @@ def test_aggregate_existing_margin_cap_is_enforced():
         ticker="2330.TW",
         rating="Buy",
         latest_price=1000,
-        futures_candidates=[{"symbol": "QFF", "underlying": "2330", "multiplier": 100, "initial_margin": 20_000}],
+        futures_candidates=[
+            {"symbol": "QFF", "underlying": "2330", "multiplier": 100, "initial_margin": 20_000}
+        ],
         portfolio=_snapshot(nav=1_000_000, existing_margin=70_000),
         analyst_signals={"technical_momentum": True, "chip_momentum": True},
     )

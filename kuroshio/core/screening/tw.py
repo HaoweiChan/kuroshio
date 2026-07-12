@@ -9,7 +9,7 @@ queries against ``stock_daily_ohlc`` / ``stock_institutional_daily``.
 from __future__ import annotations
 
 import re
-from typing import Sequence
+from collections.abc import Sequence
 
 from ...types import Candidate, Panel
 from .score import pctrank, weighted_score

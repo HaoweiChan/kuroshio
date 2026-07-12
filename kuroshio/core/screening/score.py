@@ -7,7 +7,7 @@ scores are comparable in shape (not magnitude) across markets.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def pctrank(values: Sequence[float]) -> list[float]:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from .schema import VERDICT_ORDER, Caps, CapExemption, Friction, IPS, Notify, Turnover, Universe
+from .schema import IPS, VERDICT_ORDER, CapExemption, Caps, Friction, Notify, Turnover, Universe
 
 _FRONTMATTER_RE = re.compile(r"\A---[ \t]*\n(.*?\n)---[ \t]*\n?", re.DOTALL)
 

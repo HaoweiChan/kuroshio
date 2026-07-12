@@ -121,7 +121,11 @@ def propose(
                 ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
                 score_gap=gap,
                 friction_pct=friction_pct,
-                details={"challenger_score": c.final_score, "incumbent_score": incumbent.score, "verdict": verdict},
+                details={
+                    "challenger_score": c.final_score,
+                    "incumbent_score": incumbent.score,
+                    "verdict": verdict,
+                },
             ))
 
     # 4. order + weekly turnover cap.

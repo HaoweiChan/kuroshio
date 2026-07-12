@@ -91,7 +91,7 @@ def _print_screen_table(market: str, candidates: list[Candidate], asof_fallback:
         rows.append(row)
 
     widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
-    line = lambda cells: "  ".join(cell.ljust(w) for cell, w in zip(cells, widths))
+    line = lambda cells: "  ".join(cell.ljust(w) for cell, w in zip(cells, widths))  # noqa: E731
     print(line(headers))
     for row in rows:
         print(line(row))
@@ -301,7 +301,8 @@ def cmd_research(args: argparse.Namespace) -> int:
             final_state=final_state,
         )
 
-    report_path = graph.save_reports(final_state, args.ticker, save_path=Path(args.out) / args.ticker / trade_date)
+    save_path = Path(args.out) / args.ticker / trade_date
+    report_path = graph.save_reports(final_state, args.ticker, save_path=save_path)
     print(f"report: {report_path}")
     if decision:
         print(f"verdict: {decision}")
@@ -326,7 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     p_screen.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
     p_screen.set_defaults(func=cmd_screen)
 
-    p_backtest = sub.add_parser("backtest", help="walk-forward check: does final_score predict forward returns")
+    p_backtest = sub.add_parser(
+        "backtest", help="walk-forward check: does final_score predict forward returns"
+    )
     p_backtest.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_backtest.add_argument("--provider")
     bt_tickers_group = p_backtest.add_mutually_exclusive_group(required=True)
@@ -360,8 +363,12 @@ def main(argv: list[str] | None = None) -> int:
     p_research.add_argument("--market", choices=["us", "tw"], default="us")
     p_research.add_argument("--date", help="YYYY-MM-DD, default: today")
     p_research.add_argument("--lang", choices=["en", "zh-TW"], default="en")
-    p_research.add_argument("--analysts", help="comma-separated analyst keys, default: the market's full set")
-    p_research.add_argument("--no-cache", action="store_true", help="bypass the facet cache; run every analyst")
+    p_research.add_argument(
+        "--analysts", help="comma-separated analyst keys, default: the market's full set"
+    )
+    p_research.add_argument(
+        "--no-cache", action="store_true", help="bypass the facet cache; run every analyst"
+    )
     p_research.add_argument("--out", default="./reports", help="report output directory (default: ./reports)")
     p_research.set_defaults(func=cmd_research)
 

@@ -6,6 +6,7 @@
 git clone <this repo>
 cd kuroshio
 uv venv && uv pip install -e ".[yfinance,agents,dev]"   # or: pip install -e ".[yfinance,agents,dev]"
+.venv/bin/ruff check .
 .venv/bin/pytest tests/ -q
 ```
 

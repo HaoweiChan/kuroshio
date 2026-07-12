@@ -61,10 +61,28 @@ def test_finmind_shape_panel_builds_close_volume_and_institutional_net():
     }
     institutional_by_ticker = {
         "2330": [
-            {"date": "2024-01-02", "stock_id": "2330", "name": "Foreign_Investor", "buy": 5000000, "sell": 3000000},
-            {"date": "2024-01-02", "stock_id": "2330", "name": "Investment_Trust", "buy": 500000, "sell": 200000},
+            {
+                "date": "2024-01-02",
+                "stock_id": "2330",
+                "name": "Foreign_Investor",
+                "buy": 5000000,
+                "sell": 3000000,
+            },
+            {
+                "date": "2024-01-02",
+                "stock_id": "2330",
+                "name": "Investment_Trust",
+                "buy": 500000,
+                "sell": 200000,
+            },
             {"date": "2024-01-02", "stock_id": "2330", "name": "Dealer_self", "buy": 100000, "sell": 900000},
-            {"date": "2024-01-03", "stock_id": "2330", "name": "Foreign_Investor", "buy": 1000000, "sell": 4000000},
+            {
+                "date": "2024-01-03",
+                "stock_id": "2330",
+                "name": "Foreign_Investor",
+                "buy": 1000000,
+                "sell": 4000000,
+            },
         ],
         "2454": [],
     }

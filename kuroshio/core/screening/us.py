@@ -96,12 +96,12 @@ def screen(
 
     pool: list[dict] = []
     for sym in stocks:
-        c, s, m, l = row_close.get(sym), ma_s.get(sym), ma_m.get(sym), ma_l.get(sym)
+        c, s, m, lo = row_close.get(sym), ma_s.get(sym), ma_m.get(sym), ma_l.get(sym)
         hb, av, v, r5 = high_hb.get(sym), avg_vol.get(sym), row_vol.get(sym), ret5.get(sym)
-        if any(pd.isna(x) for x in (c, s, m, l, hb, av, v, r5)):
+        if any(pd.isna(x) for x in (c, s, m, lo, hb, av, v, r5)):
             continue
         # --- Stage 1: must pass ALL ---
-        if not (c > s > m > l):             # stacked-MA uptrend
+        if not (c > s > m > lo):            # stacked-MA uptrend
             continue
         if c < NEAR_HIGH * hb:              # within (1-NEAR_HIGH) of the 60d high
             continue
@@ -113,7 +113,7 @@ def screen(
         raw = {
             "ticker": sym,
             "close": c,
-            "mom_raw": (c / m - 1.0) + (c / l - 1.0),
+            "mom_raw": (c / m - 1.0) + (c / lo - 1.0),
             "vol_raw": v / av,
             "is_60d_high": bool(c >= hb),
         }

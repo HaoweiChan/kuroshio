@@ -52,7 +52,9 @@ def _institutional_frame(records_by_ticker: dict[str, list[dict]]) -> pd.DataFra
     return pd.DataFrame(cols).sort_index()
 
 
-def _shape_panel(price_by_ticker: dict[str, list[dict]], institutional_by_ticker: dict[str, list[dict]]) -> Panel:
+def _shape_panel(
+    price_by_ticker: dict[str, list[dict]], institutional_by_ticker: dict[str, list[dict]]
+) -> Panel:
     close, volume = _price_frames(price_by_ticker)
     institutional = _institutional_frame(institutional_by_ticker)
     return Panel(close=close, volume=volume, institutional=institutional)

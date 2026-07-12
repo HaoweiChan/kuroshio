@@ -58,7 +58,8 @@ class ProposalCard:
     details: dict = field(default_factory=dict)
 
     def to_markdown(self) -> str:
-        head = {"SWAP": f"SWAP {self.sell} → {self.buy}", "TRIM": f"TRIM {self.sell}", "ALERT": "ALERT"}[self.action]
+        heads = {"SWAP": f"SWAP {self.sell} → {self.buy}", "TRIM": f"TRIM {self.sell}", "ALERT": "ALERT"}
+        head = heads[self.action]
         lines = [f"### {head}", "", self.reason]
         if self.score_gap is not None:
             lines.append(f"- score gap: {self.score_gap:+.3f}")

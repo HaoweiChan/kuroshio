@@ -25,7 +25,7 @@ FAKE_CONFIG = {
 class FakeGraph:
     """Stand-in for TradingAgentsGraph — records how it was constructed/called."""
 
-    instances: list["FakeGraph"] = []
+    instances: list[FakeGraph] = []
 
     def __init__(self, selected_analysts=None, config=None):
         self.selected_analysts = selected_analysts
@@ -35,7 +35,9 @@ class FakeGraph:
         FakeGraph.instances.append(self)
 
     def propagate(self, ticker, trade_date, seed_reports=None):
-        self.propagate_calls.append({"ticker": ticker, "trade_date": trade_date, "seed_reports": seed_reports})
+        self.propagate_calls.append(
+            {"ticker": ticker, "trade_date": trade_date, "seed_reports": seed_reports}
+        )
         return {"final_trade_decision": "stub"}, "Buy"
 
     def save_reports(self, final_state, ticker, save_path=None):

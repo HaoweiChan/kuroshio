@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 
 import pandas as pd
-import pytest
 
 from kuroshio.core.backtest import walkforward
 from kuroshio.core.screening import us
