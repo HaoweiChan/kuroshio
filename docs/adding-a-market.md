@@ -28,7 +28,17 @@ Add `kuroshio/core/screening/jp.py` with:
 
 ```python
 def screen(panel: Panel, asof: str | None = None, **options) -> list[Candidate]: ...
+def score_names(panel: Panel, tickers: Sequence[str], asof: str | None = None, **options) -> list[Candidate]: ...
 ```
+
+`score_names` (Fix 2, kuroshio<->hermes glue) is `screen`'s Stage-1 gate bypassed —
+same factor weights/pctrank/`weighted_score`, scored for exactly the requested
+`tickers` instead of the whole gate-passing universe. Used by the allocator's
+"weakest incumbent" ranking, which needs a score for held names even when they
+aren't a fresh breakout. The lazy, safe way to add it: factor `screen`'s body into
+a shared `_screen_or_score(panel, asof, gate: bool, tickers=None, **options)` and
+have both public functions call it (see `tw.py`/`us.py`) — don't fork a second
+scoring formula.
 
 Use `tw.py` as the template:
 
@@ -55,11 +65,13 @@ Use `tw.py` as the template:
 In `kuroshio/core/screening/__init__.py`, add one line to `PROFILES`:
 
 ```python
-"jp": MarketProfile("jp", jp.screen, "yfinance", lookback_days, warmup_days, min_history, benchmark),
+"jp": MarketProfile("jp", jp.screen, jp.score_names, "yfinance", lookback_days, warmup_days, min_history, benchmark),
 ```
 
 - `name` — registry key; also what `--market` accepts on the CLI.
 - `screen` — your module's `screen` function, referenced directly.
+- `score_names` — your module's `score_names` function (see §2) — the ungated
+  counterpart used for incumbent scoring.
 - `default_provider` — `kuroshio.providers` registry name used when `--provider` is omitted.
 - `lookback_days` — calendar days a single `screen` fetch needs: your longest MA
   window in trading sessions × ~7/5 (weekends) plus slack (TW's `MA_LONG=60` → `120`;

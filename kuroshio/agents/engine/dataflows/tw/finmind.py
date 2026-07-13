@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 from typing import Dict, Iterable, Optional
+from urllib.parse import urlsplit
 
 import pandas as pd
 import requests
 
 
 FINMIND_BASE_URL = os.getenv("FINMIND_BASE_URL", "https://api.finmindtrade.com/api/v4/data")
+TINBOKER_WIKI_URL = os.getenv("TINBOKER_WIKI_URL", "https://podcast-api.tinboker.com")
+_WIKI_NEWS_TOKEN_BUDGET = 1500
 
 
 def normalize_tw_symbol(symbol: str) -> str:
@@ -161,19 +164,70 @@ def get_margin_flow(symbol: str, start_date: str, end_date: str) -> str:
     return _format_df(df, f"FinMind margin/short flow {stock_id}")
 
 
+def _wiki_get(path: str, **params) -> Optional[dict]:
+    """GET a tinboker wiki endpoint. Returns None on a 404 (no coverage —
+    treated as "no news", not an error). Raises on other HTTP/network errors
+    so callers can degrade with a specific message instead of silently.
+    """
+    response = requests.get(f"{TINBOKER_WIKI_URL}{path}", params=params, timeout=15)
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()
+
+
+def _wiki_source_label(excerpt: dict) -> str:
+    host = urlsplit(excerpt.get("source_url") or "").netloc
+    return host or excerpt.get("page_kind", "unknown")
+
+
 def get_news(symbol: str, start_date: str, end_date: str) -> str:
-    return (
-        f"# Taiwan news context for {normalize_tw_symbol(symbol)}\n"
-        "FinMind does not provide a direct issuer-news feed in this adapter. "
-        "Use the market, chip, and fundamentals reports as Taiwan-local context."
-    )
+    code = normalize_tw_symbol(symbol)
+    title = f"# Taiwan news & sentiment for {code}"
+    try:
+        data = _wiki_get("/api/wiki/context", topic=code, tokens=_WIKI_NEWS_TOKEN_BUDGET)
+    except requests.RequestException as exc:
+        return f"{title}\nTinboker wiki lookup failed ({exc}); proceeding without TW news context."
+
+    excerpts = (data or {}).get("excerpts", [])
+    if not excerpts:
+        return f"{title}\nNo recent Taiwan news found for {code}."
+
+    in_window = [e for e in excerpts if start_date <= (e.get("date") or "") <= end_date]
+    lines = [title]
+    for excerpt in in_window or excerpts:
+        lines.append(
+            f"- [{excerpt.get('date', '?')}] ({_wiki_source_label(excerpt)}) "
+            f"{(excerpt.get('text') or '').strip()} ({excerpt.get('source_url', '')})"
+        )
+    return "\n".join(lines)
 
 
 def get_global_news(curr_date: str, lookback_days: int = 7) -> str:
-    return (
-        "# Taiwan macro context\n"
-        "TW pipeline macro news is supplied through TW market scans or external news adapters."
-    )
+    title = "# Taiwan / global market news"
+    try:
+        end = datetime.strptime(curr_date, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        end = datetime.now()
+    date_from = (end - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+    try:
+        data = _wiki_get("/api/wiki/news", limit=20, date_from=date_from)
+    except requests.RequestException as exc:
+        return f"{title}\nTinboker wiki news lookup failed ({exc}); proceeding without TW/global news."
+
+    articles = (data or {}).get("articles", [])
+    if not articles:
+        return f"{title}\nNo recent Taiwan/global news found."
+
+    lines = [title]
+    for article in articles:
+        tickers = ", ".join(article.get("tickers") or [])
+        lines.append(
+            f"- [{article.get('date', '?')}] {article.get('title', '')} "
+            f"— {article.get('source', '')} (tickers: {tickers}) {article.get('url', '')}"
+        )
+    return "\n".join(lines)
 
 
 def get_insider_transactions(symbol: str, start_date: str, end_date: str) -> str:

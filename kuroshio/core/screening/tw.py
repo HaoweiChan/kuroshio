@@ -57,15 +57,17 @@ def _mean(xs: Sequence[float]) -> float:
 
 
 def compute_stage1_metrics(
-    dates: Sequence[str], closes: Sequence[float], volumes: Sequence[float]
+    dates: Sequence[str], closes: Sequence[float], volumes: Sequence[float], gate: bool = True
 ) -> dict | None:
-    """Raw per-ticker metrics for the last day of ``dates`` + Stage-1 breakout filter.
+    """Raw per-ticker metrics for the last day of ``dates`` + (optionally) the
+    Stage-1 breakout filter.
 
     ``dates``/``closes``/``volumes`` are chronological (oldest→newest), ending on
     the target trading day. Returns a metrics dict when the ticker passes ALL
-    Stage-1 gates, else ``None`` (also ``None`` when there is not enough history).
-    Institutional concentration is scored separately by ``screen`` — it's a
-    factor, not a Stage-1 gate.
+    Stage-1 gates (or when ``gate=False`` — see :func:`score_names`), else
+    ``None`` (also ``None`` when there is not enough history). Institutional
+    concentration is scored separately by ``screen`` — it's a factor, not a
+    Stage-1 gate.
     """
     n = len(closes)
     if n < MIN_SESSIONS or n != len(dates) or n != len(volumes):
@@ -85,15 +87,17 @@ def compute_stage1_metrics(
     close_5_ago = closes[-(RET_LOOKBACK + 1)]
     ret_5d = (close / close_5_ago - 1.0) if close_5_ago else 0.0
 
-    # --- Stage 1: must pass ALL, else dropped ---
-    if not (close > ma20 and close > ma60):
-        return None
-    if close < high20:  # 20-day closing high (today included -> close is the window max)
-        return None
-    if mean20_vol_before <= 0 or today_volume <= VOL_MULT_MIN * mean20_vol_before:
-        return None
-    if ret_5d >= RET_MAX:  # overheated hard-filter
-        return None
+    # --- Stage 1: must pass ALL, else dropped (skipped when gate=False — Fix 2,
+    # kuroshio<->hermes glue: incumbent scoring must be continuous, not gated) ---
+    if gate:
+        if not (close > ma20 and close > ma60):
+            return None
+        if close < high20:  # 20-day closing high (today included -> close is the window max)
+            return None
+        if mean20_vol_before <= 0 or today_volume <= VOL_MULT_MIN * mean20_vol_before:
+            return None
+        if ret_5d >= RET_MAX:  # overheated hard-filter
+            return None
 
     mean20_vol = _mean(volumes[-VOL_BASELINE:])
     span60 = high60 - low60
@@ -119,9 +123,14 @@ def compute_stage1_metrics(
     }
 
 
-def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
-    """Stage-1 gate + cross-sectional score the TW universe as of ``asof``
-    (default: the last panel row). Pure — no network, no DB."""
+def _screen_or_score(
+    panel: Panel, asof: str | None, gate: bool, tickers: Sequence[str] | None = None
+) -> list[Candidate]:
+    """Shared pool-build + cross-sectional score, used by both ``screen`` (gate=True,
+    universe = all `passes_universe` panel columns) and ``score_names`` (gate=False,
+    universe = the explicit ``tickers``) — see Fix 2's module docstring in
+    :func:`score_names`. Identical scoring math either way: the only difference is
+    whether Stage-1 filters the pool before ranking."""
     close_df = panel.close
     if close_df.empty:
         return []
@@ -136,10 +145,13 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
     # frame (0 rows or 0 columns) -> no candidate gets an institution score.
     global_degraded = panel.institutional is None or panel.institutional.empty
 
+    if tickers is None:
+        universe = [t for t in close_df.columns if passes_universe(t)]
+    else:
+        universe = [t for t in tickers if t in close_df.columns]
+
     pool: list[dict] = []
-    for ticker in close_df.columns:
-        if not passes_universe(ticker):
-            continue
+    for ticker in universe:
         closes = close_df[ticker].reindex(window_dates)
         if closes.isna().any():  # any hole in the window -> not enough clean history
             continue
@@ -148,7 +160,7 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
         volumes = panel.volume[ticker].reindex(window_dates)
         if volumes.isna().any():  # any hole in the volume window -> baseline can't be trusted
             continue
-        metrics = compute_stage1_metrics(list(window_dates), closes.tolist(), volumes.tolist())
+        metrics = compute_stage1_metrics(list(window_dates), closes.tolist(), volumes.tolist(), gate=gate)
         if metrics is None:
             continue
 
@@ -215,3 +227,24 @@ def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
     for rank, c in enumerate(candidates, start=1):
         c.rank = rank
     return candidates
+
+
+def screen(panel: Panel, asof: str | None = None) -> list[Candidate]:
+    """Stage-1 gate + cross-sectional score the TW universe as of ``asof``
+    (default: the last panel row). Pure — no network, no DB."""
+    return _screen_or_score(panel, asof, gate=True)
+
+
+def score_names(panel: Panel, tickers: Sequence[str], asof: str | None = None) -> list[Candidate]:
+    """Score every requested ticker with the exact same factor weights/pctrank/
+    weighted_score as ``screen`` — but skip the Stage-1 breakout gate.
+
+    Fix 2 (kuroshio<->hermes glue): the allocator can only rank an incumbent as
+    "weakest" if it has a score, but ``screen``'s Stage-1 gate only passes fresh
+    breakouts — on a day where a held name isn't at a fresh high it gets no score
+    at all, and the allocator silently can't propose any swap for it. This is
+    deliberately the SAME scoring path as ``screen`` (just gate=False) so a
+    challenger's ``final_score`` and an incumbent's ``score`` stay comparable on
+    the same scale; do not fork a separate ranking formula here.
+    """
+    return _screen_or_score(panel, asof, gate=False, tickers=tickers)

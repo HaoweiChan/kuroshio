@@ -16,6 +16,7 @@ class MarketProfile:
 
     name: str                      # registry key, e.g. "us"
     screen: Callable               # screen(panel, asof=None, **profile_options)
+    score_names: Callable          # score_names(panel, tickers, asof=None, **profile_options) — Fix 2, ungated incumbent scoring
     default_provider: str          # kuroshio.providers registry name
     lookback_days: int             # single-screen fetch window (calendar days)
     warmup_days: int               # backtest indicator warmup headroom (calendar days)
@@ -28,11 +29,11 @@ PROFILES = {
     # US MA200 needs ~200 trading sessions -> 320 calendar days single-screen lookback,
     # + weeks*7 -> 420 calendar days of backtest warmup headroom; first rebalance
     # row after 210 trading sessions.
-    "us": MarketProfile("us", us.screen, "yfinance", 320, 420, 210, "SPY", accepts_sector_map=True),
+    "us": MarketProfile("us", us.screen, us.score_names, "yfinance", 320, 420, 210, "SPY", accepts_sector_map=True),
     # TW MA60 needs ~60 trading sessions -> 120 calendar days single-screen lookback,
     # + weeks*7 -> 200 calendar days of backtest warmup headroom; first rebalance
     # row after 65 trading sessions. No institutional-flow benchmark ticker.
-    "tw": MarketProfile("tw", tw.screen, "finmind", 120, 200, 65, None),
+    "tw": MarketProfile("tw", tw.screen, tw.score_names, "finmind", 120, 200, 65, None),
 }
 
 

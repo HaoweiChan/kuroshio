@@ -33,14 +33,18 @@ def propose(
     theme_cap = ips.caps.theme_pct / 100
     hard_cap = ips.caps.position_hard_pct / 100
     exempt = {(e.ticker, e.cap) for e in ips.caps.exemptions}
+    theme_pct_exempt = {e.ticker for e in ips.caps.exemptions if e.cap == "theme_pct"}
 
     alerts: list[ProposalCard] = []
     trims: list[ProposalCard] = []
 
     # 1. theme budgets — effective exposure = weight x leverage, summed per theme.
+    # Fix 4: a `theme_pct` exemption (e.g. RULES AM4d's 群創/面板 carve-out) removes
+    # that ticker's exposure from its theme's total, same as the hard-cap TRIM step
+    # already does for `position_hard_pct` exemptions below.
     exposures: dict[str, float] = {}
     for h in holdings:
-        if h.theme is None:
+        if h.theme is None or h.ticker in theme_pct_exempt:
             continue
         exposures[h.theme] = exposures.get(h.theme, 0.0) + h.weight * h.leverage
     breached = {t for t, exp in exposures.items() if exp > theme_cap}

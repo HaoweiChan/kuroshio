@@ -137,6 +137,20 @@ def test_tw_screen_missing_ticker_column_degrades_only_that_candidate():
         assert 0.0 <= c.final_score <= 1.0
 
 
+def test_tw_score_names_scores_non_breakout_name_that_screen_filters():
+    # Fix 2: score_names must score a held name even when it fails the Stage-1
+    # breakout gate (screen() drops it entirely) — same factor weights, no gate.
+    panel = _tw_panel(with_institutional=True)
+    gated_tickers = {c.ticker for c in tw.screen(panel)}
+    assert "1103" not in gated_tickers  # downtrend -> Stage-1 rejected
+
+    scored = tw.score_names(panel, tickers=["1101", "1103"])
+    by_ticker = {c.ticker: c for c in scored}
+    assert set(by_ticker) == {"1101", "1103"}
+    for c in scored:
+        assert 0.0 <= c.final_score <= 1.0
+
+
 def test_tw_screen_excludes_ticker_with_volume_nan_in_window():
     # A NaN anywhere in the 60-session volume window must exclude the ticker
     # entirely, not get fillna(0)'d (which would deflate the baseline and
@@ -200,6 +214,20 @@ def test_us_screen_asof_missing_from_volume_index_no_crash():
 
     candidates = us.screen(panel, sector_map={"AMD": "SMH"})
     assert isinstance(candidates, list)
+
+
+def test_us_score_names_scores_non_breakout_name_that_screen_filters():
+    # Fix 2: same as the TW case above — a downtrending held name gets no score
+    # from screen()'s Stage-1 gate but must still be scored by score_names.
+    panel = _us_panel()
+    gated_tickers = {c.ticker for c in us.screen(panel, sector_map={"AMD": "SMH"})}
+    assert "XOM" not in gated_tickers  # downtrend -> Stage-1 rejected
+
+    scored = us.score_names(panel, tickers=["AMD", "XOM"], sector_map={"AMD": "SMH"})
+    by_ticker = {c.ticker: c for c in scored}
+    assert set(by_ticker) == {"AMD", "XOM"}
+    for c in scored:
+        assert 0.0 <= c.final_score <= 1.0
 
 
 # --- market registry -----------------------------------------------------------

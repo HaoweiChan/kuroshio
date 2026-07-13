@@ -11,6 +11,8 @@ over the whole panel, then sliced at the ``asof`` row.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pandas as pd
 
 from ...types import Candidate, Panel
@@ -45,14 +47,19 @@ def _indicators(close: pd.DataFrame, volume: pd.DataFrame) -> dict:
     }
 
 
-def screen(
+def _screen_or_score(
     panel: Panel,
-    asof: str | None = None,
+    asof: str | None,
+    gate: bool,
     sector_map: dict[str, str] | None = None,
     benchmark: str = "SPY",
+    tickers: Sequence[str] | None = None,
 ) -> list[Candidate]:
-    """Stage-1 gate + cross-sectional score the US universe as of ``asof``
-    (default: the last panel row). Pure — no network, no DB.
+    """Shared pool-build + cross-sectional score, used by both ``screen`` (gate=True,
+    universe = every non-reference panel column) and ``score_names`` (gate=False,
+    universe = the explicit ``tickers``) — see Fix 2's module docstring in
+    :func:`score_names`. Identical scoring math either way: the only difference is
+    whether Stage-1 filters the pool before ranking.
 
     ``sector_map`` (ticker -> sector ETF) and ``benchmark`` double as the
     reference-instrument set: any panel column that is the benchmark or a
@@ -91,8 +98,11 @@ def screen(
                 if pd.notna(r20):
                     etf_rs[etf] = r20 - b_r20
 
-    reference_cols = sector_etfs | {benchmark}
-    stocks = [s for s in close.columns if s not in reference_cols]
+    if tickers is None:
+        reference_cols = sector_etfs | {benchmark}
+        stocks = [s for s in close.columns if s not in reference_cols]
+    else:
+        stocks = [s for s in tickers if s in close.columns]
 
     pool: list[dict] = []
     for sym in stocks:
@@ -100,15 +110,16 @@ def screen(
         hb, av, v, r5 = high_hb.get(sym), avg_vol.get(sym), row_vol.get(sym), ret5.get(sym)
         if any(pd.isna(x) for x in (c, s, m, lo, hb, av, v, r5)):
             continue
-        # --- Stage 1: must pass ALL ---
-        if not (c > s > m > lo):            # stacked-MA uptrend
-            continue
-        if c < NEAR_HIGH * hb:              # within (1-NEAR_HIGH) of the 60d high
-            continue
-        if r5 >= RET_MAX or c < PRICE_MIN:  # overheated / penny hard-filters
-            continue
-        if av <= 0 or c * av < DOLLAR_VOL_MIN:  # liquidity floor
-            continue
+        # --- Stage 1: must pass ALL (skipped when gate=False — Fix 2, see score_names) ---
+        if gate:
+            if not (c > s > m > lo):            # stacked-MA uptrend
+                continue
+            if c < NEAR_HIGH * hb:              # within (1-NEAR_HIGH) of the 60d high
+                continue
+            if r5 >= RET_MAX or c < PRICE_MIN:  # overheated / penny hard-filters
+                continue
+            if av <= 0 or c * av < DOLLAR_VOL_MIN:  # liquidity floor
+                continue
 
         raw = {
             "ticker": sym,
@@ -164,3 +175,35 @@ def screen(
     for rank, c in enumerate(candidates, start=1):
         c.rank = rank
     return candidates
+
+
+def screen(
+    panel: Panel,
+    asof: str | None = None,
+    sector_map: dict[str, str] | None = None,
+    benchmark: str = "SPY",
+) -> list[Candidate]:
+    """Stage-1 gate + cross-sectional score the US universe as of ``asof``
+    (default: the last panel row). Pure — no network, no DB."""
+    return _screen_or_score(panel, asof, gate=True, sector_map=sector_map, benchmark=benchmark)
+
+
+def score_names(
+    panel: Panel,
+    tickers: Sequence[str],
+    asof: str | None = None,
+    sector_map: dict[str, str] | None = None,
+    benchmark: str = "SPY",
+) -> list[Candidate]:
+    """Score every requested ticker with the exact same factor weights/pctrank/
+    weighted_score as ``screen`` — but skip the Stage-1 breakout gate.
+
+    Fix 2 (kuroshio<->hermes glue): the allocator can only rank an incumbent as
+    "weakest" if it has a score, but ``screen``'s Stage-1 gate only passes names
+    in a stacked-MA uptrend near a 60-day high — on a day where a held name isn't
+    leading, it gets no score and the allocator silently can't propose a swap
+    against it. This is deliberately the SAME scoring path as ``screen`` (just
+    gate=False) so a challenger's ``final_score`` and an incumbent's ``score``
+    stay comparable on the same scale; do not fork a separate ranking formula here.
+    """
+    return _screen_or_score(panel, asof, gate=False, sector_map=sector_map, benchmark=benchmark, tickers=tickers)

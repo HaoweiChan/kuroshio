@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import os
 import sys
 from pathlib import Path
@@ -97,6 +98,13 @@ def _print_screen_table(market: str, candidates: list[Candidate], asof_fallback:
         print(line(row))
 
 
+def _candidate_to_dict(c: Candidate) -> dict:
+    return {
+        "ticker": c.ticker, "date": c.date, "rank": c.rank, "final_score": c.final_score,
+        "scores": c.scores, "factors": c.factors, "flags": c.flags,
+    }
+
+
 def cmd_screen(args: argparse.Namespace) -> int:
     import yaml
 
@@ -132,10 +140,21 @@ def cmd_screen(args: argparse.Namespace) -> int:
         return 2
 
     screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
-    candidates = profile.screen(panel, asof=args.asof, **screen_kwargs)
+    if args.no_gate:
+        # Fix 2 (kuroshio<->hermes glue): score every requested ticker without the
+        # Stage-1 breakout gate — used to rank incumbent holdings that aren't fresh
+        # breakouts. `tickers` (not fetch_tickers) so benchmark/sector-ETF reference
+        # columns never get scored as if they were candidates.
+        candidates = profile.score_names(panel, tickers=tickers, asof=args.asof, **screen_kwargs)
+    else:
+        candidates = profile.screen(panel, asof=args.asof, **screen_kwargs)
 
-    last_session = str(panel.close.index[-1]) if len(panel.close.index) else "n/a"
-    _print_screen_table(market, candidates[: args.top], asof_fallback=args.asof or last_session)
+    top = candidates[: args.top]
+    if args.json:
+        print(json.dumps([_candidate_to_dict(c) for c in top]))
+    else:
+        last_session = str(panel.close.index[-1]) if len(panel.close.index) else "n/a"
+        _print_screen_table(market, top, asof_fallback=args.asof or last_session)
     return 0
 
 
@@ -325,6 +344,11 @@ def main(argv: list[str] | None = None) -> int:
     p_screen.add_argument("--top", type=int, default=20)
     p_screen.add_argument("--asof", help="YYYY-MM-DD, default: latest session")
     p_screen.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_screen.add_argument(
+        "--no-gate", action="store_true",
+        help="score every requested ticker without the Stage-1 breakout gate (Fix 2 — incumbent scoring)",
+    )
+    p_screen.add_argument("--json", action="store_true", help="machine-readable JSON output instead of the text table")
     p_screen.set_defaults(func=cmd_screen)
 
     p_backtest = sub.add_parser(

@@ -46,6 +46,34 @@ def test_theme_breach_alert_and_same_theme_swap_constraint():
     assert swaps == []  # no ai incumbent scored low enough to clear the 0.15 hurdle
 
 
+def test_theme_pct_exemption_excludes_ticker_from_theme_budget():
+    # Fix 4: a `theme_pct` exemption (RULES AM4d's 群創/面板 carve-out) must remove
+    # that ticker's effective exposure from its theme's total in the theme-budget
+    # check (step 1) — previously only the hard-cap TRIM check (step 2) consulted
+    # caps.exemptions at all, so an exempted name still triggered a false-positive
+    # theme-budget ALERT.
+    holdings = [
+        Holding(ticker="EXEMPT", weight=0.25, theme="panel", score=0.5),  # == default hard cap, no TRIM
+        Holding(ticker="OTHER", weight=0.05, theme="panel", score=0.5),
+    ]
+    ips = make_ips()
+    ips.caps.exemptions = [CapExemption(ticker="EXEMPT", cap="theme_pct", reason="AM4d subtheme exemption")]
+
+    cards = propose(holdings, [], ips, "us")
+    theme_alerts = [c for c in cards if c.action == "ALERT" and c.details.get("theme") == "panel"]
+    assert theme_alerts == []  # EXEMPT excluded -> only OTHER's 5% remains, under the 20% cap
+
+    # Sanity: without the exemption, the same holdings DO breach (0.25 + 0.05 = 30% > 20%).
+    ips_no_exempt = make_ips()
+    cards2 = propose(holdings, [], ips_no_exempt, "us")
+    theme_alerts2 = [c for c in cards2 if c.action == "ALERT" and c.details.get("theme") == "panel"]
+    assert len(theme_alerts2) == 1
+    assert theme_alerts2[0].details["exposure"] == pytest.approx(0.30)
+
+    # Hard-cap TRIM behavior for OTHER exemption types must stay unaffected.
+    assert [c for c in cards if c.action == "TRIM"] == []
+
+
 def test_hard_cap_trim_and_exemption_suppresses_it():
     holdings = [
         Holding(ticker="OVER", weight=0.30, score=0.5),  # over 25% default hard cap
