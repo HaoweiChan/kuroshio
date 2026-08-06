@@ -1,43 +1,38 @@
-# Kuroshio build plan
+# Kuroshio roadmap
 
-Master plan lives in the maintainer's vault (open-core: user IPS content and business glue
-never enter this repo). This file tracks the engine's build state only.
+What the engine already does, and what is coming. Kuroshio is open-core: the engine —
+screening, IPS, allocator, backtest, LLM research — is this repo. Anyone's actual IPS
+content and portfolio data stay on their own machine and never enter it.
 
-## Phase 2 — engine repo (current)
+## Shipped
 
-- [x] Repo bootstrap: Apache 2.0 + NOTICE (TradingAgents attribution), package skeleton, shared types
-- [x] `providers/` — base ABC + yfinance (default, zero-key) + finmind (TW)
-- [x] `core/screening/` — TW momentum-breakout + US leadership profiles (ported from production)
-- [x] `core/ips/` — schema v1, parser, validate, three example presets
-- [x] `core/allocator/` — challenger-vs-incumbent proposal engine
-- [x] facet TTL cache — engine's production-validated `graph/facet_cache.py` (a parallel
-      standalone FacetStore was built, then deleted: one cache, not two)
-- [x] `cli.py` — screen / propose / ips-validate (verified live against yfinance)
-- [x] `agents/engine/` — TradingAgents componentization (fresh copy, personal traces stripped,
-      portfolio-state provider injected, `agents` optional extra)
-- [x] `kuroshio research TICKER` CLI subcommand driving TradingAgentsGraph
-- [x] examples/quickstart.md
-- [x] `core/backtest` — walk-forward harness + `kuroshio backtest` (survivorship caveat documented)
-- [ ] docker-compose (self-host acceptance: clean machine, one command — lands with server/)
+- **Repo bootstrap** — Apache 2.0 + NOTICE (TradingAgents attribution), package skeleton, shared types
+- **`providers/`** — base ABC + yfinance (default, zero-key) + finmind (TW)
+- **`core/screening/`** — TW momentum-breakout + US leadership profiles, cross-sectional pctrank scoring
+- **`core/ips/`** — IPS schema v1, parser, validate, three example presets
+- **`core/allocator/`** — challenger-vs-incumbent proposal engine (theme budgets, hard caps, turnover hurdle)
+- **`core/backtest`** — walk-forward harness (top-k forward returns, excess vs benchmark, rank-IC,
+  score quintiles) + `kuroshio backtest`, with the survivorship-bias caveat printed on every run
+- **`agents/engine/`** — componentized TradingAgents LLM pipeline, portfolio-state provider injected,
+  behind the optional `agents` extra
+- **Facet TTL cache** — `graph/facet_cache.py`, so a daily run over a whole portfolio costs cents.
+  (A parallel standalone `FacetStore` was built, then deleted: one cache, not two.)
+- **`kuroshio research TICKER`** — CLI subcommand driving `TradingAgentsGraph`
+- **`integrations/discord`** — proposal cards → webhook (`propose --discord-webhook`)
+- **CLI** — `screen` / `backtest` / `propose` / `ips-validate` / `research`, stdlib argparse only
+- **Genericization** — `MarketProfile` registry: adding a market is one module + one registry entry
+  ([docs/adding-a-market.md](adding-a-market.md))
+- **Project hygiene** — CI (ruff + pytest on 3.11/3.12/3.13), `py.typed`, CONTRIBUTING, SECURITY
 
-## Pre-launch checklist (repo public = launch)
+## Next
 
-- [ ] Squash history into a single initial-release commit (fresh-history rule; dev history
-      references private projects)
-- [ ] README with architecture diagram + real daily-run track record
-- [ ] Register kuroshio.io; claim PyPI/npm `kuroshio` (0.0.1 placeholder)
-- [ ] Two weeks of the maintainer's own portfolio running on this engine
-
-- [x] `integrations/discord` — proposal cards → webhook (propose `--discord-webhook`)
-- [x] Genericization: MarketProfile registry (adding a market = one module + one entry,
-      docs/adding-a-market.md), CI (lint + 3.11–3.13 test matrix), ruff, py.typed,
-      CONTRIBUTING/SECURITY/maintenance boundary
-
-## Later phases (not in this repo yet)
-
-- server/ + client/ + docker-compose (hosted + self-host one-click)
+- `docker-compose` self-host path: clean machine, one command
+- `server/` + `client/` — a live web UI that runs the engine on demand, instead of the current
+  static snapshot demo
+- PyPI release of `kuroshio`
 
 ## Non-goals (permanent)
 
-- Order execution — the engine only ever proposes.
-- Multi-tenant/billing glue — open-core boundary.
+- **Order execution.** The engine only ever proposes. This is both the product position and the
+  regulatory safety line.
+- **Multi-tenant / billing glue.** Out of scope for the open engine.

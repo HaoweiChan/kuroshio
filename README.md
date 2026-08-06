@@ -1,6 +1,14 @@
 # Kuroshio
 
+[![CI](https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml/badge.svg)](https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
+
 > **TradingAgents for your whole portfolio — run it on your holdings daily, not one ticker once.**
+
+**[▶ Live demo](https://haoweichan.github.io/kuroshio/)** — real screener, proposal and backtest
+output from one session, frozen into a single static page.
 
 Named after the Kuroshio — the Pacific current that carries apex predators past Taiwan.
 
@@ -10,7 +18,7 @@ Kuroshio is an open-source **quantamental portfolio engine**:
 - **Research** — LLM agent research per holding, facet-cached so daily runs cost cents, not dollars
 - **Propose** — IPS-driven challenger-vs-incumbent rebalancing **proposals** (the engine never executes trades)
 
-**Status: pre-release.** Not yet published; APIs will change without notice.
+**Status: 0.x.** Usable today; the API can still change between minor versions.
 
 ## Quickstart
 
@@ -28,11 +36,40 @@ printf -- '- {ticker: AAPL, weight: 0.08, theme: tech, score: 0.55}\n- {ticker: 
 kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
 
+`screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
+IPS clause that triggered it:
+
+```
+### SWAP TSLA → GE
+
+Challenger GE scores 0.792 vs incumbent TSLA's 0.233 — a gap of 0.559, above your IPS turnover
+hurdle of 0.150. GE's verdict is 'neutral', at or above your floor of 'neutral'. Estimated
+round-trip friction: 0.020%.
+- score gap: +0.559
+- est. friction: 0.020%
+- per your IPS: turnover.hurdle, turnover.verdict_floor, friction.us_roundtrip_pct
+```
+
 Full walkthrough (including the LLM research pipeline): [examples/quickstart.md](examples/quickstart.md).
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+```mermaid
+flowchart LR
+    P["providers/<br/><small>yfinance · FinMind</small>"] --> S["core/screening/<br/><small>gates → pctrank</small>"]
+    A["agents/engine/<br/><small>LLM debate · facet cache</small>"] --> V["verdicts<br/><small>buy · neutral · sell</small>"]
+    I["your IPS.md<br/><small>caps · hurdle · friction</small>"] --> AL
+    S --> AL["core/allocator/<br/><small>challenger vs incumbent</small>"]
+    V --> AL
+    AL --> C["ProposalCard<br/><small>SWAP / TRIM / ALERT</small>"]
+    C --> O["CLI table · Discord webhook"]
+```
+
+Core logic never imports a data vendor: providers are plugins, screening and allocation are pure
+functions over plain dataclasses, and every edge is an adapter at the boundary. Details in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); adding a market is one module plus one registry
+entry, see [docs/adding-a-market.md](docs/adding-a-market.md). Shipped and planned work:
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Maintenance & support
 
@@ -50,4 +87,5 @@ Apache 2.0. Includes components derived from
 
 Kuroshio is a software tool. It produces research reports and rule-triggered proposals from
 **your own** rules (IPS) and **your own** API keys. It is not investment advice, and it never
-places orders.
+places orders. Any figures in this repo or on the demo page are illustrative output from a fixed
+ticker list on one session — not live data, not a recommendation, and not a track record.

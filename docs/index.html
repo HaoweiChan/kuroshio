@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kuroshio — quantamental portfolio engine</title>
+<meta name="description" content="Open-source quantamental portfolio engine: multi-factor screening, LLM research, and IPS-driven rebalancing proposals. The engine never executes trades.">
+<style>
+:root {
+  --bg: #f7f8fa; --panel: #ffffff; --panel-2: #f1f3f7; --line: #dfe3ea;
+  --fg: #131720; --muted: #5d6779; --accent: #0d7d78; --accent-soft: #d8f0ee;
+  --warn: #a35a00; --warn-soft: #fdf0dc; --buy: #0d7d78; --sell: #a13b3b;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c1015; --panel: #131920; --panel-2: #182029; --line: #26303c;
+    --fg: #e6ebf2; --muted: #93a0b3; --accent: #4fd1c5; --accent-soft: #10312f;
+    --warn: #e0a458; --warn-soft: #2c2213; --buy: #4fd1c5; --sell: #e08585;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans);
+  line-height: 1.6; -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+code, .mono { font-family: var(--mono); }
+
+/* ---- header ---- */
+header {
+  border-bottom: 1px solid var(--line); background: var(--panel);
+  position: sticky; top: 0; z-index: 10;
+}
+header .wrap { display: flex; align-items: center; gap: 16px; height: 56px; }
+.brand { font-weight: 700; letter-spacing: .14em; font-size: 14px; text-transform: uppercase; }
+.brand span { color: var(--accent); }
+header nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+header nav a { color: var(--muted); text-decoration: none; }
+header nav a:hover { color: var(--fg); }
+
+/* ---- hero ---- */
+.hero { padding: 64px 0 40px; }
+.hero h1 { font-size: clamp(30px, 5vw, 46px); line-height: 1.15; margin: 0 0 14px; letter-spacing: -.02em; }
+.hero .lede { font-size: 19px; color: var(--muted); max-width: 62ch; margin: 0 0 24px; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+.badge {
+  font-family: var(--mono); font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); background: var(--panel);
+}
+.badge.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+pre.install {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-size: 13.5px; margin: 0 0 20px;
+}
+pre.install .c { color: var(--muted); }
+.cta { display: flex; flex-wrap: wrap; gap: 10px; }
+.btn {
+  display: inline-block; padding: 9px 18px; border-radius: 7px; text-decoration: none;
+  font-size: 14.5px; font-weight: 600; border: 1px solid var(--accent);
+}
+.btn.primary { background: var(--accent); color: var(--bg); }
+.btn.ghost { color: var(--accent); }
+
+/* ---- pillars ---- */
+.pillars { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 8px 0 12px; }
+.pillar { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.pillar h3 { margin: 0 0 6px; font-size: 15px; letter-spacing: .04em; text-transform: uppercase; }
+.pillar h3 em { font-style: normal; color: var(--accent); }
+.pillar p { margin: 0; font-size: 14.5px; color: var(--muted); }
+
+/* ---- sections ---- */
+section { padding: 46px 0; border-top: 1px solid var(--line); }
+.sec-head { margin-bottom: 18px; }
+.sec-head .kicker {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+}
+.sec-head h2 { margin: 0 0 8px; font-size: 25px; letter-spacing: -.01em; }
+.sec-head p { margin: 0; color: var(--muted); max-width: 74ch; font-size: 15px; }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+}
+.chip {
+  font-family: var(--mono); font-size: 12px; padding: 5px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); cursor: pointer;
+}
+.chip[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.chip.tab { font-weight: 600; }
+.spacer { flex: 1 1 auto; }
+.meta { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.tablebox { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 13px; }
+th, td { padding: 8px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th:nth-child(-n+2), td:nth-child(-n+2) { text-align: left; }
+th {
+  position: sticky; top: 0; background: var(--panel-2); color: var(--muted); cursor: pointer;
+  font-weight: 600; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; user-select: none;
+}
+th:hover { color: var(--fg); }
+th .arrow { opacity: .45; font-size: 10px; }
+tbody tr:hover { background: var(--panel-2); }
+td.tk { font-weight: 700; }
+.bar { position: relative; }
+.bar i {
+  position: absolute; left: 6px; top: 50%; transform: translateY(-50%); height: 60%;
+  background: var(--accent); opacity: .16; border-radius: 2px; display: block;
+}
+.bar span { position: relative; }
+.flag { font-size: 11px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.flag.hi { color: var(--accent); border-color: var(--accent); }
+.flag.wa { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.note { padding: 11px 14px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+
+/* ---- propose ---- */
+.two { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr; } }
+.panel h4 {
+  margin: 0; padding: 12px 14px; font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line); font-family: var(--mono);
+}
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 6px 14px; font-family: var(--mono); font-size: 12.5px; }
+.kv:last-child { padding-bottom: 12px; }
+.kv span:first-child { color: var(--muted); }
+.hold { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 6px 14px; font-family: var(--mono); font-size: 12.5px; align-items: baseline; }
+.hold .th { color: var(--muted); font-size: 11px; }
+.hold.over { color: var(--warn); }
+.cards { display: grid; gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px; padding: 14px 16px; }
+.card.SWAP { border-left-color: var(--buy); }
+.card.TRIM { border-left-color: var(--warn); }
+.card.ALERT { border-left-color: var(--muted); }
+.card .act { font-family: var(--mono); font-size: 12.5px; font-weight: 700; letter-spacing: .08em; margin-bottom: 6px; }
+.card.SWAP .act { color: var(--buy); }
+.card.TRIM .act { color: var(--warn); }
+.card .act .sell { color: var(--sell); }
+.card p { margin: 0 0 8px; font-size: 14px; }
+.card ul { margin: 0; padding-left: 18px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* ---- backtest ---- */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.stat { padding: 16px; border-right: 1px solid var(--line); }
+.stat:last-child { border-right: 0; }
+.stat b { display: block; font-family: var(--mono); font-size: 23px; letter-spacing: -.02em; }
+.stat span { font-size: 12px; color: var(--muted); }
+.quints { display: flex; align-items: flex-end; gap: 10px; height: 190px; padding: 18px 16px 0; }
+.quint { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; height: 100%; }
+.quint .v { font-family: var(--mono); font-size: 12.5px; }
+.quint .col { width: 100%; background: var(--accent); opacity: .3; border-radius: 4px 4px 0 0; min-height: 3px; }
+.quint:last-child .col { opacity: .85; }
+.quint .lb { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+/* ---- architecture ---- */
+.arch { padding: 8px 6px; overflow-x: auto; }
+.arch svg { display: block; min-width: 660px; width: 100%; height: auto; }
+.arch .bx { fill: var(--panel-2); stroke: var(--line); }
+.arch .bx.hl { stroke: var(--accent); fill: var(--accent-soft); }
+.arch .tl { fill: var(--fg); font: 600 13px var(--sans); }
+.arch .sb { fill: var(--muted); font: 11px var(--mono); }
+.arch .ln { stroke: var(--muted); stroke-width: 1.4; fill: none; opacity: .75; }
+
+footer { border-top: 1px solid var(--line); padding: 30px 0 50px; color: var(--muted); font-size: 13.5px; }
+footer p { margin: 0 0 8px; max-width: 80ch; }
+.disc { font-size: 12.5px; opacity: .85; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">Kuro<span>shio</span></div>
+    <nav>
+      <a href="#screen">Screen</a>
+      <a href="#propose">Propose</a>
+      <a href="#backtest">Backtest</a>
+      <a href="#arch">Architecture</a>
+      <a href="https://github.com/HaoweiChan/kuroshio">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>TradingAgents for your whole portfolio.</h1>
+    <p class="lede">
+      Kuroshio is an open-source <strong>quantamental portfolio engine</strong>: multi-factor
+      screening, LLM agent research that is cheap enough to run daily, and rebalancing
+      <strong>proposals</strong> governed by your own written investment policy. It ranks, argues,
+      and proposes — it never places an order.
+    </p>
+    <div class="badges">
+      <span class="badge on">Apache-2.0</span>
+      <span class="badge">Python 3.11 – 3.13</span>
+      <span class="badge">ruff + pytest in CI</span>
+      <span class="badge">zero API keys to start</span>
+      <span class="badge">US &amp; TW markets</span>
+    </div>
+<pre class="install"><span class="c"># zero-key path: yfinance data, pure-quant scoring</span>
+pip install "kuroshio[yfinance]"
+kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,NFLX</pre>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/HaoweiChan/kuroshio">View on GitHub</a>
+      <a class="btn ghost" href="#screen">See real output ↓</a>
+    </div>
+  </div>
+
+  <div class="pillars">
+    <div class="pillar">
+      <h3><em>1.</em> Screen</h3>
+      <p>Stage-1 breakout gates, then cross-sectional percentile scoring across momentum, volume,
+         relative strength and market-specific factors. Pure functions — no network, no DB.</p>
+    </div>
+    <div class="pillar">
+      <h3><em>2.</em> Research</h3>
+      <p>A componentized TradingAgents pipeline runs analyst debate per holding. Facets are
+         TTL-cached, so a daily run over a whole portfolio costs cents rather than dollars.</p>
+    </div>
+    <div class="pillar">
+      <h3><em>3.</em> Propose</h3>
+      <p>Your IPS — a markdown file with caps, hurdles and friction — decides. The allocator emits
+         SWAP / TRIM / ALERT cards, each citing the exact clause that triggered it.</p>
+    </div>
+  </div>
+
+</div>
+
+<section id="screen">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Step 1 · kuroshio screen</div>
+      <h2>The screener, on a real session</h2>
+      <p>Everything below is the actual JSON output of <code>kuroshio screen --json</code>, captured
+         on the session shown and frozen into this page. Click a column to sort; toggle a flag to filter.</p>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <button class="chip tab" data-market="us" aria-pressed="true">US</button>
+        <button class="chip tab" data-market="tw" aria-pressed="false">TW</button>
+        <span class="spacer"></span>
+        <span id="flagchips" style="display:flex;gap:8px;flex-wrap:wrap"></span>
+      </div>
+      <div class="tablebox"><table id="screentable"><thead></thead><tbody></tbody></table></div>
+      <div class="note" id="screennote"></div>
+    </div>
+  </div>
+</section>
+
+<section id="propose">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Step 3 · kuroshio propose</div>
+      <h2>Policy, not vibes</h2>
+      <p>An example portfolio is checked against <code>examples/ips-balanced.md</code>. Holding weights
+         are illustrative; every score is the engine's real output for this session. The cards below are
+         verbatim <code>ProposalCard</code>s — the engine's only output. It has no broker connection by design.</p>
+    </div>
+    <div class="two">
+      <div>
+        <div class="panel" style="margin-bottom:16px">
+          <h4>Example portfolio</h4>
+          <div class="hold"><span class="th">name</span><span class="th">weight</span><span class="th">score</span></div>
+          <div id="holdings"></div>
+        </div>
+        <div class="panel">
+          <h4>IPS · balanced</h4>
+          <div id="ips"></div>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </div>
+</section>
+
+<section id="backtest">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Validation · kuroshio backtest</div>
+      <h2>Walk-forward, not curve-fit</h2>
+      <p>Weekly rebalances over the trailing year, 20-day forward returns, top-5 basket, scored only on
+         data available at each rebalance date.</p>
+    </div>
+    <div class="panel">
+      <div class="stats" id="stats"></div>
+      <div style="border-top:1px solid var(--line)">
+        <h4>Mean 20d forward return by score quintile (pooled)</h4>
+        <div class="quints" id="quints"></div>
+        <div class="note" id="btnote"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="arch">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Architecture</div>
+      <h2>Pure compute, thin IO</h2>
+      <p>Core logic never imports a data vendor. Providers are plugins, screening and allocation are pure
+         functions over plain dataclasses, and every edge (CLI, Discord) is an adapter at the boundary.</p>
+    </div>
+    <div class="panel arch">
+      <svg viewBox="0 0 940 362" role="img" aria-label="Kuroshio data flow: providers feed screening, screening plus IPS and LLM research feed the allocator, the allocator emits proposal cards to the CLI and Discord.">
+        <rect class="bx" x="14"  y="24"  width="196" height="62" rx="8"/>
+        <text class="tl" x="30" y="50">providers/</text>
+        <text class="sb" x="30" y="70">yfinance · FinMind</text>
+
+        <rect class="bx" x="14"  y="140" width="196" height="62" rx="8"/>
+        <text class="tl" x="30" y="166">your IPS.md</text>
+        <text class="sb" x="30" y="186">caps · hurdle · friction</text>
+
+        <rect class="bx" x="14"  y="256" width="196" height="62" rx="8"/>
+        <text class="tl" x="30" y="282">agents/engine/</text>
+        <text class="sb" x="30" y="302">LLM debate · facet cache</text>
+
+        <rect class="bx" x="262" y="24"  width="200" height="62" rx="8"/>
+        <text class="tl" x="278" y="50">core/screening/</text>
+        <text class="sb" x="278" y="70">gates → pctrank</text>
+
+        <rect class="bx" x="262" y="256" width="200" height="62" rx="8"/>
+        <text class="tl" x="278" y="282">verdicts</text>
+        <text class="sb" x="278" y="302">buy · neutral · sell</text>
+
+        <rect class="bx hl" x="520" y="128" width="180" height="86" rx="8"/>
+        <text class="tl" x="537" y="158">core/allocator/</text>
+        <text class="sb" x="537" y="178">challenger vs</text>
+        <text class="sb" x="537" y="194">incumbent</text>
+
+        <rect class="bx" x="752" y="128" width="174" height="86" rx="8"/>
+        <text class="tl" x="768" y="158">ProposalCard</text>
+        <text class="sb" x="768" y="178">SWAP / TRIM</text>
+        <text class="sb" x="768" y="194">/ ALERT</text>
+
+        <path class="ln" d="M210 55 H262"/>
+        <path class="ln" d="M210 287 H262"/>
+        <path class="ln" d="M462 55 H492 V160 H520"/>
+        <path class="ln" d="M210 171 H520"/>
+        <path class="ln" d="M462 287 H492 V182 H520"/>
+        <path class="ln" d="M700 171 H752"/>
+        <g fill="var(--muted)" opacity=".75">
+          <path d="M262 55 l-9 -4 v8 z"/><path d="M262 287 l-9 -4 v8 z"/>
+          <path d="M520 160 l-9 -4 v8 z"/><path d="M520 171 l-9 -4 v8 z"/>
+          <path d="M520 182 l-9 -4 v8 z"/><path d="M752 171 l-9 -4 v8 z"/>
+        </g>
+        <text class="sb" x="839" y="240" text-anchor="middle">→ CLI table · Discord webhook</text>
+        <text class="sb" x="470" y="348" text-anchor="middle">the engine stops here — it never places an order</text>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><strong>Kuroshio</strong> — Apache 2.0. Includes components derived from
+       <a href="https://github.com/TauricResearch/TradingAgents">TradingAgents</a> (Apache 2.0); see NOTICE.
+       Source: <a href="https://github.com/HaoweiChan/kuroshio">github.com/HaoweiChan/kuroshio</a>.</p>
+    <p class="disc"><strong>Disclaimer.</strong> Kuroshio is a software tool, not investment advice. The
+       numbers on this page are a frozen snapshot of one session's output over a fixed ticker list, shown
+       to illustrate the engine — they are not live market data, not a recommendation, and not a track
+       record. Backtested results are hypothetical and carry survivorship bias, as noted above.</p>
+  </div>
+</footer>
+
+<script type="application/json" id="demo-data">{"asof":"2026-08-06","markets":{"us":{"label":"US","universe":50,"mode":"gated screen","note":"Stage-1 breakout gates applied \u2014 14 of 50 names cleared them.","provider":"yfinance (no API key)","rows":[{"ticker":"GE","date":"2026-08-06","rank":1,"final_score":0.7923076923076924,"scores":{"momentum":0.9230769230769231,"volume":0.6923076923076923,"rs":0.9230769230769231,"sector":0.5},"factors":{"close":376.3599853515625,"mom_raw":0.2644998179945173,"vol_raw":0.2935031185702495,"rs_raw":0.23515994635867776,"sector_raw":0.0009092727204877971},"flags":{"is_60d_high":false}},{"ticker":"BAC","date":"2026-08-06","rank":2,"final_score":0.7564615384615385,"scores":{"momentum":0.8461538461538461,"volume":0.3076923076923077,"rs":1.0,"sector":0.7307692307692307},"factors":{"close":62.900001525878906,"mom_raw":0.26028241378279704,"vol_raw":0.20727331391106238,"rs_raw":0.2464200047438898,"sector_raw":0.01422174277107402},"flags":{"is_60d_high":false}},{"ticker":"JPM","date":"2026-08-06","rank":3,"final_score":0.659,"scores":{"momentum":0.7692307692307693,"volume":0.15384615384615385,"rs":0.8461538461538461,"sector":0.7307692307692307},"factors":{"close":356.0199890136719,"mom_raw":0.22193497274226548,"vol_raw":0.1749591470492654,"rs_raw":0.18737564536837725,"sector_raw":0.01422174277107402},"flags":{"is_60d_high":false}},{"ticker":"MRK","date":"2026-08-06","rank":4,"final_score":0.576923076923077,"scores":{"momentum":0.6923076923076923,"volume":0.6153846153846154,"rs":0.6923076923076923,"sector":0.19230769230769232},"factors":{"close":128.55999755859375,"mom_raw":0.1964052531781837,"vol_raw":0.2437083860187734,"rs_raw":0.12553506720416996,"sector_raw":-0.014606149173661542},"flags":{"is_60d_high":false}},{"ticker":"LLY","date":"2026-08-06","rank":5,"final_score":0.5463076923076924,"scores":{"momentum":0.3076923076923077,"volume":1.0,"rs":0.7692307692307693,"sector":0.19230769230769232},"factors":{"close":1184.030029296875,"mom_raw":0.17501306724065024,"vol_raw":0.4660075716110199,"rs_raw":0.13354458836577565,"sector_raw":-0.014606149173661542},"flags":{"is_60d_high":false}},{"ticker":"AMZN","date":"2026-08-06","rank":6,"final_score":0.5228461538461538,"scores":{"momentum":1.0,"volume":0.23076923076923078,"rs":0.3076923076923077,"sector":0.3076923076923077},"factors":{"close":274.260009765625,"mom_raw":0.2690028244468474,"vol_raw":0.20504572386648298,"rs_raw":0.06381538745755644,"sector_raw":-0.010259839931130221},"flags":{"is_60d_high":false}},{"ticker":"KO","date":"2026-08-06","rank":7,"final_score":0.5179230769230769,"scores":{"momentum":0.6153846153846154,"volume":0.46153846153846156,"rs":0.5384615384615384,"sector":0.38461538461538464},"factors":{"close":86.61000061035156,"mom_raw":0.1953113737604537,"vol_raw":0.21714574207489928,"rs_raw":0.09038206165465001,"sector_raw":-0.000998674210738404},"flags":{"is_60d_high":false}},{"ticker":"XOM","date":"2026-08-06","rank":8,"final_score":0.4487692307692308,"scores":{"momentum":0.23076923076923078,"volume":0.38461538461538464,"rs":0.38461538461538464,"sector":0.9615384615384616},"factors":{"close":152.61000061035156,"mom_raw":0.14148577837924603,"vol_raw":0.2083932126407168,"rs_raw":0.0707481319397183,"sector_raw":0.03349463315591361},"flags":{"is_60d_high":false}},{"ticker":"COP","date":"2026-08-06","rank":9,"final_score":0.41792307692307695,"scores":{"momentum":0.15384615384615385,"volume":0.7692307692307693,"rs":0.07692307692307693,"sector":0.9615384615384616},"factors":{"close":116.29000091552734,"mom_raw":0.10827388880623467,"vol_raw":0.3373935038016284,"rs_raw":0.017002926191791223,"sector_raw":0.03349463315591361},"flags":{"is_60d_high":false}},{"ticker":"HON","date":"2026-08-06","rank":10,"final_score":0.3924615384615385,"scores":{"momentum":0.0,"volume":0.8461538461538461,"rs":0.46153846153846156,"sector":0.5},"factors":{"close":242.3000030517578,"mom_raw":0.1008775737462757,"vol_raw":0.3490263824414729,"rs_raw":0.07875405482634168,"sector_raw":0.0009092727204877971},"flags":{"is_60d_high":false}},{"ticker":"MS","date":"2026-08-06","rank":11,"final_score":0.36653846153846154,"scores":{"momentum":0.5384615384615384,"volume":0.0,"rs":0.15384615384615385,"sector":0.7307692307692307},"factors":{"close":216.63999938964844,"mom_raw":0.18985238775403346,"vol_raw":0.12417963749622901,"rs_raw":0.05458002674325224,"sector_raw":0.01422174277107402},"flags":{"is_60d_high":false}},{"ticker":"NVDA","date":"2026-08-06","rank":12,"final_score":0.34600000000000003,"scores":{"momentum":0.46153846153846156,"volume":0.9230769230769231,"rs":0.0,"sector":0.038461538461538464},"factors":{"close":218.2100067138672,"mom_raw":0.18748291661392158,"vol_raw":0.38740564426346835,"rs_raw":0.0056850327534161416,"sector_raw":-0.01838511008240018},"flags":{"is_60d_high":false}},{"ticker":"BRK-B","date":"2026-08-06","rank":13,"final_score":0.3410769230769231,"scores":{"momentum":0.07692307692307693,"volume":0.5384615384615384,"rs":0.23076923076923078,"sector":0.7307692307692307},"factors":{"close":517.7550048828125,"mom_raw":0.10266505803140213,"vol_raw":0.2388417265484652,"rs_raw":0.05872699256970959,"sector_raw":0.01422174277107402},"flags":{"is_60d_high":false}},{"ticker":"V","date":"2026-08-06","rank":14,"final_score":0.31546153846153846,"scores":{"momentum":0.38461538461538464,"volume":0.07692307692307693,"rs":0.6153846153846154,"sector":0.038461538461538464},"factors":{"close":366.69000244140625,"mom_raw":0.17865075334812208,"vol_raw":0.1591716812002758,"rs_raw":0.12173634310661452,"sector_raw":-0.01838511008240018},"flags":{"is_60d_high":false}}]},"tw":{"label":"TW","universe":50,"mode":"ungated scoring (--no-gate)","note":"The gated screen returned 1 name for this session, so this tab shows the ungated cross-sectional ranking. Note the institutional net-buy factor \u2014 a TW-only feed the US profile has no equivalent for.","provider":"FinMind (no API key)","rows":[{"ticker":"2317","date":"2026-08-06","rank":1,"final_score":0.8979591836734693,"scores":{"momentum":0.7959183673469387,"institution":1.0},"factors":{"close":264.5,"ma20":245.05,"ma60":255.51666666666668,"close_ma20":1.0793715568251376,"close_ma60":1.035157523971039,"vol_mult":1.5075302830589588,"mean20_vol_before":54512157.35,"mean20_vol":56724137.45,"today_volume":82178728,"institution_raw":2.169666098642457,"price_pos_60d":44.0251572327044,"ret_5d":0.15250544662309373,"high_20":264.5,"high_60":309.0,"low_60":229.5},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"3231","date":"2026-08-06","rank":2,"final_score":0.8809523809523809,"scores":{"momentum":0.8843537414965986,"institution":0.8775510204081632},"factors":{"close":189.5,"ma20":164.35,"ma60":158.59166666666667,"close_ma20":1.1530270763614239,"close_ma60":1.194892543744417,"vol_mult":0.8714478703740781,"mean20_vol_before":95580499.8,"mean20_vol":96782329.3,"today_volume":83293423,"institution_raw":1.0336122898005102,"price_pos_60d":91.2,"ret_5d":0.18437499999999996,"high_20":195.0,"high_60":195.0,"low_60":132.5},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"2357","date":"2026-08-06","rank":3,"final_score":0.8639455782312926,"scores":{"momentum":0.7687074829931974,"institution":0.9591836734693877},"factors":{"close":818.0,"ma20":750.15,"ma60":745.7,"close_ma20":1.0904485769512764,"close_ma60":1.0969558803808501,"vol_mult":0.8412522531801869,"mean20_vol_before":4832003.7,"mean20_vol":4792569.4,"today_volume":4064934,"institution_raw":1.4170304972526844,"price_pos_60d":61.82432432432432,"ret_5d":0.1099050203527816,"high_20":838.0,"high_60":931.0,"low_60":635.0},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2377","date":"2026-08-06","rank":4,"final_score":0.8503401360544217,"scores":{"momentum":0.8435374149659863,"institution":0.8571428571428571},"factors":{"close":154.0,"ma20":145.8,"ma60":136.94166666666666,"close_ma20":1.056241426611797,"close_ma60":1.1245664212255826,"vol_mult":1.0061409371815344,"mean20_vol_before":17294697.35,"mean20_vol":16995528.55,"today_volume":17400903,"institution_raw":1.0125485623687767,"price_pos_60d":97.8021978021978,"ret_5d":0.13235294117647056,"high_20":155.0,"high_60":155.0,"low_60":109.5},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"2408","date":"2026-08-06","rank":5,"final_score":0.8197278911564626,"scores":{"momentum":0.9251700680272109,"institution":0.7142857142857143},"factors":{"close":459.0,"ma20":414.375,"ma60":390.28333333333336,"close_ma20":1.1076923076923078,"close_ma60":1.1760686680616645,"vol_mult":1.2149352274321714,"mean20_vol_before":87808356.85,"mean20_vol":89994443.85,"today_volume":106681466,"institution_raw":0.6317927926169411,"price_pos_60d":80.04338394793926,"ret_5d":0.39939024390243905,"high_20":481.0,"high_60":505.0,"low_60":274.5},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"4938","date":"2026-08-06","rank":6,"final_score":0.7414965986394558,"scores":{"momentum":0.54421768707483,"institution":0.9387755102040817},"factors":{"close":88.0,"ma20":84.41499999999999,"ma60":84.905,"close_ma20":1.042468755552923,"close_ma60":1.0364525057417113,"vol_mult":0.6087610673665259,"mean20_vol_before":12400855.45,"mean20_vol":12343241.4,"today_volume":7549158,"institution_raw":1.3888039976273978,"price_pos_60d":52.27272727272727,"ret_5d":0.0931677018633541,"high_20":89.5,"high_60":98.5,"low_60":76.5},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"3037","date":"2026-08-06","rank":7,"final_score":0.7346938775510203,"scores":{"momentum":0.7755102040816326,"institution":0.6938775510204082},"factors":{"close":973.0,"ma20":850.75,"ma60":918.0166666666667,"close_ma20":1.143696738172201,"close_ma60":1.059893611227102,"vol_mult":0.8803612855420782,"mean20_vol_before":29326111.25,"mean20_vol":28935425.05,"today_volume":25817573,"institution_raw":0.549608722613183,"price_pos_60d":71.78841309823679,"ret_5d":0.3589385474860336,"high_20":973.0,"high_60":1085.0,"low_60":688.0},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"3034","date":"2026-08-06","rank":8,"final_score":0.7312925170068028,"scores":{"momentum":0.6258503401360543,"institution":0.8367346938775511},"factors":{"close":543.0,"ma20":499.4,"ma60":502.8833333333333,"close_ma20":1.0873047657188626,"close_ma60":1.079773307261459,"vol_mult":0.5159901740964876,"mean20_vol_before":5797003.8,"mean20_vol":5640381.25,"today_volume":2991197,"institution_raw":0.9022290824755862,"price_pos_60d":77.98165137614679,"ret_5d":0.10590631364562109,"high_20":550.0,"high_60":567.0,"low_60":458.0},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"6669","date":"2026-08-06","rank":9,"final_score":0.7244897959183673,"scores":{"momentum":0.7959183673469387,"institution":0.6530612244897959},"factors":{"close":6265.0,"ma20":5358.75,"ma60":5190.0,"close_ma20":1.1691159318871005,"close_ma60":1.2071290944123314,"vol_mult":0.6818354293230913,"mean20_vol_before":1968664.2,"mean20_vol":1985662.45,"today_volume":1342305,"institution_raw":0.5042407887604462,"price_pos_60d":100.0,"ret_5d":0.27857142857142847,"high_20":6265.0,"high_60":6265.0,"low_60":4280.0},"flags":{"is_60d_high":true,"crowded":true,"degraded":false}},{"ticker":"2885","date":"2026-08-06","rank":10,"final_score":0.7040816326530612,"scores":{"momentum":0.5918367346938775,"institution":0.8163265306122449},"factors":{"close":67.1,"ma20":65.53999999999999,"ma60":63.501666666666665,"close_ma20":1.023802258162954,"close_ma60":1.0566651793916169,"vol_mult":0.773032386703999,"mean20_vol_before":34878069.1,"mean20_vol":34837974.55,"today_volume":26961877,"institution_raw":0.8482779031136298,"price_pos_60d":74.41860465116275,"ret_5d":0.06339144215530901,"high_20":69.4,"high_60":71.5,"low_60":54.3},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"2880","date":"2026-08-06","rank":11,"final_score":0.7006802721088434,"scores":{"momentum":0.8503401360544217,"institution":0.5510204081632653},"factors":{"close":44.05,"ma20":41.225,"ma60":37.094166666666666,"close_ma20":1.0685263796240145,"close_ma60":1.1875182530946016,"vol_mult":0.9590857717465205,"mean20_vol_before":26584083.25,"mean20_vol":27051453.05,"today_volume":25496416,"institution_raw":0.251962324811236,"price_pos_60d":100.0,"ret_5d":0.03282532239155911,"high_20":44.05,"high_60":44.05,"low_60":29.6},"flags":{"is_60d_high":true,"crowded":true,"degraded":false}},{"ticker":"1216","date":"2026-08-06","rank":12,"final_score":0.6836734693877551,"scores":{"momentum":0.3877551020408163,"institution":0.9795918367346939},"factors":{"close":73.0,"ma20":76.965,"ma60":75.28,"close_ma20":0.9484830767231858,"close_ma60":0.9697130712008502,"vol_mult":0.971102205172525,"mean20_vol_before":22968332.15,"mean20_vol":22993681.8,"today_volume":22304598,"institution_raw":1.8952075347933186,"price_pos_60d":27.72277227722771,"ret_5d":-0.034391534391534306,"high_20":80.3,"high_60":80.3,"low_60":70.2},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2887","date":"2026-08-06","rank":13,"final_score":0.673469387755102,"scores":{"momentum":0.5714285714285714,"institution":0.7755102040816326},"factors":{"close":34.5,"ma20":35.0325,"ma60":30.790833333333335,"close_ma20":0.9847998287304646,"close_ma60":1.1204633413624183,"vol_mult":0.7929702627411066,"mean20_vol_before":73680790.75,"mean20_vol":72745412.9,"today_volume":58426676,"institution_raw":0.7010403675913426,"price_pos_60d":83.03249097472923,"ret_5d":0.040723981900452566,"high_20":36.85,"high_60":36.85,"low_60":23.0},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"2891","date":"2026-08-06","rank":14,"final_score":0.6666666666666667,"scores":{"momentum":0.435374149659864,"institution":0.8979591836734694},"factors":{"close":64.6,"ma20":64.045,"ma60":64.90666666666667,"close_ma20":1.008665781872121,"close_ma60":0.9952752670501231,"vol_mult":0.6875404490156737,"mean20_vol_before":52890115.85,"mean20_vol":51969574.7,"today_volume":36364094,"institution_raw":1.0832160417891585,"price_pos_60d":55.681818181818144,"ret_5d":0.023771790808240878,"high_20":69.9,"high_60":72.4,"low_60":54.8},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2207","date":"2026-08-06","rank":15,"final_score":0.6632653061224489,"scores":{"momentum":0.5714285714285714,"institution":0.7551020408163265},"factors":{"close":516.0,"ma20":502.0,"ma60":482.675,"close_ma20":1.0278884462151394,"close_ma60":1.0690423162583518,"vol_mult":0.5889110201464148,"mean20_vol_before":573849.0,"mean20_vol":572528.9,"today_volume":337946,"institution_raw":0.6902551120126862,"price_pos_60d":58.82352941176471,"ret_5d":-0.06352087114337568,"high_20":558.0,"high_60":558.0,"low_60":456.0},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"5880","date":"2026-08-06","rank":16,"final_score":0.6598639455782314,"scores":{"momentum":0.6870748299319728,"institution":0.6326530612244898},"factors":{"close":26.1,"ma20":25.925,"ma60":24.489166666666666,"close_ma20":1.0067502410800386,"close_ma60":1.0657773845577978,"vol_mult":1.0298393071558134,"mean20_vol_before":26304096.0,"mean20_vol":26374141.15,"today_volume":27088992,"institution_raw":0.46770713517622925,"price_pos_60d":69.69696969696972,"ret_5d":-0.033333333333333326,"high_20":27.6,"high_60":27.6,"low_60":22.65},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2882","date":"2026-08-06","rank":17,"final_score":0.6394557823129252,"scores":{"momentum":0.4829931972789116,"institution":0.7959183673469388},"factors":{"close":97.5,"ma20":97.03,"ma60":95.23666666666666,"close_ma20":1.0048438627228693,"close_ma60":1.0237653564803473,"vol_mult":0.7244403427376163,"mean20_vol_before":23533617.6,"mean20_vol":22819228.25,"today_volume":17048702,"institution_raw":0.7608305508754443,"price_pos_60d":53.608247422680414,"ret_5d":0.024159663865546133,"high_20":101.5,"high_60":115.5,"low_60":76.7},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2881","date":"2026-08-06","rank":18,"final_score":0.6360544217687074,"scores":{"momentum":0.5374149659863945,"institution":0.7346938775510204},"factors":{"close":126.0,"ma20":126.525,"ma60":120.19166666666666,"close_ma20":0.9958506224066389,"close_ma60":1.048325591069819,"vol_mult":0.8234208120987526,"mean20_vol_before":24260338.95,"mean20_vol":23956159.05,"today_volume":19976468,"institution_raw":0.6362802971956392,"price_pos_60d":71.52619589977222,"ret_5d":0.016129032258064502,"high_20":130.0,"high_60":138.5,"low_60":94.6},"flags":{"is_60d_high":false,"crowded":true,"degraded":false}},{"ticker":"2345","date":"2026-08-06","rank":19,"final_score":0.6122448979591837,"scores":{"momentum":0.7346938775510203,"institution":0.4897959183673469},"factors":{"close":2410.0,"ma20":2237.25,"ma60":2402.0833333333335,"close_ma20":1.0772153313219355,"close_ma60":1.0032957502168256,"vol_mult":1.4533295197490508,"mean20_vol_before":2783208.45,"mean20_vol":2803241.15,"today_volume":4044919,"institution_raw":0.17837958749999086,"price_pos_60d":59.523809523809526,"ret_5d":0.2454780361757105,"high_20":2470.0,"high_60":2750.0,"low_60":1910.0},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}},{"ticker":"2002","date":"2026-08-06","rank":20,"final_score":0.5816326530612245,"scores":{"momentum":0.5714285714285714,"institution":0.5918367346938775},"factors":{"close":19.0,"ma20":18.835,"ma60":18.84,"close_ma20":1.008760286700292,"close_ma60":1.0084925690021231,"vol_mult":0.8914811697981687,"mean20_vol_before":39303010.75,"mean20_vol":39999175.1,"today_volume":35037894,"institution_raw":0.3821478558441571,"price_pos_60d":48.64864864864863,"ret_5d":0.0026385224274407815,"high_20":19.25,"high_60":19.95,"low_60":18.1},"flags":{"is_60d_high":false,"crowded":false,"degraded":false}}]}},"portfolio":[{"ticker":"NVDA","weight":0.26,"theme":"ai-semis","leverage":1.0,"score":0.533333,"verdict":null},{"ticker":"AVGO","weight":0.09,"theme":"ai-semis","leverage":1.0,"score":0.499833,"verdict":null},{"ticker":"MSFT","weight":0.08,"theme":"ai-semis","leverage":1.0,"score":0.8,"verdict":null},{"ticker":"XOM","weight":0.12,"theme":"energy","leverage":1.0,"score":0.522333,"verdict":null},{"ticker":"KO","weight":0.06,"theme":"staples","leverage":1.0,"score":0.661167,"verdict":null},{"ticker":"PG","weight":0.09,"theme":"staples","leverage":1.0,"score":0.25,"verdict":null},{"ticker":"TSLA","weight":0.07,"theme":"ev","leverage":1.0,"score":0.233333,"verdict":null}],"themes":{"GE":"industrials","BAC":"financials","JPM":"financials","MRK":"healthcare","LLY":"healthcare","AMZN":"consumer","COP":"energy","HON":"industrials","MS":"financials","BRK-B":"financials","V":"financials"},"ips":{"risk_profile":"balanced","position_pct":10,"position_hard_pct":25,"theme_pct":20,"hurdle":0.15,"verdict_floor":"neutral","max_swaps_per_week":2,"us_roundtrip_pct":0.02},"proposals":[{"action":"ALERT","reason":"Theme 'ai-semis' effective exposure is 43.0%, above your IPS theme budget of 20.0%. Challengers tagged to this theme may only swap against incumbents in the same theme until it's back under budget.","sell":null,"buy":null,"ips_clauses":["caps.theme_pct"],"score_gap":null,"friction_pct":null,"details":{"theme":"ai-semis","exposure":0.43,"cap":0.2}},{"action":"TRIM","reason":"NVDA is 26.0% of NAV, above your IPS hard cap of 25.0% per name. Trim it back under the ceiling.","sell":"NVDA","buy":null,"ips_clauses":["caps.position_hard_pct"],"score_gap":null,"friction_pct":null,"details":{"weight":0.26,"cap":0.25}},{"action":"SWAP","reason":"Challenger GE scores 0.792 vs incumbent TSLA's 0.233 \u2014 a gap of 0.559, above your IPS turnover hurdle of 0.150. GE's verdict is 'neutral', at or above your floor of 'neutral'. Estimated round-trip friction: 0.020%.","sell":"TSLA","buy":"GE","ips_clauses":["turnover.hurdle","turnover.verdict_floor","friction.us_roundtrip_pct"],"score_gap":0.558975,"friction_pct":0.02,"details":{"challenger_score":0.792308,"incumbent_score":0.233333,"verdict":"neutral"}},{"action":"SWAP","reason":"Challenger BAC scores 0.756 vs incumbent PG's 0.250 \u2014 a gap of 0.506, above your IPS turnover hurdle of 0.150. BAC's verdict is 'neutral', at or above your floor of 'neutral'. Estimated round-trip friction: 0.020%.","sell":"PG","buy":"BAC","ips_clauses":["turnover.hurdle","turnover.verdict_floor","friction.us_roundtrip_pct"],"score_gap":0.506462,"friction_pct":0.02,"details":{"challenger_score":0.756462,"incumbent_score":0.25,"verdict":"neutral"}},{"action":"ALERT","reason":"1 additional swap(s) cleared the hurdle but were suppressed by your IPS turnover limit of 2 swaps/week (0 already made this week).","sell":null,"buy":null,"ips_clauses":["turnover.max_swaps_per_week"],"score_gap":null,"friction_pct":null,"details":{"suppressed_count":1}}],"backtest":{"weeks":52,"horizon":20,"top_k":5,"universe":50,"rebalances":62,"mean_top_fwd_pct":4.53,"excess_vs_spy_pct":2.33,"beat_rate_pct":68,"mean_rank_ic":0.162,"quintiles":[{"q":"Q1","ret":0.95,"n":169},{"q":"Q2","ret":0.86,"n":168},{"q":"Q3","ret":1.9,"n":168},{"q":"Q4","ret":3.02,"n":168},{"q":"Q5","ret":6.37,"n":169}]}}</script>
+<script>
+const DATA = JSON.parse(document.getElementById('demo-data').textContent);
+const $ = (s) => document.querySelector(s);
+const el = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+const FLAG_LABEL = { is_60d_high: '★ 60d high', crowded: 'crowded', degraded: 'degraded' };
+
+let market = 'us', sortKey = 'rank', sortAsc = true;
+const active = new Set();
+
+// factor columns come from the data, exactly like the CLI's text table does
+const factorKeys = (rows) => {
+  const out = [];
+  rows.forEach(r => Object.keys(r.scores).forEach(k => { if (!out.includes(k)) out.push(k); }));
+  return out;
+};
+const flagKeys = (rows) => {
+  const out = [];
+  rows.forEach(r => Object.entries(r.flags).forEach(([k, v]) => { if (v && !out.includes(k)) out.push(k); }));
+  return out;
+};
+
+function renderChips() {
+  const box = $('#flagchips');
+  box.innerHTML = '';
+  flagKeys(DATA.markets[market].rows).forEach(k => {
+    const c = el('button', 'chip', FLAG_LABEL[k] || k);
+    c.setAttribute('aria-pressed', active.has(k));
+    c.onclick = () => { active.has(k) ? active.delete(k) : active.add(k); renderChips(); renderTable(); };
+    box.appendChild(c);
+  });
+}
+
+function renderTable() {
+  const m = DATA.markets[market];
+  const facs = factorKeys(m.rows);
+  const cols = [
+    { key: 'rank', label: '#' },
+    { key: 'ticker', label: 'ticker' },
+    { key: 'final_score', label: 'final', bar: true },
+    ...facs.map(k => ({ key: 'scores.' + k, label: k })),
+    { key: '_flags', label: 'flags', nosort: true },
+  ];
+  const get = (row, key) => key.startsWith('scores.') ? row.scores[key.slice(7)] : row[key];
+
+  const thead = $('#screentable thead');
+  thead.innerHTML = '';
+  const tr = el('tr');
+  cols.forEach(c => {
+    const th = el('th', null, c.label);
+    if (!c.nosort) {
+      if (c.key === sortKey) th.appendChild(el('span', 'arrow', sortAsc ? ' ▲' : ' ▼'));
+      th.onclick = () => {
+        if (sortKey === c.key) sortAsc = !sortAsc;
+        else { sortKey = c.key; sortAsc = (c.key === 'rank' || c.key === 'ticker'); }
+        renderTable();
+      };
+    } else { th.style.cursor = 'default'; }
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+
+  let rows = m.rows.filter(r => [...active].every(f => r.flags[f]));
+  rows = rows.slice().sort((a, b) => {
+    const x = get(a, sortKey), y = get(b, sortKey);
+    const c = (typeof x === 'string') ? x.localeCompare(y) : (x ?? -1) - (y ?? -1);
+    return sortAsc ? c : -c;
+  });
+
+  const tbody = $('#screentable tbody');
+  tbody.innerHTML = '';
+  rows.forEach(r => {
+    const t = el('tr');
+    t.appendChild(el('td', null, r.rank));
+    t.appendChild(el('td', 'tk', r.ticker));
+    const fs = el('td', 'bar');
+    const fill = el('i'); fill.style.width = Math.max(2, r.final_score * 96) + '%';
+    fs.appendChild(fill); fs.appendChild(el('span', null, r.final_score.toFixed(3)));
+    t.appendChild(fs);
+    facs.forEach(k => t.appendChild(el('td', null, k in r.scores ? r.scores[k].toFixed(2) : '·')));
+    const fl = el('td');
+    Object.entries(r.flags).forEach(([k, v]) => {
+      if (!v) return;
+      fl.appendChild(el('span', 'flag ' + (k === 'is_60d_high' ? 'hi' : 'wa'), FLAG_LABEL[k] || k));
+      fl.appendChild(document.createTextNode(' '));
+    });
+    t.appendChild(fl);
+    tbody.appendChild(t);
+  });
+
+  $('#screennote').textContent =
+    `${m.label} · ${m.mode} · universe of ${m.universe} tickers · session ${DATA.asof} · ` +
+    `provider: ${m.provider} · showing ${rows.length}/${m.rows.length} rows. ${m.note}`;
+}
+
+document.querySelectorAll('.chip.tab').forEach(b => {
+  b.onclick = () => {
+    market = b.dataset.market; sortKey = 'rank'; sortAsc = true; active.clear();
+    document.querySelectorAll('.chip.tab').forEach(x => x.setAttribute('aria-pressed', x === b));
+    renderChips(); renderTable();
+  };
+});
+
+// ---- portfolio + IPS + proposal cards ----
+const pct = (x) => (x * 100).toFixed(0) + '%';
+const holdBox = $('#holdings');
+DATA.portfolio.forEach(h => {
+  const row = el('div', 'hold' + (h.weight > DATA.ips.position_hard_pct / 100 ? ' over' : ''));
+  const name = el('span'); name.appendChild(el('strong', null, h.ticker));
+  name.appendChild(el('span', null, '  ' + (h.theme || '')));
+  name.lastChild.style.color = 'var(--muted)';
+  row.appendChild(name);
+  row.appendChild(el('span', null, pct(h.weight)));
+  row.appendChild(el('span', null, h.score.toFixed(3)));
+  holdBox.appendChild(row);
+});
+
+const IPS_ROWS = [
+  ['position cap', DATA.ips.position_pct + '%'],
+  ['hard cap / name', DATA.ips.position_hard_pct + '%'],
+  ['theme budget', DATA.ips.theme_pct + '%'],
+  ['turnover hurdle', DATA.ips.hurdle.toFixed(3)],
+  ['verdict floor', DATA.ips.verdict_floor],
+  ['max swaps / week', DATA.ips.max_swaps_per_week],
+  ['US round-trip friction', DATA.ips.us_roundtrip_pct + '%'],
+];
+IPS_ROWS.forEach(([k, v]) => {
+  const row = el('div', 'kv');
+  row.appendChild(el('span', null, k));
+  row.appendChild(el('span', null, String(v)));
+  $('#ips').appendChild(row);
+});
+
+DATA.proposals.forEach(c => {
+  const card = el('div', 'card ' + c.action);
+  const act = el('div', 'act');
+  if (c.action === 'SWAP') {
+    act.appendChild(el('span', 'sell', 'SWAP ' + c.sell));
+    act.appendChild(document.createTextNode(' → ' + c.buy));
+  } else {
+    act.textContent = c.action + (c.sell ? ' ' + c.sell : '');
+  }
+  card.appendChild(act);
+  card.appendChild(el('p', null, c.reason));
+  const ul = el('ul');
+  if (c.score_gap != null) ul.appendChild(el('li', null, `score gap: ${c.score_gap >= 0 ? '+' : ''}${c.score_gap.toFixed(3)}`));
+  if (c.friction_pct != null) ul.appendChild(el('li', null, `est. friction: ${c.friction_pct.toFixed(3)}%`));
+  if (c.ips_clauses.length) ul.appendChild(el('li', null, 'per your IPS: ' + c.ips_clauses.join(', ')));
+  if (ul.childNodes.length) card.appendChild(ul);
+  $('#cards').appendChild(card);
+});
+
+// ---- backtest ----
+const B = DATA.backtest;
+[
+  [B.rebalances, 'weekly rebalances'],
+  ['+' + B.mean_top_fwd_pct.toFixed(2) + '%', `mean ${B.horizon}d fwd, top-${B.top_k}`],
+  ['+' + B.excess_vs_spy_pct.toFixed(2) + '%', 'excess vs SPY'],
+  [B.beat_rate_pct + '%', 'beat rate'],
+  ['+' + B.mean_rank_ic.toFixed(3), 'mean rank-IC'],
+].forEach(([v, l]) => {
+  const s = el('div', 'stat');
+  s.appendChild(el('b', null, v));
+  s.appendChild(el('span', null, l));
+  $('#stats').appendChild(s);
+});
+
+const maxQ = Math.max(...B.quintiles.map(q => q.ret));
+B.quintiles.forEach(q => {
+  const box = el('div', 'quint');
+  box.appendChild(el('div', 'v', '+' + q.ret.toFixed(2) + '%'));
+  const col = el('div', 'col');
+  col.style.height = Math.max(3, (q.ret / maxQ) * 100) + '%';
+  box.appendChild(col);
+  box.appendChild(el('div', 'lb', `${q.q} · n=${q.n}`));
+  $('#quints').appendChild(box);
+});
+$('#btnote').textContent =
+  `${B.weeks} weeks · ${B.horizon}d horizon · top-${B.top_k} basket · universe of ${B.universe} tickers. ` +
+  `Caveat printed by the CLI on every run: the supplied tickers ARE the universe — passing only today's ` +
+  `survivors introduces survivorship bias; point-in-time membership is on you.`;
+
+renderChips();
+renderTable();
+</script>
+</body>
+</html>
