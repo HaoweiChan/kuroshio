@@ -57,12 +57,12 @@ Full walkthrough (including the LLM research pipeline): [examples/quickstart.md]
 ```mermaid
 flowchart LR
     P["providers/<br/><small>yfinance · FinMind</small>"] --> S["core/screening/<br/><small>gates → pctrank</small>"]
-    A["agents/engine/<br/><small>LLM debate · facet cache</small>"] --> V["verdicts<br/><small>buy · neutral · sell</small>"]
-    I["your IPS.md<br/><small>caps · hurdle · friction</small>"] --> AL
-    S --> AL["core/allocator/<br/><small>challenger vs incumbent</small>"]
+    A["agents/engine/<br/><small>LLM debate · facets</small>"] --> V["verdicts<br/><small>buy · neutral · sell</small>"]
+    I["your IPS.md<br/><small>caps · hurdle</small>"] --> AL
+    S --> AL["core/allocator/<br/><small>challenger vs<br/>incumbent</small>"]
     V --> AL
-    AL --> C["ProposalCard<br/><small>SWAP / TRIM / ALERT</small>"]
-    C --> O["CLI table · Discord webhook"]
+    AL --> C["ProposalCard<br/><small>SWAP · TRIM<br/>ALERT</small>"]
+    C --> O["CLI · Discord"]
 ```
 
 Core logic never imports a data vendor: providers are plugins, screening and allocation are pure
