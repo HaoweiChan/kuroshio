@@ -56,7 +56,6 @@ def test_get_global_news_formats_articles(monkeypatch):
 
 
 if __name__ == "__main__":
-    import types
 
     class _Monkeypatch:
         def setattr(self, obj, name, value):

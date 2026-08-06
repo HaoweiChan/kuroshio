@@ -348,7 +348,9 @@ def main(argv: list[str] | None = None) -> int:
         "--no-gate", action="store_true",
         help="score every requested ticker without the Stage-1 breakout gate (Fix 2 — incumbent scoring)",
     )
-    p_screen.add_argument("--json", action="store_true", help="machine-readable JSON output instead of the text table")
+    p_screen.add_argument(
+        "--json", action="store_true", help="machine-readable JSON output instead of the text table"
+    )
     p_screen.set_defaults(func=cmd_screen)
 
     p_backtest = sub.add_parser(

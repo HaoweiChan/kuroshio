@@ -206,4 +206,6 @@ def score_names(
     gate=False) so a challenger's ``final_score`` and an incumbent's ``score``
     stay comparable on the same scale; do not fork a separate ranking formula here.
     """
-    return _screen_or_score(panel, asof, gate=False, sector_map=sector_map, benchmark=benchmark, tickers=tickers)
+    return _screen_or_score(
+        panel, asof, gate=False, sector_map=sector_map, benchmark=benchmark, tickers=tickers
+    )
