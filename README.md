@@ -64,6 +64,14 @@ round-trip friction: 0.020%.
 - per your IPS: turnover.hurdle, turnover.verdict_floor, friction.us_roundtrip_pct
 ```
 
+That is one card out of the five the same run produced. The whole set, rendered on the demo
+page — a theme-budget breach, a hard-cap trim, two swaps, and the swap the weekly turnover
+limit suppressed:
+
+<a href="https://haoweichan.github.io/kuroshio/#propose">
+  <img src="docs/screenshot-proposals.png" alt="Five proposal cards: an ai-semis theme ALERT, a TRIM on NVDA, SWAP TSLA to GE, SWAP PG to BAC, and an ALERT for the swap suppressed by the weekly turnover cap">
+</a>
+
 Full walkthrough (including the LLM research pipeline): [examples/quickstart.md](examples/quickstart.md).
 
 ## Architecture
