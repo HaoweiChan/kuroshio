@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kuroshio — quantamental portfolio engine</title>
 <meta name="description" content="Open-source quantamental portfolio engine: multi-factor screening, LLM research, and IPS-driven rebalancing proposals. The engine never executes trades.">
+<link rel="icon" href="logo.svg">
 <style>
 :root {
   --bg: #f7f8fa; --panel: #ffffff; --panel-2: #f1f3f7; --line: #dfe3ea;
@@ -35,7 +36,8 @@ header {
   position: sticky; top: 0; z-index: 10;
 }
 header .wrap { display: flex; align-items: center; gap: 16px; height: 56px; }
-.brand { font-weight: 700; letter-spacing: .14em; font-size: 14px; text-transform: uppercase; }
+.brand { display: flex; align-items: center; font-weight: 700; letter-spacing: .14em; font-size: 14px; text-transform: uppercase; }
+.brand img { width: 26px; height: 26px; border-radius: 6px; margin-right: 11px; }
 .brand span { color: var(--accent); }
 header nav { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
 header nav a { color: var(--muted); text-decoration: none; }
@@ -173,7 +175,7 @@ footer p { margin: 0 0 8px; max-width: 80ch; }
 
 <header>
   <div class="wrap">
-    <div class="brand">Kuro<span>shio</span></div>
+    <div class="brand"><img src="logo.svg" alt="">Kuro<span>shio</span></div>
     <nav>
       <a href="#screen">Screen</a>
       <a href="#propose">Propose</a>

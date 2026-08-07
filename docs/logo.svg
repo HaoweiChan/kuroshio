@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Kuroshio">
+  <title>Kuroshio</title>
+  <defs>
+    <linearGradient id="tide" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1a21"/>
+      <stop offset="1" stop-color="#06343a"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#tide)"/>
+  <g fill="none" stroke-linecap="round" stroke-width="7">
+    <path d="M22 96 C46 96 48 80 72 80 C88 80 94 71 106 71" stroke="#1d6f69" opacity=".7"/>
+    <path d="M22 78 C46 78 50 58 74 58 C90 58 96 48 106 48" stroke="#2fa79c"/>
+    <path d="M22 60 C48 60 52 32 78 32 C92 32 98 27 104 25" stroke="#5eead4"/>
+  </g>
+  <circle cx="104" cy="25" r="9" fill="#5eead4"/>
+</svg>

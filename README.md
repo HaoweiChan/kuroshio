@@ -1,14 +1,28 @@
-# Kuroshio
+<p align="center">
+  <img src="docs/logo.svg" alt="Kuroshio" width="104" height="104">
+</p>
 
-[![CI](https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml/badge.svg)](https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
-[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
+<h1 align="center">Kuroshio</h1>
 
-> **TradingAgents for your whole portfolio — run it on your holdings daily, not one ticker once.**
+<p align="center">
+  <em>TradingAgents for your whole portfolio — run it on your holdings daily, not one ticker once.</em>
+</p>
 
-**[▶ Live demo](https://haoweichan.github.io/kuroshio/)** — real screener, proposal and backtest
-output from one session, frozen into a single static page.
+<p align="center">
+  <a href="https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml"><img src="https://github.com/HaoweiChan/kuroshio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg" alt="Python"></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/lint-ruff-261230.svg" alt="Ruff"></a>
+</p>
+
+<p align="center">
+  <a href="https://haoweichan.github.io/kuroshio/"><b>▶ Live demo</b></a> — real screener, proposal
+  and backtest output from one session, frozen into a single static page.
+</p>
+
+<a href="https://haoweichan.github.io/kuroshio/">
+  <img src="docs/screenshot.png" alt="Kuroshio demo — the screener ranking a 50-name universe on a real session">
+</a>
 
 Named after the Kuroshio — the Pacific current that carries apex predators past Taiwan.
 
