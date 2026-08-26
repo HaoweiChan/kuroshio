@@ -157,3 +157,60 @@ def test_propose_exits_2_on_invalid_ips(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 2
     assert "version" in out
+
+
+# --- holdings entry state (T3) ------------------------------------------------
+
+
+def test_holdings_from_yaml_pre_t3_file_still_loads(tmp_path):
+    """Old holdings.yml — no entry-state keys — parses unchanged."""
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.08, theme: tech, leverage: 2.0, verdict: buy}\n")
+    assert _holdings_from_yaml(str(f)) == [
+        Holding(ticker="AAPL", weight=0.08, theme="tech", leverage=2.0, verdict="buy")
+    ]
+
+
+def test_holdings_from_yaml_round_trips_entry_state(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text(
+        "- ticker: AAPL\n"
+        "  weight: 0.08\n"
+        "  entry_price: 180.5\n"
+        "  entry_date: 2025-01-15\n"  # unquoted: PyYAML gives a datetime.date
+        "  setup_type: value_dip\n"
+        "  thesis: services margin re-rate\n"
+        "  invalidation_price: 150.0\n"
+    )
+    (h,) = _holdings_from_yaml(str(f))
+    assert (h.entry_price, h.entry_date, h.setup_type) == (180.5, "2025-01-15", "value_dip")
+    assert (h.thesis, h.invalidation_price) == ("services margin re-rate", 150.0)
+
+
+def test_holdings_from_yaml_unknown_key_names_the_key(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.08, entrey_price: 180.5}\n")
+    with pytest.raises(ValueError, match="entrey_price"):
+        _holdings_from_yaml(str(f))
+
+
+def test_holdings_from_yaml_rejects_unknown_setup_type(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.08, setup_type: dip_buy}\n")
+    with pytest.raises(ValueError, match="dip_buy"):
+        _holdings_from_yaml(str(f))
+
+
+def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text("- {ticker: AAPL, weight: 0.08, entrey_price: 180.5}\n")
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "us",
+        ]
+    )
+    assert code == 2
+    assert "entrey_price" in capsys.readouterr().err

@@ -1,0 +1,74 @@
+{
+  "pr": 5,
+  "round": 1,
+  "result": "APPROVED",
+  "gate": "pass — ruff clean, 116 passed",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "MEDIUM",
+      "claim": "The task's target failure mode — a bare TypeError out of `Holding(**item)` — is only fixed for unknown keys; a missing required key (`ticker` or `weight`) still escapes `cmd_propose` as an unhandled TypeError traceback with exit 1.",
+      "evidence": "kuroshio/cli.py:58 (`holdings.append(Holding(**item))`) raises TypeError, and cli.py:249-251 catches only `ValueError`. Input `- {ticker: AAPL}\\n` (a hand-edit that forgot `weight:`) — an extremely realistic holdings.yml typo — produces `TypeError: Holding.__init__() missing 1 required positional argument: 'weight'` as a full traceback, exit code 1, not the exit-2 `error:` path the same function now provides for `entrey_price`.",
+      "repro": "printf -- '- {ticker: AAPL}\\n' > /tmp/h.yml && python -m kuroshio.cli propose --ips examples/ips-balanced.md --holdings /tmp/h.yml --market us  # traceback, exit=1",
+      "acceptance": "A holdings item missing `ticker` or `weight` exits 2 with a message naming the file, the offending entry, and the missing key; covered by a test alongside test_propose_exits_2_on_unknown_holdings_key.",
+      "route": "debt",
+      "route_reason": "Out of scope per pr-loop scope boundary: T3's acceptance names *unknown* keys, not missing ones; gate stays green; no published claim made dishonest (ARCHITECTURE.md says only that an unknown key is an error). Logged as T20.",
+      "debt_id": "T20"
+    },
+    {
+      "id": "R2",
+      "severity": "LOW",
+      "claim": "The new `item.get(...)` guard turns a non-mapping holdings entry into an `AttributeError` traceback before any friendly message can be produced.",
+      "evidence": "kuroshio/cli.py:46 `where = f\"{path}: {item.get('ticker', '?')}\"`. Input `- AAPL\\n` or a top-level mapping `AAPL:\\n  weight: 0.08\\n` yields `AttributeError: 'str' object has no attribute 'get'`, uncaught by the `except ValueError` in cmd_propose. Partially filed as T19, but T19 scoped the fix to candidates.yml and `_load_yaml`.",
+      "repro": "printf -- 'AAPL:\\n  weight: 0.08\\n' > /tmp/h.yml && python -m kuroshio.cli propose --ips examples/ips-balanced.md --holdings /tmp/h.yml --market us",
+      "acceptance": "Non-mapping item / non-list document exits 2 with a message naming the file and what was expected; or T19 is amended to name the holdings loader too.",
+      "route": "debt",
+      "route_reason": "LOW. Resolved by amending T19's acceptance to name `_holdings_from_yaml` explicitly.",
+      "debt_id": "T19"
+    },
+    {
+      "id": "R3",
+      "severity": "LOW",
+      "claim": "`entry_date` is coerced with `str()` but never validated, so both a YAML timestamp-with-time and arbitrary text land in a field documented as \"ISO date\".",
+      "evidence": "kuroshio/cli.py:55-57 and kuroshio/types.py:49 (`entry_date: str | None = None  # ISO date`), docs/ARCHITECTURE.md:68. `entry_date: 2025-01-15 10:30:00` stores `'2025-01-15 10:30:00'` (not an ISO date, and not ISO-8601 datetime either — no `T`); `entry_date: not-a-date` stores `'not-a-date'`. T5/T6 are specified to consume this field.",
+      "repro": "printf -- '- {ticker: A, weight: 0.1, entry_date: not-a-date}\\n' > /tmp/h.yml; `_holdings_from_yaml('/tmp/h.yml')` returns entry_date='not-a-date' with no error.",
+      "acceptance": "Either the comment/doc drop the ISO claim, or the loader rejects a value `datetime.date.fromisoformat` cannot parse with a message naming the ticker and the value; one test case.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. Logged as T21.",
+      "debt_id": "T21"
+    },
+    {
+      "id": "R4",
+      "severity": "LOW",
+      "claim": "Type coercion is applied to dates but not to the two numeric entry fields, so quoted numbers silently become strings in fields typed `float | None`.",
+      "evidence": "kuroshio/cli.py:55-57 coerces only `entry_date`. Input `- {ticker: A, weight: 0.1, entry_price: \"180.5\", invalidation_price: \"150\"}` yields `Holding(entry_price='180.5', invalidation_price='150')` — quoting prices is a common YAML habit, and T7 will do arithmetic on these.",
+      "repro": "printf -- '- {ticker: A, weight: 0.1, entry_price: \"180.5\"}\\n' > /tmp/h.yml; `_holdings_from_yaml` returns a str, no error.",
+      "acceptance": "Numeric-string entry_price/invalidation_price either coerce to float or raise a message naming the ticker and key; one test case.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. Logged as T22.",
+      "debt_id": "T22"
+    },
+    {
+      "id": "R5",
+      "severity": "LOW",
+      "claim": "The error prefix prints the literal `None` instead of the `?` fallback when `ticker` is present but null.",
+      "evidence": "kuroshio/cli.py:46 — `item.get('ticker', '?')` returns None (not '?') for `- {ticker: null, weight: 0.1, bogus: 1}`, producing `…/holdings.yml: None: unknown key 'bogus'`.",
+      "repro": "printf -- '- {ticker: null, weight: 0.1, bogus: 1}\\n' > /tmp/h.yml; `_holdings_from_yaml('/tmp/h.yml')`",
+      "acceptance": "Message reads `?` (or `<no ticker>`) when the ticker is absent or null.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. Logged as T23.",
+      "debt_id": "T23"
+    },
+    {
+      "id": "R6",
+      "severity": "LOW",
+      "claim": "T3's status marker diverges from the convention T2 used at the same lifecycle stage (PR open, awaiting review).",
+      "evidence": "tasks/TODO.md:11 `[status: in-progress]`; the removed T2 block in the same diff read `[status: pr]` while its PR #4 was open.",
+      "repro": "git diff main...task/T3 -- tasks/TODO.md",
+      "acceptance": "T3 carries `[status: pr]` while PR #5 is open, matching the vocabulary already in use.",
+      "route": "debt",
+      "route_reason": "Not a defect: pr-loop sets `in-progress` at IMPLEMENT and `pr` at EVIDENCE. The orchestrator flips it to `pr` in this same round's EVIDENCE step, so no T-id is created.",
+      "debt_id": null
+    }
+  ]
+}

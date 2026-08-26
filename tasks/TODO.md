@@ -8,14 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T2 — Make friction a real gate, not a caption [status: pr]
-Spec: `friction.{tw,us}_roundtrip_pct` is printed on SWAP cards but never compared
-to the score gap (core/allocator/engine.py). ARCHITECTURE.md already describes it
-as a gate. Require `gap >= hurdle + friction_pct` before proposing a swap.
-Acceptance: a swap whose gap clears the hurdle but not hurdle+friction is not
-proposed; existing allocator tests updated; card text still cites friction.
-
-### T3 — Position records with entry state and thesis [status: todo]
+### T3 — Position records with entry state and thesis [status: pr]
 Spec: `Holding` (types.py) carries no entry_price, entry_date, or reason — nothing
 downstream can reason about "why do I own this". Add optional fields: entry_price,
 entry_date, setup_type (enum: value_dip | pullback_add | trend_add | other),
@@ -186,3 +179,60 @@ reasonable number gets an error message that looks wrong. The value is correctly
 rejected; only the explanation misleads.
 Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
+
+### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: todo]
+Origin: T3
+Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
+`error:`/exit-2 path in `cmd_propose`. `_candidates_from_yaml` (cli.py:62) still
+does bare `item["ticker"]` / `item["final_score"]`, so a missing or misspelled key
+raises a context-free `KeyError` traceback out of the CLI, and any other unknown
+key (`fina1_score`, `note`) is silently dropped — the same silent-drop class the
+holdings loader now rejects. `_load_yaml` also assumes a top-level list: a file
+written as a YAML mapping iterates as strings and dies on `item.get`.
+Acceptance: a candidates.yml with a missing/misspelled key exits 2 with a message
+naming the file and the key; a non-list top-level document is rejected with a
+clear message — this covers `_holdings_from_yaml` too, whose `item.get` is the
+line that raises `AttributeError` on a non-mapping entry (`- AAPL`); covered by
+tests alongside the T3 holdings cases.
+
+### T20 — Missing required holdings key still escapes as a bare TypeError [status: todo]
+Origin: PR #5 R1
+Spec: T3 fixed the *unknown*-key TypeError out of `Holding(**item)` (cli.py:58) but
+not the *missing*-key one, and cli.py:249-251 catches only `ValueError`. Input
+`- {ticker: AAPL}` — a hand-edit that forgot `weight:`, an extremely realistic
+holdings.yml typo — produces `TypeError: Holding.__init__() missing 1 required
+positional argument: 'weight'` as a full traceback, exit code 1, not the exit-2
+`error:` path the same function now provides for `entrey_price`. Out of T3's scope
+(its acceptance names unknown keys only), but it is the same line of code.
+Acceptance: a holdings item missing `ticker` or `weight` exits 2 with a message
+naming the file, the offending entry, and the missing key; covered by a test
+alongside test_propose_exits_2_on_unknown_holdings_key.
+
+### T21 — entry_date is coerced but never validated, yet documented as ISO [status: todo]
+Origin: PR #5 R3
+Spec: cli.py:55-57 coerces `entry_date` with `str()` and never validates it, while
+types.py:49 (`entry_date: str | None = None  # ISO date`) and
+docs/ARCHITECTURE.md:68 call it an ISO date. `entry_date: 2025-01-15 10:30:00`
+stores `'2025-01-15 10:30:00'` (not an ISO date, and not ISO-8601 datetime either —
+no `T`); `entry_date: not-a-date` stores `'not-a-date'`. T5/T6 (drawdown-from-entry,
+MAE cards) are specified to consume this field.
+Acceptance: either the comment/doc drop the ISO claim, or the loader rejects a value
+`datetime.date.fromisoformat` cannot parse with a message naming the ticker and the
+value; one test case.
+
+### T22 — Quoted entry_price/invalidation_price stay strings in float fields [status: todo]
+Origin: PR #5 R4
+Spec: cli.py:55-57 coerces dates but not the two numeric entry fields. Input
+`- {ticker: A, weight: 0.1, entry_price: "180.5", invalidation_price: "150"}` yields
+`Holding(entry_price='180.5', invalidation_price='150')` — quoting prices is a common
+YAML habit, and T7 (percent-risk cap from the entry−invalidation distance) will do
+arithmetic on these.
+Acceptance: numeric-string `entry_price`/`invalidation_price` either coerce to float
+or raise a message naming the ticker and the key; one test case.
+
+### T23 — Null ticker prints `None` instead of the `?` fallback [status: todo]
+Origin: PR #5 R5
+Spec: cli.py:46 `item.get('ticker', '?')` returns None (not `'?'`) when the key is
+present but null, so `- {ticker: null, weight: 0.1, bogus: 1}` produces
+`holdings.yml: None: unknown key 'bogus'`.
+Acceptance: the message reads `?` (or `<no ticker>`) when the ticker is absent or null.

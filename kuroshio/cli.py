@@ -11,6 +11,7 @@ if it's missing.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime
 import json
 import os
@@ -18,7 +19,7 @@ import sys
 from pathlib import Path
 
 from kuroshio.core.screening import PROFILES, get_profile
-from kuroshio.types import Candidate, Holding
+from kuroshio.types import SETUP_TYPES, Candidate, Holding
 
 
 def _parse_tickers(tickers: str | None, tickers_file: str | None) -> list[str]:
@@ -39,7 +40,23 @@ def _load_yaml(path: str):
 
 
 def _holdings_from_yaml(path: str) -> list[Holding]:
-    return [Holding(**item) for item in _load_yaml(path)]
+    known = {f.name for f in dataclasses.fields(Holding)}
+    holdings = []
+    for item in _load_yaml(path):
+        where = f"{path}: {item.get('ticker', '?')}"
+        for key in item:
+            if key not in known:
+                raise ValueError(f"{where}: unknown key {key!r} (expected one of {sorted(known)})")
+        if item.get("setup_type") is not None and item["setup_type"] not in SETUP_TYPES:
+            raise ValueError(
+                f"{where}: unknown setup_type {item['setup_type']!r} "
+                f"(expected one of {list(SETUP_TYPES)})"
+            )
+        if item.get("entry_date") is not None:
+            # unquoted `2025-01-15` comes back from PyYAML as a datetime.date; the field is ISO str
+            item["entry_date"] = str(item["entry_date"])
+        holdings.append(Holding(**item))
+    return holdings
 
 
 def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], dict[str, str]]:
@@ -227,7 +244,11 @@ def cmd_propose(args: argparse.Namespace) -> int:
             print(p)
         return 2
 
-    holdings = _holdings_from_yaml(args.holdings)
+    try:
+        holdings = _holdings_from_yaml(args.holdings)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     challengers, verdicts, themes = [], {}, {}
     if args.candidates:
         challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
