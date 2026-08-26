@@ -8,14 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T2 — Make friction a real gate, not a caption [status: pr]
-Spec: `friction.{tw,us}_roundtrip_pct` is printed on SWAP cards but never compared
-to the score gap (core/allocator/engine.py). ARCHITECTURE.md already describes it
-as a gate. Require `gap >= hurdle + friction_pct` before proposing a swap.
-Acceptance: a swap whose gap clears the hurdle but not hurdle+friction is not
-proposed; existing allocator tests updated; card text still cites friction.
-
-### T3 — Position records with entry state and thesis [status: todo]
+### T3 — Position records with entry state and thesis [status: in-progress]
 Spec: `Holding` (types.py) carries no entry_price, entry_date, or reason — nothing
 downstream can reason about "why do I own this". Add optional fields: entry_price,
 entry_date, setup_type (enum: value_dip | pullback_add | trend_add | other),
