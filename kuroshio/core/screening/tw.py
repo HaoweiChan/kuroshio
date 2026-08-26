@@ -246,5 +246,10 @@ def score_names(panel: Panel, tickers: Sequence[str], asof: str | None = None) -
     deliberately the SAME scoring path as ``screen`` (just gate=False) so a
     challenger's ``final_score`` and an incumbent's ``score`` stay comparable on
     the same scale; do not fork a separate ranking formula here.
+
+    Same scale means the same CROSS-SECTION, not just the same formula: ``pctrank``
+    ranks within whatever pool it is handed, so two numbers are only subtractable if
+    both came out of one call. Rank everyone in one ``score_names`` pass and use
+    ``screen`` for eligibility if you need a gate (see ``cli.py:_score_missing``).
     """
     return _screen_or_score(panel, asof, gate=False, tickers=tickers)

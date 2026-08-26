@@ -228,25 +228,41 @@ def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
 #
 # No network: a stub provider is injected by monkeypatching the lazily-imported
 # `kuroshio.providers.get_provider` that cmd_propose resolves at call time.
-
 N_TW = 65  # TW profile needs MA60 -> 60 sessions of clean history
+HURDLE = 0.15  # examples/ips-balanced.md turnover.hurdle
+
+# 8 names, monotone ramps: 8 is exactly the cross-section floor `_score_missing`
+# derives from a 0.15 hurdle, so a smaller pool refuses to auto-fill anything.
+_SPECS = {
+    "1101": (50.0, 80.0),    # mild uptrend
+    "1102": (50.0, 150.0),   # strongest name in the panel
+    "1103": (120.0, 60.0),   # downtrend
+    "1104": (150.0, 60.0),   # steeper downtrends -> the tail of the cross-section
+    "1105": (200.0, 60.0),
+    "1106": (250.0, 60.0),
+    "1107": (300.0, 60.0),
+    "1108": (350.0, 60.0),
+}
+# TW Stage-1 needs a >1.5x last-session volume spike, so this dict IS the gate list.
+_VOL_SPIKE = {"1101": 1_800_000.0, "1102": 3_000_000.0}
 
 
 def _ramp(lo: float, hi: float) -> list[float]:
     return [lo + (hi - lo) * i / (N_TW - 1) for i in range(N_TW)]
 
 
-def _tw_panel() -> Panel:
-    """1102 = strongest breakout, 1101 = mild uptrend, 1103 = downtrend (fails Stage-1)."""
+def _tw_panel(vol_spike: dict[str, float] | None = None) -> Panel:
     dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=N_TW)]
-    close = pd.DataFrame(
-        {"1101": _ramp(50.0, 80.0), "1102": _ramp(50.0, 150.0), "1103": _ramp(120.0, 60.0)},
-        index=dates,
-    )
+    close = pd.DataFrame({t: _ramp(*lohi) for t, lohi in _SPECS.items()}, index=dates)
     volume = pd.DataFrame({t: [1_000_000.0] * N_TW for t in close.columns}, index=dates)
-    volume.loc[dates[-1], "1101"] = 1_800_000.0   # 1.8x baseline -> clears VOL_MULT_MIN
-    volume.loc[dates[-1], "1102"] = 3_000_000.0   # 3x baseline
+    for ticker, vol in (_VOL_SPIKE if vol_spike is None else vol_spike).items():
+        volume.loc[dates[-1], ticker] = vol
     return Panel(close=close, volume=volume)
+
+
+def _holdings_yaml(path: Path, tickers, tail: str = "") -> Path:
+    path.write_text("".join(f'- {{ticker: "{t}", weight: 0.05{tail}}}\n' for t in tickers))
+    return path
 
 
 class _StubProvider:
@@ -261,17 +277,18 @@ class _StubProvider:
         return self.panel
 
 
-def _use_stub(monkeypatch) -> _StubProvider:
-    stub = _StubProvider(_tw_panel())
+def _use_stub(monkeypatch, panel: Panel | None = None) -> _StubProvider:
+    stub = _StubProvider(_tw_panel() if panel is None else panel)
     monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: stub)
     return stub
 
 
 def test_propose_scores_score_less_holdings_via_provider(tmp_path, capsys, monkeypatch):
-    """Acceptance: a score-less holdings.yml produces scored cards end-to-end."""
+    """Acceptance: a score-less holdings.yml produces scored cards end-to-end — and the
+    weakest incumbent's auto-filled score is a real interior percentile of the whole
+    cross-section, not the 0.000 a holdings-only pool hands its own last name (R2)."""
     stub = _use_stub(monkeypatch)
-    holdings = tmp_path / "holdings.yml"
-    holdings.write_text('- {ticker: "1101", weight: 0.05}\n- {ticker: "1103", weight: 0.05}\n')
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", [t for t in _SPECS if t != "1102"])
     candidates = tmp_path / "candidates.yml"
     candidates.write_text('- {ticker: "1102", final_score: 0.90, verdict: buy}\n')
 
@@ -287,34 +304,68 @@ def test_propose_scores_score_less_holdings_via_provider(tmp_path, capsys, monke
     out = capsys.readouterr().out
     assert code == 0
     assert "No current holding has a screener score" not in out
-    assert "SWAP 1103 → 1102" in out
-    assert set(stub.calls[0][0]) == {"1101", "1102", "1103"}
+    assert "SWAP 1108 → 1102" in out
+    assert "incumbent 1108's 0.119" in out
+    assert set(stub.calls[0][0]) == set(_SPECS)
 
 
 def test_score_missing_keeps_hand_written_scores_per_name():
     """Acceptance: hand-written scores still win; only the absent ones get filled."""
     profile = get_profile("tw")
-    holdings = [
-        Holding(ticker="1101", weight=0.05, score=0.123),  # hand-typed, must survive
-        Holding(ticker="1103", weight=0.05),               # absent -> screener fills it
-    ]
-    challengers = _score_missing(holdings, [], profile, _tw_panel())
+    holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
+    holdings[0].score = 0.123  # hand-typed, must survive
+    challengers = _score_missing(holdings, [], profile, _tw_panel(), HURDLE)
     assert challengers == []
     assert holdings[0].score == 0.123
-    assert holdings[1].score is not None
+    assert all(h.score is not None for h in holdings[1:])
 
 
-def test_propose_scores_candidates_through_the_gated_screener(tmp_path, capsys, monkeypatch):
-    """Candidates with no final_score go through the GATED screen — a name that
-    fails Stage-1 gets no score and is therefore not a challenger."""
+def test_score_missing_scores_one_ticker_identically_in_both_roles():
+    """R1: incumbent and challenger scores come from ONE cross-section, so the same
+    ticker in both roles is the same number — the scale the swap gate subtracts on."""
+    profile = get_profile("tw")
+    holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
+    challenger = Candidate(ticker="1101", date="2024-01-01", rank=0, final_score=None)
+    kept = _score_missing(holdings, [challenger], profile, _tw_panel(), HURDLE)
+    incumbent = next(h.score for h in holdings if h.ticker == "1101")
+    assert kept[0].final_score == incumbent
+    assert 0.0 < incumbent < 1.0  # a real rank, not an artifact of a 2-name pool
+
+
+@pytest.mark.parametrize("tickers", [["1103"], ["1101", "1103"]])
+def test_propose_refuses_to_auto_fill_a_cross_section_too_small_to_rank(
+    tmp_path, capsys, monkeypatch, tickers
+):
+    """R2: below the pool floor the percentile is an artifact — the weakest of two names
+    is 0.000 by construction — so nothing is filled and the honest ALERT stands."""
     _use_stub(monkeypatch)
-    holdings = tmp_path / "holdings.yml"
-    holdings.write_text('- {ticker: "1101", weight: 0.05, score: 0.10}\n')
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
     candidates = tmp_path / "candidates.yml"
-    candidates.write_text(
-        '- {ticker: "1102", verdict: buy}\n'
-        '- {ticker: "1103", verdict: buy}\n'  # downtrend -> Stage-1 rejects, dropped
+    candidates.write_text('- {ticker: "1102", final_score: 0.90, verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
     )
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "SWAP" not in cap.out
+    assert "No current holding has a screener score" in cap.out
+    assert "cross-section" in cap.err
+
+
+def test_propose_swaps_for_the_only_gate_passing_challenger(tmp_path, capsys, monkeypatch):
+    """R3: a lone Stage-1 passer is ranked against the whole cross-section — pctranking
+    it against itself returns 0.000 and drops a genuine breakout in silence."""
+    _use_stub(monkeypatch, _tw_panel(vol_spike={"1102": 3_000_000.0}))
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", [t for t in _SPECS if t != "1102"])
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1102", verdict: buy}\n')
 
     code = main(
         [
@@ -327,9 +378,60 @@ def test_propose_scores_candidates_through_the_gated_screener(tmp_path, capsys, 
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "SWAP 1101 → 1102" in out
-    assert "1103" not in out
-    assert "incumbent 1101's 0.100" in out  # the hand-typed score, untouched
+    assert "SWAP 1108 → 1102" in out
+    assert "Challenger 1102 scores 1.000" in out
+
+
+def test_propose_reports_candidates_the_gate_dropped(tmp_path, capsys, monkeypatch):
+    """Candidates with no final_score are eligible only if they pass Stage-1 — and the
+    ones the gate drops are named on stderr instead of vanishing (R5)."""
+    _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1101", weight: 0.05, score: 0.10}\n'
+        + "".join(f'- {{ticker: "{t}", weight: 0.05, score: 0.50}}\n' for t in list(_SPECS)[3:])
+    )
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text(
+        '- {ticker: "1102", verdict: buy}\n'
+        '- {ticker: "1103", verdict: buy}\n'  # downtrend -> Stage-1 rejects it
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "SWAP 1101 → 1102" in cap.out
+    assert "incumbent 1101's 0.100" in cap.out  # the hand-typed score, untouched
+    assert "1103" not in cap.out
+    assert "1103" in cap.err and "Stage-1" in cap.err
+
+
+def test_propose_exits_2_on_unknown_candidates_key(tmp_path, capsys):
+    """R4: `final_scores:` is a typo, not a request for a fetched score."""
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1101", weight: 0.05, score: 0.40}\n')
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1102", final_scores: 0.90, verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    assert code == 2
+    assert "final_scores" in capsys.readouterr().err
 
 
 def test_propose_never_fetches_when_every_score_is_hand_written(tmp_path, capsys, monkeypatch):

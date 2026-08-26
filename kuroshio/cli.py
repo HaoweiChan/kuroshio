@@ -14,6 +14,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -59,19 +60,30 @@ def _holdings_from_yaml(path: str) -> list[Holding]:
     return holdings
 
 
+# candidates.yml is not a Candidate dump: `verdict`/`theme` are separate maps the
+# allocator takes, and the computed fields (date/rank/scores/...) are not user input.
+_CANDIDATE_KEYS = ("ticker", "final_score", "verdict", "theme")
+
+
 def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], dict[str, str]]:
     today = datetime.date.today().isoformat()
     candidates: list[Candidate] = []
     verdicts: dict[str, str] = {}
     themes: dict[str, str] = {}
     for item in _load_yaml(path):
+        where = f"{path}: {item.get('ticker', '?')}"
+        for key in item:
+            if key not in _CANDIDATE_KEYS:
+                raise ValueError(
+                    f"{where}: unknown key {key!r} (expected one of {sorted(_CANDIDATE_KEYS)})"
+                )
         ticker = item["ticker"]
         if item.get("verdict") is not None:
             verdicts[ticker] = item["verdict"]
         if item.get("theme") is not None:
             themes[ticker] = item["theme"]
-        # final_score may be absent — cmd_propose fills it from the gated screener
-        # (and drops whatever the gate rejected) before any Candidate reaches propose().
+        # final_score may be absent — cmd_propose ranks it with the rest of the file and
+        # drops (loudly) whatever Stage-1 rejects, before any Candidate reaches propose().
         candidates.append(Candidate(ticker=ticker, date=today, rank=0, final_score=item.get("final_score")))
     return candidates, verdicts, themes
 
@@ -235,30 +247,59 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # --- propose -------------------------------------------------------------
 
 
-def _score_missing(holdings: list[Holding], challengers: list[Candidate], profile, panel):
+def _score_missing(
+    holdings: list[Holding], challengers: list[Candidate], profile, panel, hurdle: float
+):
     """Fill in the scores the user didn't hand-type, and return the surviving challengers.
 
-    Incumbents go through the market's ungated ``score_names``, challengers through
-    the gated ``screen`` — that split is the scale-compatibility contract documented
-    on ``core/screening/us.py:score_names``. Hand-written scores win: this only ever
-    fills a ``None``, per name. A challenger the Stage-1 gate rejected gets no score
-    and is therefore not a challenger.
+    ONE cross-section for everybody: every ticker in the input files is ranked once by
+    the market's ungated ``score_names``, so an incumbent's ``score`` and a challenger's
+    ``final_score`` are literally the same number for the same name — the scale the swap
+    gate is allowed to subtract on (the contract on ``core/screening/us.py:score_names``).
+    The gated ``screen`` decides challenger *eligibility* only: a name Stage-1 rejects is
+    not a challenger, and is reported rather than dropped in silence.
+
+    ``pctrank`` grids a pool of n names at 1/(n-1). When that step is >= the IPS turnover
+    hurdle, any rank difference clears the hurdle by construction and the gap says nothing
+    about the factors — a sole holding is 0.000 no matter how strong it is. Below that pool
+    size nothing is auto-filled: the allocator's "no holding has a screener score" ALERT is
+    a refusal, and a refusal beats a fabricated number on a card.
     """
-    if any(h.score is None for h in holdings):
-        # every incumbent, not just the unscored ones — pctrank is cross-sectional,
-        # so the wider the pool the more stable the scores it fills in.
-        scored = profile.score_names(panel, tickers=[h.ticker for h in holdings])
-        scores = {c.ticker: c.final_score for c in scored}
-        for h in holdings:
-            if h.score is None:
-                h.score = scores.get(h.ticker)
-    if any(c.final_score is None for c in challengers):
-        scores = {c.ticker: c.final_score for c in profile.screen(panel)}
-        for c in challengers:
-            if c.final_score is None:
-                c.final_score = scores.get(c.ticker)
-        challengers = [c for c in challengers if c.final_score is not None]
-    return challengers
+    names = list(dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers]))
+    ranked = {c.ticker: c.final_score for c in profile.score_names(panel, tickers=names)}
+    # ponytail: the floor uses the bare hurdle, not the allocator's hurdle + friction/100
+    # — conservative by a hair and it keeps the friction math in one place.
+    floor = math.floor(1 / hurdle) + 2
+    if len(ranked) < floor:
+        print(
+            f"notice: {len(ranked)} name(s) in your files is too small a cross-section to "
+            f"percentile-rank (a turnover hurdle of {hurdle:.3f} needs {floor}); no score "
+            f"was auto-filled — hand-type one, or list more names.",
+            file=sys.stderr,
+        )
+        ranked = {}
+    eligible = {c.ticker for c in profile.screen(panel)}
+
+    for h in holdings:
+        if h.score is None:
+            h.score = ranked.get(h.ticker)
+
+    kept, dropped = [], []
+    for c in challengers:
+        if c.final_score is None:
+            if c.ticker not in eligible or c.ticker not in ranked:
+                dropped.append(c.ticker)
+                continue
+            c.final_score = ranked[c.ticker]
+        kept.append(c)
+    if dropped:
+        why = "did not pass the Stage-1 gate" if ranked else "could not be auto-scored"
+        print(
+            f"notice: {len(dropped)} candidate(s) had no hand-typed final_score and "
+            f"{why}: {', '.join(dropped)}",
+            file=sys.stderr,
+        )
+    return kept
 
 
 def cmd_propose(args: argparse.Namespace) -> int:
@@ -273,14 +314,14 @@ def cmd_propose(args: argparse.Namespace) -> int:
             print(p)
         return 2
 
+    challengers, verdicts, themes = [], {}, {}
     try:
         holdings = _holdings_from_yaml(args.holdings)
+        if args.candidates:
+            challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    challengers, verdicts, themes = [], {}, {}
-    if args.candidates:
-        challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
 
     # The user is no longer the integration layer: anything without a hand-typed
     # score gets one from the screener. No missing score -> no fetch, no network.
@@ -304,8 +345,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
             return 2
         # ponytail: latest session only, and no sector_map for `us` (that factor
         # renormalizes away) — add --asof/--sector-map here when propose needs to
-        # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T26.
-        challengers = _score_missing(holdings, challengers, profile, panel)
+        # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
+        challengers = _score_missing(holdings, challengers, profile, panel, ips.turnover.hurdle)
 
     cards = propose(
         holdings, challengers, ips, args.market,

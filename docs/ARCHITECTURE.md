@@ -200,12 +200,20 @@ argparse, three subcommands (v1):
 - `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
   `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
 - `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
-  cards to stdout. A `score:` / `final_score:` missing from the input files is filled from the
-  screener (incumbents via `score_names`, challengers via the gated `screen`, one fetch through
-  the market's provider); hand-written values always win, per name. Every score hand-typed = no fetch.
+  cards to stdout. A `score:` / `final_score:` missing from the input files is filled from one
+  ungated `score_names` cross-section over *the tickers in those files* (one fetch through the
+  market's provider); the gated `screen` decides challenger eligibility only, and names it drops
+  are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
+  the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
+  auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30); below a pool size of
+  `floor(1/turnover.hurdle) + 2` — where pctrank's 1/(n-1) step alone would clear the hurdle —
+  nothing is filled and the allocator's ALERT stands. Hand-written values always win, per name.
+  Every score hand-typed = no fetch.
 - `kuroshio ips-validate path.md`
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
+`candidates.yml`: list of {ticker, final_score?, verdict?, theme?} — same rule (`final_scores:` is a typo, not a request to fetch one).
 
 ## What deliberately does not exist yet (YAGNI)
 

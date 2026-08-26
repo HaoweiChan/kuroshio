@@ -170,15 +170,14 @@ rejected; only the explanation misleads.
 Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
 
-### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: todo]
+### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: partial]
 Origin: T3
 Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
-`error:`/exit-2 path in `cmd_propose`. `_candidates_from_yaml` (cli.py:62) still
-does bare `item["ticker"]` / `item["final_score"]`, so a missing or misspelled key
-raises a context-free `KeyError` traceback out of the CLI, and any other unknown
-key (`fina1_score`, `note`) is silently dropped — the same silent-drop class the
-holdings loader now rejects. `_load_yaml` also assumes a top-level list: a file
-written as a YAML mapping iterates as strings and dies on `item.get`.
+`error:`/exit-2 path in `cmd_propose`. PR #6 R4 gave `_candidates_from_yaml` the
+same unknown-key check and routed it through the same exit-2 path; what is left is
+the *missing*-key half — bare `item["ticker"]` still raises a context-free
+`KeyError` traceback out of the CLI. `_load_yaml` also assumes a top-level list: a
+file written as a YAML mapping iterates as strings and dies on `item.get`.
 Acceptance: a candidates.yml with a missing/misspelled key exits 2 with a message
 naming the file and the key; a non-list top-level document is rejected with a
 clear message — this covers `_holdings_from_yaml` too, whose `item.get` is the
@@ -282,3 +281,19 @@ Pre-existing shape, newly reproduced on the propose surface.
 Acceptance: `except (ImportError, ValueError)` (or `choices=sorted(_REGISTRY)`) so an
 unknown provider exits 2 with the message on stderr, in all three commands.
 
+### T30 — auto-filled scores are percentiles within the user's own files [status: todo]
+Origin: PR #6 R2
+Spec: PR #6 put incumbents and challengers on one cross-section and added a pool
+floor (`floor(1/turnover.hurdle) + 2` names in cli.py `_score_missing`), which
+stops the smallest fabrications — a sole holding scoring 0.000, a lone challenger
+scoring 0.000. It does not make the number mean anything outside the file: pctrank
+still hands the best of your own names 1.000 and the worst 0.000, so a swap gap
+computed from auto-filled scores measures rank-within-your-portfolio, not strength
+within a market, and it moves when you add a ticker to the file. The floor is also
+a usability cliff — under a 0.15 hurdle a 7-name portfolio can never auto-fill.
+The real fix is a cross-section that is a universe: score against a `--universe`
+ticker file (or a cached `kuroshio screen` run's scores) and read the incumbent's
+and challenger's percentiles out of that, or give the screener an absolute score.
+Acceptance: an auto-filled score for a name is unchanged by adding an unrelated
+ticker to holdings.yml, and a 2-name portfolio gets real scores against the
+universe rather than a refusal; the pool floor and its notice can then go.
