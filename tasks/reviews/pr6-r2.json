@@ -1,0 +1,46 @@
+{
+  "pr": 6,
+  "round": 2,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass — ruff clean, 126 passed",
+  "round1_findings_resolved": [
+    "R1",
+    "R2",
+    "R3",
+    "R4",
+    "R5",
+    "R6"
+  ],
+  "findings": [
+    {
+      "id": "R10",
+      "severity": "MEDIUM",
+      "claim": "The pool floor is derived from pctrank's *adjacent* step 1/(n-1), but the swap gate subtracts pool-max minus pool-min of a composite score, so at and just above the floor propose still prints a large policy-clearing gap for names that are indistinguishable — contradicting the new docstring/ARCHITECTURE claim that only *below* the floor \"the gap says nothing about the factors\".",
+      "evidence": "kuroshio/cli.py:270 `floor = math.floor(1 / hurdle) + 2` with the justification at kuroshio/cli.py:262-266 and docs/ARCHITECTURE.md:203-210. Input: 8 TW names (the exact floor for hurdle 0.15) whose last closes are 150.01…150.08 (0.007% apart), 7 held + 1 gate-passing candidate. Output: `Challenger 1108 scores 1.000 vs incumbent 1101's 0.143 — a gap of 0.857, above your IPS turnover hurdle of 0.150`. Two separate derivation errors: (a) the extremes of any pctrank pool are 0.0/1.0 regardless of dispersion, so the number the gate actually consumes is unaffected by the floor; (b) TW `final_score` is the mean of 3 pctranks (kuroshio/core/screening/tw.py:_screen_or_score + score.py:weighted_score), so its smallest non-zero step is 1/(3(n-1)) = 0.111 at n=4, i.e. the \"any rank difference clears the hurdle by construction\" premise is already false well below 8 — the floor is simultaneously over-restrictive (T30's 7-name cliff) and under-protective.",
+      "repro": "scratchpad/r10.py — 8 names 0.007% apart, prints `SWAP 1101 → 1108 … a gap of 0.857`",
+      "acceptance": "Either the docstring at kuroshio/cli.py:262-266 and docs/ARCHITECTURE.md stop implying the floor makes an auto-filled gap factor-meaningful (and the card itself, not only README, marks a gap built from auto-filled scores as a rank distance within your own files), or the floor is derived from the max-min artifact the gate actually uses — plus a test with a tight-dispersion pool at/above the floor pinning the expected behaviour.",
+      "route": "repair",
+      "route_reason": "Dishonest claim: cli.py's own docstring and docs/ARCHITECTURE.md assert the floor makes an auto-filled gap factor-meaningful, and the card prints a 0.857 gap for names 0.007% apart. Document of record plus a published number."
+    },
+    {
+      "id": "R11",
+      "severity": "MEDIUM",
+      "claim": "The floor value that carries the entire R2 fix is not pinned by any test: every refusal test uses a pool of 1 or 2 names, so any floor from 3 to 8 keeps the suite green — including `floor(1/hurdle)`, which re-admits exactly the artifact R2 reported.",
+      "evidence": "tests/test_cli.py::test_propose_refuses_to_auto_fill_a_cross_section_too_small_to_rank is parametrized only over `[\"1103\"]` and `[\"1101\",\"1103\"]`; the only above-floor fixture `_SPECS` is exactly 8 names. Mutating kuroshio/cli.py:270 to `floor = math.floor(1 / hurdle)` (and to `+ 1`) leaves `126 passed`, while a 7-name pool then produces `SWAP 1101 → 1107 … a gap of 0.861, above your IPS turnover hurdle of 0.150` — the same fabricated gap R2 asked to be refused (the shipped code correctly prints the ALERT for that input).",
+      "repro": "mutate kuroshio/cli.py:270 to `math.floor(1 / hurdle)` then `pytest tests/ -q` → 126 passed; then scratchpad/r12.py (7 names) → SWAP instead of ALERT",
+      "acceptance": "A test at the boundary — a 7-name score-less pool under the 0.15 hurdle asserting the refusal notice and the ALERT, alongside the existing 8-name pool that must score — so that changing the `+ 2` goes red.",
+      "route": "repair",
+      "route_reason": "The REPAIR hard rule requires every confirmed finding to become a failing gate case. The constant carrying the whole R2 fix is unpinned — mutating it keeps the suite green and re-admits R2's artifact, so R2 is not actually covered by the gate."
+    },
+    {
+      "id": "R12",
+      "severity": "LOW",
+      "claim": "The new drop notice misattributes the reason for any candidate the provider returned no data for: a ticker absent from the fetched panel is reported as having failed the Stage-1 gate, and the holdings-side equivalent is not reported at all.",
+      "evidence": "kuroshio/cli.py:295 `why = \"did not pass the Stage-1 gate\" if ranked else \"could not be auto-scored\"` — the branch keys off whether the *pool* was ranked, not off why *this* name is missing. With the 8-name panel and `candidates.yml` containing `- {ticker: \"9999\", verdict: buy}` (typo/delisted, never in the panel), stderr says `notice: 1 candidate(s) had no hand-typed final_score and did not pass the Stage-1 gate: 9999`. Mirror case: a holding `9999` in the same run gets `h.score = ranked.get(...) → None` at kuroshio/cli.py:283 and is silently excluded from ranking with no notice, against the same block's stated \"reported rather than dropped in silence\" principle.",
+      "repro": "scratchpad/r11.py",
+      "acceptance": "Split the reason per name (`not in ranked` → \"no price data returned by the provider\", `not in eligible` → \"did not pass the Stage-1 gate\"), report unscorable holdings on stderr too, and a test asserting the no-data wording for a ticker the stub panel does not contain.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. -> T31."
+    }
+  ]
+}
