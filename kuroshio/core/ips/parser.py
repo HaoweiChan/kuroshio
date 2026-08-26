@@ -121,6 +121,16 @@ def validate(ips: IPS) -> list[str]:
     if not (0 < ips.turnover.hurdle < 1):
         problems.append(f"turnover.hurdle ({ips.turnover.hurdle}) must be in (0, 1)")
 
+    # the allocator adds these to the hurdle as friction/100, so a bad value doesn't just
+    # crash — nan makes the gate accept every gap, inf reject every gap, and a negative
+    # buys swaps the user's own hurdle refuses. At 100% round-trip cost the score-equivalent
+    # is 1.0, already the widest gap two 0..1 scores can have, so the gate is dead above it.
+    # The type test comes first: `0 <= "0.585" < 100` raises rather than returning False.
+    for f in ("tw_roundtrip_pct", "us_roundtrip_pct"):
+        v = getattr(ips.friction, f)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v < 100):
+            problems.append(f"friction.{f} ({v!r}) must be a percent in [0, 100)")
+
     if ips.turnover.verdict_floor.lower() not in VERDICT_ORDER:
         problems.append(
             f"turnover.verdict_floor: unknown verdict {ips.turnover.verdict_floor!r} "

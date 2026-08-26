@@ -93,6 +93,10 @@ def propose(
         floor = ips.turnover.verdict_floor
         friction_field = "tw_roundtrip_pct" if market.lower() == "tw" else "us_roundtrip_pct"
         friction_pct = getattr(ips.friction, friction_field)
+        # friction_pct is a percentage (0.585 == 0.585%) while hurdle and gap live in
+        # score space (0..1), so /100 converts it to the score-equivalent ARCHITECTURE.md
+        # asks for before it can be added to the hurdle.
+        hurdle = ips.turnover.hurdle + friction_pct / 100
         # strongest challenger picks first — caller order must not decide who
         # gets the weakest incumbent
         for c in sorted(challengers, key=lambda c: c.final_score, reverse=True):
@@ -108,7 +112,7 @@ def propose(
                 continue
             incumbent = min(pool, key=lambda h: h.score)
             gap = c.final_score - incumbent.score
-            if gap < ips.turnover.hurdle:
+            if gap < hurdle:
                 continue
             used.add(incumbent.ticker)
             swaps.append(ProposalCard(
@@ -118,9 +122,9 @@ def propose(
                 reason=(
                     f"Challenger {c.ticker} scores {c.final_score:.3f} vs incumbent "
                     f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
-                    f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f}. {c.ticker}'s "
-                    f"verdict is '{verdict}', at or above your floor of '{floor}'. Estimated "
-                    f"round-trip friction: {friction_pct:.3f}%."
+                    f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
+                    f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
+                    f"'{verdict}', at or above your floor of '{floor}'."
                 ),
                 ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
                 score_gap=gap,
