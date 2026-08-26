@@ -1,0 +1,20 @@
+{
+  "pr": 4,
+  "round": 3,
+  "task": "T2",
+  "result": "APPROVED",
+  "standing_findings_closed": ["R1"],
+  "findings": [
+    {
+      "id": "R7",
+      "severity": "LOW",
+      "route": "debt",
+      "claim": "The repair replaced the type-specific message with a single range message, so a wrong-*type* friction value is now reported with a rule its own printed value satisfies — `friction.tw_roundtrip_pct ('0.585') must be a percent in [0, 100)`.",
+      "evidence": "kuroshio/core/ips/parser.py:131-132 — one message covers three distinct rejections (bool, non-numeric, out-of-range). Reachable inputs: `tw_roundtrip_pct: \"0.585\"` (quoted in YAML) and `tw_roundtrip_pct: 1e-3` (PyYAML 1.1 resolves the no-dot exponent form to the string `'1e-3'`) both emit \"must be a percent in [0, 100)\" even though 0.585 and 0.001 are in [0, 100). Round-1's text (\"must be a number (percent, e.g. 0.585)\") named the actual failure.",
+      "repro": "parse_ips with `tw_roundtrip_pct: 1e-3` then validate() -> [\"friction.tw_roundtrip_pct ('1e-3') must be a percent in [0, 100)\"]. Orchestrator confirmed: both `\"0.585\"` and `1e-3` parse as str and produce the range message; bare 0.585 parses as float and validates.",
+      "acceptance": "The message distinguishes the type failure from the range failure (e.g. keep 'must be a number (percent, e.g. 0.585)' when the isinstance test is what fired), with test_validate_catches_bad_friction asserting the two texts differ for `\"0.585\"` vs `-10.0`.",
+      "route_reason": "LOW. The value is correctly rejected — only the explanation is wrong. Acceptance criteria met, gate green, and a runtime error message for a malformed config is not a published number or a document of record. Logged as T18."
+    }
+  ],
+  "gate": {"ruff": "pass", "pytest": "111 passed", "run_by": "orchestrator", "date": "2026-08-27"}
+}

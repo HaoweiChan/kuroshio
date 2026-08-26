@@ -8,16 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T1 — Accept `Hold` in the verdict ladder [status: pr]
-Spec: LLM agents emit `Hold` (agents/engine/agents/schemas.py PortfolioRating) but
-`VERDICT_ORDER` in core/ips/schema.py only knows `neutral`, so `verdict_at_least`
-silently returns False and a researched `Hold` challenger is rejected while an
-unresearched name passes the default floor. Map `hold` → `neutral` (alias, not a
-sixth rung).
-Acceptance: `verdict_at_least("Hold", "neutral")` is True; a test proves a
-`Hold`-rated challenger passes a `neutral` floor and fails an `overweight` floor.
-
-### T2 — Make friction a real gate, not a caption [status: todo]
+### T2 — Make friction a real gate, not a caption [status: pr]
 Spec: `friction.{tw,us}_roundtrip_pct` is printed on SWAP cards but never compared
 to the score gap (core/allocator/engine.py). ARCHITECTURE.md already describes it
 as a gate. Require `gap >= hurdle + friction_pct` before proposing a swap.
@@ -137,3 +128,61 @@ of bug T1 was written to close, one layer out.
 Acceptance: a challenger whose verdict string is unrecognized (not merely
 low-rated) surfaces a visible ALERT card rather than vanishing; whitespace-padded
 verdicts rank correctly, covered by a test case.
+
+### T14 — Unknown market strings silently take the cheaper US friction [status: todo]
+Origin: PR #4 R3
+Spec: core/allocator/engine.py:94 picks friction with
+`"tw_roundtrip_pct" if market.lower() == "tw" else "us_roundtrip_pct"`. Since T2
+that choice is a real gate, not a caption, so `' tw'`, `'twse'`, `'jp'`, `'hk'`
+and `''` all silently gate at the 0.02% US number and the card cites
+`friction.us_roundtrip_pct` for a non-US trade. `propose()` is a documented public
+entry point (docs/ARCHITECTURE.md:144) and docs/adding-a-market.md walks
+contributors through adding a `jp` market; the CLI's `choices=["us","tw"]`
+(cli.py:373) is the only thing currently containing it.
+Acceptance: an unrecognized market normalizes or raises explicitly rather than
+defaulting to the cheapest friction, covered by a test using a market string that
+is neither 'us' nor 'tw'.
+
+### T15 — Gap exactly equal to the friction threshold is rejected [status: todo]
+Origin: PR #4 R4
+Spec: the gate is `if gap < hurdle` where `hurdle = ips.turnover.hurdle +
+friction_pct / 100`, so a gap exactly equal to the threshold should be proposed
+per the spec's `>=`. Float representation defeats it: with hurdle 0.15 and TW
+friction 0.585 the threshold is 0.15585, while a challenger at 0.55585 against an
+incumbent at 0.40 gives a gap of 0.15584999999999993 and is rejected.
+Acceptance: the boundary is decided deliberately (an epsilon, or rounding to score
+precision) and pinned by a test asserting what happens when the gap equals
+hurdle + friction/100 exactly.
+
+### T16 — Refresh the demo screenshot after the card-text change [status: todo]
+Origin: PR #4 R2
+Spec: PR #4 regenerated the README sample card and the five `demo-data` reason
+strings in docs/index.html from a live `propose()` run, but
+docs/screenshot-proposals.png still renders the pre-T2 wording ("Estimated
+round-trip friction: 0.020%."). It was left stale deliberately — it is the only
+member of that artifact set that cannot be regenerated from code. The cards
+themselves are unchanged; only the reason text drifted.
+Acceptance: docs/screenshot-proposals.png shows the current card text, and the
+README alt text and surrounding prose still describe what the image shows.
+
+### T17 — Nothing pins README/docs samples to generated output [status: todo]
+Origin: PR #4 R2
+Spec: the drift PR #4 fixed can recur the next time card text changes — no test
+compares the README sample card or the docs/index.html `demo-data` reason strings
+against `to_markdown()` / `propose()`. The blocker is that the demo inputs
+currently live only inside the published HTML blob, so there is no fixture to
+drive a regeneration from.
+Acceptance: the demo inputs live somewhere a test can read, and a test fails when
+the README sample or the docs demo reasons diverge from generated output.
+
+### T18 — Friction validation message names a rule the value satisfies [status: todo]
+Origin: PR #4 R7
+Spec: core/ips/parser.py:131-132 uses one message for three distinct rejections
+(bool, non-numeric, out-of-range), so a wrong-*type* value is reported with a rule
+its own printed value meets: `friction.tw_roundtrip_pct ('1e-3') must be a percent
+in [0, 100)` — and 0.001 is. The `1e-3` case is the sharp one, since PyYAML 1.1
+resolves the no-dot exponent form to a string, so a user writing a perfectly
+reasonable number gets an error message that looks wrong. The value is correctly
+rejected; only the explanation misleads.
+Acceptance: the type failure and the range failure produce distinguishable
+messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
