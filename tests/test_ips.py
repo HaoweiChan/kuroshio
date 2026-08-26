@@ -114,14 +114,19 @@ def test_verdict_hold_is_alias_for_neutral():
     assert VERDICT_ORDER == ["sell", "underweight", "neutral", "overweight", "buy"]  # no sixth rung
 
 
-def test_validate_catches_non_numeric_friction():
-    # A friction value that isn't a number used to pass ips-validate and then blow up
-    # the allocator's hurdle arithmetic (None / 100 -> TypeError). cli.cmd_propose bails
-    # on any validate() problem before calling propose(), so catching it here is what
-    # keeps "ips-validate said OK" and "propose runs" the same answer.
+def test_validate_catches_bad_friction():
+    # The allocator adds friction/100 to the turnover hurdle, so a friction value that
+    # is the wrong type blows that arithmetic up (None / 100 -> TypeError) and one that
+    # is the wrong *magnitude* silently corrupts the gate: nan makes `gap < hurdle` False
+    # for every gap (every challenger becomes a SWAP), inf makes it True for every gap
+    # (every swap vanishes), and a negative lowers the bar below the user's own hurdle.
+    # cli.cmd_propose bails on any validate() problem before calling propose(), so
+    # catching them here keeps "ips-validate said OK" and "propose behaves" one answer.
     malformed = (
         "tw_roundtrip_pct:", "us_roundtrip_pct:",  # present but null
         'tw_roundtrip_pct: "0.585"', "us_roundtrip_pct: abc",  # non-numeric
+        "tw_roundtrip_pct: .nan", "us_roundtrip_pct: .inf",  # non-finite
+        "tw_roundtrip_pct: -10.0", "us_roundtrip_pct: 100.0",  # outside [0, 100)
     )
     for friction in malformed:
         ips = parse_ips(f"---\nfriction:\n  {friction}\n---\nbody\n")

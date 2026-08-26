@@ -1,7 +1,9 @@
+from itertools import product
+
 import pytest
 
 from kuroshio.core.allocator import propose
-from kuroshio.core.ips import IPS
+from kuroshio.core.ips import IPS, validate
 from kuroshio.core.ips.schema import CapExemption
 from kuroshio.types import Candidate, Holding
 
@@ -207,3 +209,42 @@ def test_us_card_names_hurdle_and_friction_without_a_self_cancelling_total():
     cards = propose(holdings, [cand("GE", final_score=0.792)], ips, "us", verdicts={"GE": "neutral"})
     reason = [c for c in cards if c.action == "SWAP"][0].reason
     assert "your IPS turnover hurdle of 0.150 plus estimated round-trip friction of 0.020%." in reason
+
+
+def test_no_accepted_ips_ever_swaps_below_its_own_hurdle():
+    # The invariant the whole friction gate exists for: friction may only ever raise the
+    # bar, never lower or erase it. Swept over the values that can reach the gate rather
+    # than pinned to one case — the failure modes here were all values no numbered test
+    # happened to use (nan erases the comparison, inf suppresses every swap, a negative
+    # buys swaps the user's own hurdle rejects).
+    #
+    # The contract is end-to-end on purpose: for ANY friction value, either validate()
+    # rejects the IPS (cli.cmd_propose then refuses to run at all) or propose() honours
+    # the hurdle. Neither half alone is worth much — a validate() that rejects everything
+    # would pass one, a propose() that proposes nothing would pass the other.
+    hostile = (0.0, 0.02, 0.585, 5.0, -10.0, 100.0, float("nan"), float("inf"))
+    for hurdle, friction, market, inc, chal in product(
+        (0.05, 0.15, 0.40),
+        hostile,
+        ("us", "tw"),
+        (0.0, 0.30, 0.75),
+        (0.0, 0.31, 0.76, 1.0),
+    ):
+        ips = make_ips(**{
+            "turnover.hurdle": hurdle,
+            "turnover.max_swaps_per_week": 5,
+            "friction.tw_roundtrip_pct": friction,
+            "friction.us_roundtrip_pct": friction,
+        })
+        if validate(ips):
+            continue  # malformed IPS — the CLI exits 2 before propose() is ever called
+
+        cards = propose(
+            [Holding(ticker="INC", weight=0.05, score=inc)],
+            [cand("CHA", final_score=chal)],
+            ips, market, verdicts={"CHA": "buy"},
+        )
+        for card in (c for c in cards if c.action == "SWAP"):
+            where = f"hurdle={hurdle} friction={friction} market={market} {inc}->{chal}"
+            assert card.score_gap >= hurdle, where
+            assert card.score_gap >= hurdle + friction / 100, where
