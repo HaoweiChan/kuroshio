@@ -64,6 +64,12 @@ class Holding:
     leverage: float = 1.0        # >1 for leveraged ETFs: effective exposure = weight × leverage
     score: float | None = None   # latest screener final_score, if screened
     verdict: str | None = None   # latest TA verdict, if researched
+    # entry state — why we own this; all optional, absent in pre-T3 holdings files
+    entry_price: float | None = None
+    entry_date: str | None = None        # ISO date
+    setup_type: str | None = None        # value_dip | pullback_add | trend_add | other
+    thesis: str | None = None            # free text
+    invalidation_price: float | None = None
 
 @dataclass
 class ProposalCard:
@@ -196,7 +202,7 @@ argparse, three subcommands (v1):
 - `kuroshio propose --ips path.md --holdings holdings.yml [--market us]` — proposal cards to stdout
 - `kuroshio ips-validate path.md`
 
-`holdings.yml`: list of {ticker, weight, theme?, leverage?}.
+`holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
 
 ## What deliberately does not exist yet (YAGNI)
 

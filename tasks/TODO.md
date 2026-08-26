@@ -179,3 +179,16 @@ reasonable number gets an error message that looks wrong. The value is correctly
 rejected; only the explanation misleads.
 Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
+
+### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: todo]
+Origin: T3
+Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
+`error:`/exit-2 path in `cmd_propose`. `_candidates_from_yaml` (cli.py:62) still
+does bare `item["ticker"]` / `item["final_score"]`, so a missing or misspelled key
+raises a context-free `KeyError` traceback out of the CLI, and any other unknown
+key (`fina1_score`, `note`) is silently dropped — the same silent-drop class the
+holdings loader now rejects. `_load_yaml` also assumes a top-level list: a file
+written as a YAML mapping iterates as strings and dies on `item.get`.
+Acceptance: a candidates.yml with a missing/misspelled key exits 2 with a message
+naming the file and the key; a non-list top-level document is rejected with a
+clear message; covered by tests alongside the T3 holdings cases.
