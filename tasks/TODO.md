@@ -313,3 +313,25 @@ by the provider", `not in eligible` -> "did not pass the Stage-1 gate"), unscora
 holdings are reported on stderr too, and a test asserts the no-data wording for a
 ticker the stub panel does not contain.
 
+### T32 — details["auto_scored"] is written but nothing reads it [status: todo]
+Origin: PR #6 R15
+Spec: core/allocator/engine.py:150 records `"auto_scored": auto` on the card, but
+`details` is referenced nowhere in `to_markdown` (types.py:69) or in
+integrations/discord.py, and no test asserts it — mutating the line to
+`"auto_scored": []` leaves the suite at 128 passed. It also drops the pool size the
+prose disclosure carries, so it is not even a machine-readable copy of the sentence.
+Acceptance: either the field is dropped (nothing reads it) or one allocator test
+asserts it, e.g. `cards[0].details["auto_scored"] == ["1102", "1101"]`, so the
+mutation goes red.
+
+### T33 — Disclosed pool size is unpinned when the provider returns fewer names [status: todo]
+Origin: PR #6 R16
+Spec: cli.py:275,284 record `len(ranked)` and engine.py:129 prints
+`auto_scored[auto[0]]`. Mutating those cli lines to `len(names)` leaves 128 passed,
+because every stub panel in tests/test_cli.py contains every requested ticker; the two
+numbers diverge only when a provider returns no data for a listed ticker (the T31 case),
+where the card then overstates how many names it ranked against. The card also reports
+only the first auto-filled ticker's pool size.
+Acceptance: one case with a stub panel missing a listed ticker asserts the disclosure
+reports the number actually ranked, not the number listed.
+

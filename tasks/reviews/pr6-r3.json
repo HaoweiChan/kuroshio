@@ -1,0 +1,53 @@
+{
+  "pr": 6,
+  "round": 3,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass — ruff clean, 128 passed",
+  "circuit_breaker": "tripped — 3 review rounds without approval; escalated to the human",
+  "round2_findings_resolved": [
+    "R10",
+    "R11"
+  ],
+  "findings": [
+    {
+      "id": "R13",
+      "severity": "HIGH",
+      "claim": "Deleting the pool floor reinstates round-1 R2: for pools of 2 or 3 names `turnover.hurdle` is arithmetically incapable of rejecting any swap, so `propose` again emits a SWAP where it previously emitted the honest ALERT — and the test that pinned R2's refusal was inverted to assert the SWAP.",
+      "evidence": "kuroshio/cli.py:261-263 asserts \"no minimum pool size can make the subtraction a factor comparison\" and the floor at old cli.py:270 is gone. The premise is only true of pctrank's *extremes*; the *step* is pool-size dependent, which is what the deleted floor actually guarded. TW `final_score` = mean of 3 pctranks (kuroshio/core/screening/tw.py:192-207), so the smallest achievable non-zero gap is 0.333 at n=2, 0.167 at n=3, 0.111 at n=4, against hurdle+friction 0.15585 — i.e. at n<=3 every non-tie ordering clears the hurdle by construction, exactly the \"any rank difference clears the hurdle\" case the removed docstring described, and only at n>=4 can the hurdle reject anything. Concrete input: holdings.yml = one score-less name 1101, candidates.yml = one score-less name 1102, closes 150.01 vs 150.02 (0.007% apart). HEAD prints `SWAP 1101 → 1102 … a gap of 1.000, above your IPS turnover hurdle of 0.150`; 70957fc on the identical input prints the ALERT `No current holding has a screener score`. tests/test_cli.py:337-366 parametrizes pool_n=2 and pool_n=3 — both inside the inert zone — and now asserts `\"SWAP\" in cap.out`, so the gate can no longer go red on R2's case.",
+      "repro": "scratchpad/r13.py (2-name score-less pool, 0.007% dispersion) against HEAD then 70957fc: SWAP gap 1.000 vs ALERT. Arithmetic independently confirmed by the orchestrator: min non-zero mean-of-3 pctrank step = 0.3333 (n=2), 0.1667 (n=3), 0.1111 (n=4) vs hurdle+friction 0.15585.",
+      "acceptance": "Either the cross-section is widened (T30) or a guard is restored for pools where the smallest achievable non-zero composite gap is >= `turnover.hurdle + friction/100` (n<=3 for a 3-factor mean under the balanced IPS), with the parametrized cases at pool_n=2 and pool_n=3 asserting the ALERT rather than the SWAP, plus a boundary case at n=4 that must still score — so removing the guard again turns the suite red.",
+      "route": "repair",
+      "route_reason": "Reinstates round-1 R2, a HIGH: a SWAP card carries a gap number the data cannot support. Arithmetic independently verified by the orchestrator (min non-zero mean-of-3 pctrank step 0.3333/0.1667/0.1111 at n=2/3/4 vs hurdle+friction 0.15585). Blocked on the circuit breaker — escalated to the human, not relayed for a 4th round."
+    },
+    {
+      "id": "R14",
+      "severity": "MEDIUM",
+      "claim": "When only one side of the swap is auto-filled, the new disclosure sentence states something the card's own numbers contradict: it calls the gap \"a rank distance within that pool\" although the other operand is a hand-typed value that has no rank in that pool, and the true rank distance in the named pool would not clear the hurdle.",
+      "evidence": "kuroshio/core/allocator/engine.py:124-131 builds the sentence from `auto` (the auto-filled subset) but appends it to a gap computed from both operands. Input = tests/test_cli.py:420-450 (`test_propose_reports_candidates_the_gate_dropped`): incumbent 1101 hand-typed `score: 0.10`, challenger 1102 auto-filled 1.000 in an 8-name pool. Card prints `a gap of 0.900 … Auto-filled score(s): 1102 — a percentile rank among the 8 names in your own files, so this gap is a rank distance within that pool`. Within that 8-name pool 1101's actual rank is 0.857, so the real rank distance is 0.143, below the 0.15585 hurdle+friction: if the sentence were true the swap would not exist. tests/test_cli.py:447 pins this wording as expected output.",
+      "repro": "pytest tests/test_cli.py::test_propose_reports_candidates_the_gate_dropped -s, and read the SWAP reason.",
+      "acceptance": "The one-sided case gets its own wording — the gap mixes a hand-typed score with a percentile in a pool that name is not ranked against, so it is not a rank distance in any single scale — with a test asserting the mixed-scale wording for a hand-typed incumbent vs auto-filled challenger and the both-auto wording for the existing tight-dispersion case, so swapping one string for the other goes red.",
+      "route": "repair",
+      "route_reason": "The card states a claim its own numbers contradict. Blocked on the circuit breaker — escalated with R13."
+    },
+    {
+      "id": "R15",
+      "severity": "LOW",
+      "claim": "The new machine-readable `details[\"auto_scored\"]` field is unconsumed and unpinned — no test or renderer reads it — and it drops the pool size the prose carries.",
+      "evidence": "kuroshio/core/allocator/engine.py:150 `\"auto_scored\": auto`; `details` is only declared at kuroshio/types.py:69 and referenced nowhere in `to_markdown` or kuroshio/integrations/discord.py. Mutating line 150 to `\"auto_scored\": []` leaves the suite at 128 passed.",
+      "repro": "mutate engine.py:150 to `\"auto_scored\": []` → `pytest tests/ -q` → 128 passed",
+      "acceptance": "Either drop the field (nothing reads it) or assert it in one allocator test, e.g. `cards[0].details[\"auto_scored\"] == [\"1102\", \"1101\"]`, so the mutation goes red.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. -> T32."
+    },
+    {
+      "id": "R16",
+      "severity": "LOW",
+      "claim": "The disclosed pool size is unpinned against a panel that returns fewer names than the files list, and it reports only the first auto-filled ticker's pool size.",
+      "evidence": "kuroshio/cli.py:275,284 record `len(ranked)`, engine.py:129 prints `auto_scored[auto[0]]`. Mutating both cli lines to `len(names)` leaves 128 passed, because every stub panel in tests/test_cli.py contains every requested ticker; the two numbers only diverge when a provider returns no data for a listed ticker (the T31/R12 case), where the card would then overstate how many names it ranked against.",
+      "repro": "mutate kuroshio/cli.py:275 to `auto[h.ticker] = len(names)` → `pytest tests/ -q` → 128 passed",
+      "acceptance": "One case with a stub panel missing a listed ticker asserting the disclosure reports the number actually ranked, not the number listed.",
+      "route": "debt",
+      "route_reason": "LOW — scope boundary requires HIGH/MEDIUM to block. -> T33."
+    }
+  ]
+}
