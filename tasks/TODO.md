@@ -8,17 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T3 — Position records with entry state and thesis [status: pr]
-Spec: `Holding` (types.py) carries no entry_price, entry_date, or reason — nothing
-downstream can reason about "why do I own this". Add optional fields: entry_price,
-entry_date, setup_type (enum: value_dip | pullback_add | trend_add | other),
-thesis (free text), invalidation_price. Make holdings.yml parsing tolerant of the
-new keys (cli.py `Holding(**item)` currently TypeErrors on unknown fields) while
-keeping old files valid.
-Acceptance: old holdings.yml still loads; new fields round-trip; a holdings file
-with unknown keys fails with a clear message naming the key, not a bare TypeError.
-
-### T4 — Wire the screener into propose [status: todo]
+### T4 — Wire the screener into propose [status: in-progress]
 Spec: `kuroshio propose` requires hand-typed `score:` in holdings.yml and
 `final_score:` in candidates.yml — the user is the integration layer. When scores
 are absent, propose should invoke the market's `score_names(gate=False)` on
