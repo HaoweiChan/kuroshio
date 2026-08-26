@@ -8,7 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T1 — Accept `Hold` in the verdict ladder [status: todo]
+### T1 — Accept `Hold` in the verdict ladder [status: pr]
 Spec: LLM agents emit `Hold` (agents/engine/agents/schemas.py PortfolioRating) but
 `VERDICT_ORDER` in core/ips/schema.py only knows `neutral`, so `verdict_at_least`
 silently returns False and a researched `Hold` challenger is rejected while an
@@ -108,4 +108,32 @@ per-setup_type expectancy table; ledger is plain files (no DB).
 
 ## Debt
 
-(empty — pr-loop runs append here with `Origin:`)
+### T11 — Decide whether `hold` is a legal IPS `verdict_floor` spelling [status: todo]
+Origin: PR #3 R1, R2
+Spec: T1 made `_rank` alias `hold` → `neutral` on *both* arguments of
+`verdict_at_least`, so `verdict_at_least("buy", "hold")` is True — but
+`validate()` (core/ips/parser.py:124) still rejects `turnover.verdict_floor: hold`
+against `VERDICT_ORDER`, and `cmd_propose` exits 2 on any validate problem. The
+same word is legal as an agent verdict and illegal as a user-authored floor. Pick
+one: accept `hold` in validation (share the alias helper, list it in the error
+message), or narrow `_rank` to the verdict argument only and drop the
+`verdict_at_least("buy", "Hold")` assertion in tests/test_ips.py:112. Whichever
+way it goes, docs/ARCHITECTURE.md:128 and the `examples/ips-*.md` comments still
+enumerate only the five canonical names and must say what `hold` does (R2).
+Acceptance: `kuroshio ips-validate` and `verdict_at_least` agree on whether
+`hold` is a legal floor, proven by a test; the ARCHITECTURE.md verdict-vocabulary
+line matches the decision.
+Out of scope: adding a sixth rung — `hold` stays an alias either way.
+
+### T12 — Unrecognized challenger verdicts fail silently [status: todo]
+Origin: PR #3 R3
+Spec: `_rank` matches exactly after `.lower()` with no `.strip()`, so
+`verdict_at_least(" hold ", "neutral")` is False while `"hold"` is True — a
+quoted trailing space in candidates.yml (plausible from a pasted research report)
+drops the challenger. The allocator compounds it: core/allocator/engine.py:102
+`continue`s with no ALERT when the floor is not cleared, so an unparseable verdict
+produces zero output rather than a diagnostic. This is the same silent-False class
+of bug T1 was written to close, one layer out.
+Acceptance: a challenger whose verdict string is unrecognized (not merely
+low-rated) surfaces a visible ALERT card rather than vanishing; whitespace-padded
+verdicts rank correctly, covered by a test case.
