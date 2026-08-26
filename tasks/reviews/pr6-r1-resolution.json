@@ -1,0 +1,47 @@
+{
+  "pr": 6,
+  "round": 1,
+  "gate_after_repair": "pass — ruff clean, 126 passed",
+  "resolutions": [
+    {
+      "id": "R1",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_score_missing_scores_one_ticker_identically_in_both_roles",
+      "note": "_score_missing now ranks every ticker in the input files in ONE ungated score_names pass; screen is consulted only for challenger eligibility."
+    },
+    {
+      "id": "R2",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_refuses_to_auto_fill_a_cross_section_too_small_to_rank[tickers0] and [tickers1]",
+      "note": "Below floor(1/turnover.hurdle)+2 names — the pool size where pctrank's own 1/(n-1) step clears the hurdle unaided — nothing is auto-filled and the allocator's ALERT stands. The weakened round-1 test now asserts the exact interior percentile (incumbent 1108 = 0.119) so it can go red."
+    },
+    {
+      "id": "R3",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_swaps_for_the_only_gate_passing_challenger",
+      "note": "Same root cause as R1; a lone gate-passing challenger is now ranked against the full cross-section."
+    },
+    {
+      "id": "R4",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_exits_2_on_unknown_candidates_key",
+      "note": "_candidates_from_yaml rejects unknown keys with T3's exact message shape, routed through the same exit-2 path."
+    },
+    {
+      "id": "R5",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_reports_candidates_the_gate_dropped",
+      "note": "Gate-dropped candidates are named on stderr."
+    },
+    {
+      "id": "R6",
+      "status": "fixed",
+      "test": null,
+      "note": "README.md and docs/ARCHITECTURE.md now say an auto-filled score is a percentile within your own files (not a `kuroshio screen` number), that propose fetches, and that a too-small pool means refusal. score_names docstrings in us.py/tw.py now state that same scale means same cross-section. No test — T17 already tracks doc/output pinning."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [
+    "T30"
+  ]
+}
