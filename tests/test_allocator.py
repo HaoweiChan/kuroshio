@@ -107,6 +107,21 @@ def test_swap_happy_path_and_hurdle_and_verdict_rejections():
     assert [c for c in cards2 if c.action == "SWAP"] == []
 
 
+def test_hold_rated_challenger_clears_neutral_floor_but_not_overweight():
+    # Agents rate on the PortfolioRating scale ("Hold"); the IPS floor is spelled
+    # "neutral" — same rung, so a Hold challenger must be judged on its gap.
+    holdings = [Holding(ticker="WEAK", weight=0.05, score=0.40)]
+    challengers = [cand("HELD", final_score=0.60)]
+
+    ips = make_ips(**{"turnover.hurdle": 0.15, "turnover.verdict_floor": "neutral"})
+    cards = propose(holdings, challengers, ips, "us", verdicts={"HELD": "Hold"})
+    assert [c.buy for c in cards if c.action == "SWAP"] == ["HELD"]
+
+    ips_high = make_ips(**{"turnover.hurdle": 0.15, "turnover.verdict_floor": "overweight"})
+    cards2 = propose(holdings, challengers, ips_high, "us", verdicts={"HELD": "Hold"})
+    assert [c for c in cards2 if c.action == "SWAP"] == []
+
+
 def test_unscored_incumbents_yield_research_alert_and_no_swap():
     holdings = [Holding(ticker="A", weight=0.05, score=None), Holding(ticker="B", weight=0.05, score=None)]
     ips = make_ips()

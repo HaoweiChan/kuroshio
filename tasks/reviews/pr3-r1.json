@@ -1,0 +1,39 @@
+{
+  "pr": 3,
+  "round": 1,
+  "task": "T1",
+  "result": "APPROVED",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "MEDIUM",
+      "route": "debt",
+      "claim": "The `hold` alias is only half-wired: `verdict_at_least` now accepts `hold` on the floor side (and the new test asserts it), but `validate()` still rejects an IPS that spells `turnover.verdict_floor: hold`, so the same word is legal as a verdict and illegal as a floor.",
+      "evidence": "kuroshio/core/ips/schema.py:14-17 maps `hold`->`neutral` for BOTH arguments, and tests/test_ips.py:112 asserts `verdict_at_least(\"buy\", \"Hold\") is True`. But kuroshio/core/ips/parser.py:124 checks `ips.turnover.verdict_floor.lower() not in VERDICT_ORDER`, and VERDICT_ORDER has no `hold`. cmd_propose (kuroshio/cli.py:224-228) exits 2 on any validate problem, so an IPS written as `verdict_floor: hold` is unusable — the floor-side branch the new test covers is unreachable through the CLI, the only supported config path.",
+      "repro": "sed 's/verdict_floor: neutral/verdict_floor: hold/' examples/ips-balanced.md > /tmp/ips-hold.md; .venv/bin/python -m kuroshio.cli propose --ips /tmp/ips-hold.md --holdings h.yml --market us  ->  \"turnover.verdict_floor: unknown verdict 'hold' (expected one of ['sell', 'underweight', 'neutral', 'overweight', 'buy'])\", exit=2. Contrast: .venv/bin/python -c \"from kuroshio.core.ips.schema import verdict_at_least; print(verdict_at_least('buy','hold'))\" -> True.",
+      "acceptance": "Pick one and cover it with a test: either the validator accepts `hold` as a floor spelling (same alias helper used on both sides, error message lists it), or `_rank` aliases only the verdict argument and the test asserting `verdict_at_least('buy','Hold')` is removed/inverted. Either way `kuroshio ips-validate` and `verdict_at_least` must agree on whether `hold` is a legal floor.",
+      "route_reason": "T1's acceptance criteria are fully met and the gate is green; no published number or claim is wrong. Resolving this requires deciding whether user-authored IPS config accepts `hold`, which is a spec decision outside T1. Logged as T11."
+    },
+    {
+      "id": "R2",
+      "severity": "LOW",
+      "route": "debt",
+      "claim": "The user-facing verdict vocabulary in the docs was not updated, so `Hold` is now accepted in candidates.yml but documented nowhere.",
+      "evidence": "docs/ARCHITECTURE.md:128 still reads `verdict_floor: neutral  # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)` — the only place a user learns the accepted spellings — and examples/ips-*.md carry the same five-name comment. schema.py's own module docstring says the dataclasses mirror docs/ARCHITECTURE.md.",
+      "repro": "grep -n 'buy>overweight>neutral' docs/ARCHITECTURE.md — unchanged by the diff (git diff main..task/T1 touches no doc).",
+      "acceptance": "docs/ARCHITECTURE.md line 128 (and the IPS examples' prose if they enumerate verdicts) notes that `hold` is accepted as a synonym for `neutral`, matching whichever resolution R1 takes.",
+      "route_reason": "LOW, and contingent on R1's resolution — documenting the vocabulary before deciding it would be premature. Folded into T11."
+    },
+    {
+      "id": "R3",
+      "severity": "LOW",
+      "route": "debt",
+      "claim": "The alias is exact-match-after-lower, so near-miss agent strings still fall into the silent-False path the task was written to close, with no diagnostic card.",
+      "evidence": "kuroshio/core/ips/schema.py:15-17 does `v.lower()` but no `.strip()`; kuroshio/core/allocator/engine.py:102 `continue`s silently when the floor is not cleared, emitting no ALERT. A candidates.yml with `verdict: \"Hold \"` (quoted trailing space, plausible from copy-paste of a research report) drops the challenger with zero output.",
+      "repro": ".venv/bin/python -c \"from kuroshio.core.ips.schema import verdict_at_least; print(verdict_at_least(' hold ','neutral'))\" -> False, while verdict_at_least('hold','neutral') -> True.",
+      "acceptance": "Either `_rank` strips whitespace (one-char change, covered by a case in test_verdict_hold_is_alias_for_neutral), or an unrecognized verdict on a challenger produces a visible ALERT/warning rather than a silent skip.",
+      "route_reason": "LOW. The silent-skip half is a real diagnostics gap but is a behavior change to the allocator's card output, outside T1's spec. Logged as T12."
+    }
+  ],
+  "gate": {"ruff": "pass", "pytest": "107 passed", "run_by": "orchestrator", "date": "2026-08-26"}
+}

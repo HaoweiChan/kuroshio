@@ -11,13 +11,20 @@ from dataclasses import dataclass, field
 VERDICT_ORDER = ["sell", "underweight", "neutral", "overweight", "buy"]
 
 
+def _rank(v: str) -> int:
+    v = v.lower()
+    # the LLM agents' scale names the middle rung "Hold" (agents/engine/agents
+    # /schemas.py PortfolioRating) — same rung as the IPS's "neutral", not a sixth.
+    return VERDICT_ORDER.index("neutral" if v == "hold" else v)
+
+
 def verdict_at_least(v: str, floor: str) -> bool:
     """True if verdict `v` is at least as bullish as `floor` (case-insensitive).
 
     Unknown verdicts (either side) never clear the bar.
     """
     try:
-        return VERDICT_ORDER.index(v.lower()) >= VERDICT_ORDER.index(floor.lower())
+        return _rank(v) >= _rank(floor)
     except (ValueError, AttributeError):
         return False
 

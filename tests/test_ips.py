@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from kuroshio.core.ips import IPS, parse_ips, validate
-from kuroshio.core.ips.schema import verdict_at_least
+from kuroshio.core.ips.schema import VERDICT_ORDER, verdict_at_least
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -102,3 +102,13 @@ def test_verdict_at_least_ordering():
     assert verdict_at_least("sell", "neutral") is False
     assert verdict_at_least("bogus", "neutral") is False
     assert verdict_at_least("buy", "bogus") is False
+
+
+def test_verdict_hold_is_alias_for_neutral():
+    # LLM agents emit "Hold" (PortfolioRating), not "neutral".
+    assert verdict_at_least("Hold", "neutral") is True
+    assert verdict_at_least("hold", "underweight") is True
+    assert verdict_at_least("hold", "overweight") is False
+    assert verdict_at_least("buy", "Hold") is True
+    assert verdict_at_least("sell", "hold") is False
+    assert VERDICT_ORDER == ["sell", "underweight", "neutral", "overweight", "buy"]  # no sixth rung
