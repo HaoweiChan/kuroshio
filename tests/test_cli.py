@@ -146,6 +146,7 @@ def test_propose_with_candidates_swap(tmp_path, capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "SWAP WEAK → GOOD" in out
+    assert "Auto-filled" not in out  # both scores hand-typed -> nothing to disclose
 
 
 def test_propose_exits_2_on_invalid_ips(tmp_path, capsys):
@@ -229,10 +230,9 @@ def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
 # No network: a stub provider is injected by monkeypatching the lazily-imported
 # `kuroshio.providers.get_provider` that cmd_propose resolves at call time.
 N_TW = 65  # TW profile needs MA60 -> 60 sessions of clean history
-HURDLE = 0.15  # examples/ips-balanced.md turnover.hurdle
 
-# 8 names, monotone ramps: 8 is exactly the cross-section floor `_score_missing`
-# derives from a 0.15 hurdle, so a smaller pool refuses to auto-fill anything.
+# 8 names, monotone ramps — a cross-section wide enough that every rank in the
+# 0..1 grid is occupied by a name with visibly different factors.
 _SPECS = {
     "1101": (50.0, 80.0),    # mild uptrend
     "1102": (50.0, 150.0),   # strongest name in the panel
@@ -251,9 +251,10 @@ def _ramp(lo: float, hi: float) -> list[float]:
     return [lo + (hi - lo) * i / (N_TW - 1) for i in range(N_TW)]
 
 
-def _tw_panel(vol_spike: dict[str, float] | None = None) -> Panel:
+def _tw_panel(vol_spike: dict[str, float] | None = None, specs: dict | None = None) -> Panel:
+    specs = _SPECS if specs is None else specs
     dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=N_TW)]
-    close = pd.DataFrame({t: _ramp(*lohi) for t, lohi in _SPECS.items()}, index=dates)
+    close = pd.DataFrame({t: _ramp(*lohi) for t, lohi in specs.items()}, index=dates)
     volume = pd.DataFrame({t: [1_000_000.0] * N_TW for t in close.columns}, index=dates)
     for ticker, vol in (_VOL_SPIKE if vol_spike is None else vol_spike).items():
         volume.loc[dates[-1], ticker] = vol
@@ -314,8 +315,9 @@ def test_score_missing_keeps_hand_written_scores_per_name():
     profile = get_profile("tw")
     holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
     holdings[0].score = 0.123  # hand-typed, must survive
-    challengers = _score_missing(holdings, [], profile, _tw_panel(), HURDLE)
+    challengers, auto = _score_missing(holdings, [], profile, _tw_panel())
     assert challengers == []
+    assert "1101" not in auto  # hand-typed -> not disclosed as auto-filled
     assert holdings[0].score == 0.123
     assert all(h.score is not None for h in holdings[1:])
 
@@ -326,18 +328,23 @@ def test_score_missing_scores_one_ticker_identically_in_both_roles():
     profile = get_profile("tw")
     holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
     challenger = Candidate(ticker="1101", date="2024-01-01", rank=0, final_score=None)
-    kept = _score_missing(holdings, [challenger], profile, _tw_panel(), HURDLE)
+    kept, _ = _score_missing(holdings, [challenger], profile, _tw_panel())
     incumbent = next(h.score for h in holdings if h.ticker == "1101")
     assert kept[0].final_score == incumbent
     assert 0.0 < incumbent < 1.0  # a real rank, not an artifact of a 2-name pool
 
 
-@pytest.mark.parametrize("tickers", [["1103"], ["1101", "1103"]])
-def test_propose_refuses_to_auto_fill_a_cross_section_too_small_to_rank(
-    tmp_path, capsys, monkeypatch, tickers
+@pytest.mark.parametrize(
+    "tickers,pool_n",
+    [(["1103"], 2), (["1101", "1103"], 3), ([t for t in _SPECS if t != "1102"], 8)],
+)
+def test_propose_marks_an_auto_filled_gap_as_a_rank_distance(
+    tmp_path, capsys, monkeypatch, tickers, pool_n
 ):
-    """R2: below the pool floor the percentile is an artifact — the weakest of two names
-    is 0.000 by construction — so nothing is filled and the honest ALERT stands."""
+    """R2/R10: an auto-filled score is a percentile rank inside the user's own pool, so
+    the gap the swap gate subtracts is a rank distance, not a `kuroshio screen` score
+    difference — at EVERY pool size, because pctrank's extremes are 0.000/1.000 for
+    n=2 and n=800 alike. The card has to say so, and say how many names it ranked."""
     _use_stub(monkeypatch)
     holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
     candidates = tmp_path / "candidates.yml"
@@ -354,9 +361,37 @@ def test_propose_refuses_to_auto_fill_a_cross_section_too_small_to_rank(
     )
     cap = capsys.readouterr()
     assert code == 0
-    assert "SWAP" not in cap.out
-    assert "No current holding has a screener score" in cap.out
-    assert "cross-section" in cap.err
+    assert "SWAP" in cap.out
+    assert "rank distance" in cap.out
+    assert f"among the {pool_n} names in your own files" in cap.out
+
+
+def test_propose_marks_a_tight_dispersion_gap_as_a_rank_distance(tmp_path, capsys, monkeypatch):
+    """R10: eight names whose closes are 0.007% apart still produce a 0.857 gap —
+    indistinguishable factors, a policy-clearing number. No pool-size floor can fix
+    that (the extremes are 0.000/1.000 regardless of dispersion), so the card
+    discloses what the number is instead of implying it measures the factors."""
+    tight = {t: (150.0, 150.0 + 0.01 * i) for i, t in enumerate(_SPECS, start=1)}
+    _use_stub(monkeypatch, _tw_panel(vol_spike={"1108": 1_800_000.0}, specs=tight))
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", [t for t in tight if t != "1108"])
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1108", verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "SWAP 1101 → 1108" in cap.out
+    assert "a gap of 0.857" in cap.out
+    assert "Auto-filled score(s): 1108, 1101" in cap.out
+    assert "among the 8 names in your own files" in cap.out
 
 
 def test_propose_swaps_for_the_only_gate_passing_challenger(tmp_path, capsys, monkeypatch):
@@ -410,6 +445,7 @@ def test_propose_reports_candidates_the_gate_dropped(tmp_path, capsys, monkeypat
     assert code == 0
     assert "SWAP 1101 → 1102" in cap.out
     assert "incumbent 1101's 0.100" in cap.out  # the hand-typed score, untouched
+    assert "Auto-filled score(s): 1102 —" in cap.out  # only the filled side is named
     assert "1103" not in cap.out
     assert "1103" in cap.err and "Stage-1" in cap.err
 

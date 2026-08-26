@@ -283,20 +283,20 @@ unknown provider exits 2 with the message on stderr, in all three commands.
 
 ### T30 — auto-filled scores are percentiles within the user's own files [status: todo]
 Origin: PR #6 R2
-Spec: PR #6 put incumbents and challengers on one cross-section and added a pool
-floor (`floor(1/turnover.hurdle) + 2` names in cli.py `_score_missing`), which
-stops the smallest fabrications — a sole holding scoring 0.000, a lone challenger
-scoring 0.000. It does not make the number mean anything outside the file: pctrank
-still hands the best of your own names 1.000 and the worst 0.000, so a swap gap
-computed from auto-filled scores measures rank-within-your-portfolio, not strength
-within a market, and it moves when you add a ticker to the file. The floor is also
-a usability cliff — under a 0.15 hurdle a 7-name portfolio can never auto-fill.
-The real fix is a cross-section that is a universe: score against a `--universe`
-ticker file (or a cached `kuroshio screen` run's scores) and read the incumbent's
-and challenger's percentiles out of that, or give the screener an absolute score.
+Spec: PR #6 put incumbents and challengers on one cross-section. The pool floor it
+first shipped (`floor(1/turnover.hurdle) + 2`) was removed in round 2 (R10): pctrank
+pins its extremes to 0.000/1.000 regardless of dispersion, so the max-min the swap
+gate consumes is unaffected by pool size — the floor bought nothing while cutting off
+7-name portfolios under a 0.15 hurdle. The SWAP card now discloses an auto-filled gap
+as a rank distance within the user's own files instead. Disclosure is honest, but the
+number is still rank-within-your-portfolio, not strength within a market, and it moves
+when you add a ticker to the file. The real fix is a cross-section that is a universe:
+score against a `--universe` ticker file (or a cached `kuroshio screen` run's scores)
+and read the incumbent's and challenger's percentiles out of that, or give the screener
+an absolute score.
 Acceptance: an auto-filled score for a name is unchanged by adding an unrelated
-ticker to holdings.yml, and a 2-name portfolio gets real scores against the
-universe rather than a refusal; the pool floor and its notice can then go.
+ticker to holdings.yml, and a 2-name portfolio's gap is a real universe distance;
+the card's rank-distance disclosure can then say "percentile in <universe>" instead.
 
 ### T31 — Drop notice misattributes a provider no-data miss as a gate failure [status: todo]
 Origin: PR #6 R12

@@ -54,9 +54,10 @@ kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market
 fetches prices from the market's provider and fills it in. Hand-typed values always win, per name.
 An auto-filled score is **a percentile rank within the names in your own files**, not the number
 `kuroshio screen` prints for that name: the pool is your holdings + candidates, not a universe,
-and `propose` passes no `--sector-map`/`--asof`. When that pool is too small for a percentile to
-mean anything, nothing is filled and you get the "no holding has a screener score" ALERT instead
-of a made-up gap.
+and `propose` passes no `--sector-map`/`--asof`. Percentile ranks pin their extremes to 0.000 and
+1.000 however tightly the names cluster, so a gap built from auto-filled scores is a rank distance
+inside your own pool — at any pool size. Every card built from one says so, naming which scores
+were filled and how many names they were ranked against.
 
 `screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
 IPS clause that triggered it:

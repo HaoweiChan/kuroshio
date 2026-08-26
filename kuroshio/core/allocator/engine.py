@@ -23,6 +23,7 @@ def propose(
     verdicts: dict[str, str] | None = None,
     swaps_this_week: int = 0,
     themes: dict[str, str] | None = None,
+    auto_scored: dict[str, int] | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -30,6 +31,11 @@ def propose(
 
     verdicts = verdicts or {}
     themes = themes or {}
+    # ticker -> size of the pctrank pool its score was auto-filled from. pctrank pins
+    # its extremes to 0.000/1.000 however tightly the factors cluster, so such a gap is
+    # a rank distance inside the user's own files, not a `kuroshio screen` difference —
+    # the card says so rather than printing the number bare (see cli.py:_score_missing).
+    auto_scored = auto_scored or {}
     theme_cap = ips.caps.theme_pct / 100
     hard_cap = ips.caps.position_hard_pct / 100
     exempt = {(e.ticker, e.cap) for e in ips.caps.exemptions}
@@ -115,6 +121,14 @@ def propose(
             if gap < hurdle:
                 continue
             used.add(incumbent.ticker)
+            auto = [t for t in (c.ticker, incumbent.ticker) if t in auto_scored]
+            disclosure = ""
+            if auto:
+                disclosure = (
+                    f" Auto-filled score(s): {', '.join(auto)} — a percentile rank among "
+                    f"the {auto_scored[auto[0]]} names in your own files, so this gap is a "
+                    f"rank distance within that pool, not a difference in screener scores."
+                )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
@@ -124,7 +138,7 @@ def propose(
                     f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
                     f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
                     f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
-                    f"'{verdict}', at or above your floor of '{floor}'."
+                    f"'{verdict}', at or above your floor of '{floor}'.{disclosure}"
                 ),
                 ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
                 score_gap=gap,
@@ -133,6 +147,7 @@ def propose(
                     "challenger_score": c.final_score,
                     "incumbent_score": incumbent.score,
                     "verdict": verdict,
+                    "auto_scored": auto,
                 },
             ))
 

@@ -206,9 +206,12 @@ argparse, three subcommands (v1):
   are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
   the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
   auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
-  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30); below a pool size of
-  `floor(1/turnover.hurdle) + 2` — where pctrank's 1/(n-1) step alone would clear the hurdle —
-  nothing is filled and the allocator's ALERT stands. Hand-written values always win, per name.
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). `pctrank` pins its extremes to
+  0.000/1.000 however tightly the factors cluster — eight names 0.007% apart still yield a
+  0.857 gap — and that holds at every pool size, so no minimum pool size makes the swap gate's
+  subtraction a factor comparison. The SWAP card therefore discloses it: which names were
+  auto-filled and how many names they were ranked against, so the gap reads as a rank distance
+  inside your own files. Hand-written values always win, per name, and carry no disclosure.
   Every score hand-typed = no fetch.
 - `kuroshio ips-validate path.md`
 

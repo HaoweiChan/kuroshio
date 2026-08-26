@@ -14,7 +14,6 @@ import argparse
 import dataclasses
 import datetime
 import json
-import math
 import os
 import sys
 from pathlib import Path
@@ -247,10 +246,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # --- propose -------------------------------------------------------------
 
 
-def _score_missing(
-    holdings: list[Holding], challengers: list[Candidate], profile, panel, hurdle: float
-):
-    """Fill in the scores the user didn't hand-type, and return the surviving challengers.
+def _score_missing(holdings: list[Holding], challengers: list[Candidate], profile, panel):
+    """Fill in the scores the user didn't hand-type; return (surviving challengers, auto-filled).
 
     ONE cross-section for everybody: every ticker in the input files is ranked once by
     the market's ungated ``score_names``, so an incumbent's ``score`` and a challenger's
@@ -259,30 +256,23 @@ def _score_missing(
     The gated ``screen`` decides challenger *eligibility* only: a name Stage-1 rejects is
     not a challenger, and is reported rather than dropped in silence.
 
-    ``pctrank`` grids a pool of n names at 1/(n-1). When that step is >= the IPS turnover
-    hurdle, any rank difference clears the hurdle by construction and the gap says nothing
-    about the factors — a sole holding is 0.000 no matter how strong it is. Below that pool
-    size nothing is auto-filled: the allocator's "no holding has a screener score" ALERT is
-    a refusal, and a refusal beats a fabricated number on a card.
+    An auto-filled score is a ``pctrank`` **within this pool**, and pctrank pins its
+    extremes to 0.000/1.000 no matter how tightly the factors cluster — eight names
+    0.007% apart still yield a 0.857 gap. That is true at every pool size, so no minimum
+    pool size can make the subtraction a factor comparison; only saying what the number
+    is can. The second return value maps each auto-filled ticker to the pool it was
+    ranked in, and ``propose`` prints that on the card itself (see
+    ``core/allocator/engine.py``). Hand-typed scores are untouched and undisclosed.
     """
     names = list(dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers]))
     ranked = {c.ticker: c.final_score for c in profile.score_names(panel, tickers=names)}
-    # ponytail: the floor uses the bare hurdle, not the allocator's hurdle + friction/100
-    # — conservative by a hair and it keeps the friction math in one place.
-    floor = math.floor(1 / hurdle) + 2
-    if len(ranked) < floor:
-        print(
-            f"notice: {len(ranked)} name(s) in your files is too small a cross-section to "
-            f"percentile-rank (a turnover hurdle of {hurdle:.3f} needs {floor}); no score "
-            f"was auto-filled — hand-type one, or list more names.",
-            file=sys.stderr,
-        )
-        ranked = {}
     eligible = {c.ticker for c in profile.screen(panel)}
+    auto: dict[str, int] = {}
 
     for h in holdings:
-        if h.score is None:
-            h.score = ranked.get(h.ticker)
+        if h.score is None and h.ticker in ranked:
+            h.score = ranked[h.ticker]
+            auto[h.ticker] = len(ranked)
 
     kept, dropped = [], []
     for c in challengers:
@@ -291,6 +281,7 @@ def _score_missing(
                 dropped.append(c.ticker)
                 continue
             c.final_score = ranked[c.ticker]
+            auto[c.ticker] = len(ranked)
         kept.append(c)
     if dropped:
         why = "did not pass the Stage-1 gate" if ranked else "could not be auto-scored"
@@ -299,7 +290,7 @@ def _score_missing(
             f"{why}: {', '.join(dropped)}",
             file=sys.stderr,
         )
-    return kept
+    return kept, auto
 
 
 def cmd_propose(args: argparse.Namespace) -> int:
@@ -314,7 +305,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
             print(p)
         return 2
 
-    challengers, verdicts, themes = [], {}, {}
+    challengers, verdicts, themes, auto_scored = [], {}, {}, {}
     try:
         holdings = _holdings_from_yaml(args.holdings)
         if args.candidates:
@@ -346,11 +337,12 @@ def cmd_propose(args: argparse.Namespace) -> int:
         # ponytail: latest session only, and no sector_map for `us` (that factor
         # renormalizes away) — add --asof/--sector-map here when propose needs to
         # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
-        challengers = _score_missing(holdings, challengers, profile, panel, ips.turnover.hurdle)
+        challengers, auto_scored = _score_missing(holdings, challengers, profile, panel)
 
     cards = propose(
         holdings, challengers, ips, args.market,
         verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
+        auto_scored=auto_scored,
     )
 
     if not cards:
