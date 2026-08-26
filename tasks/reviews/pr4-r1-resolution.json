@@ -1,0 +1,40 @@
+{
+  "pr": 4,
+  "round": 1,
+  "task": "T2",
+  "resolutions": [
+    {
+      "id": "R1",
+      "status": "fixed",
+      "covered_by": "tests/test_ips.py::test_validate_catches_non_numeric_friction",
+      "note": "Fixed in validate() (kuroshio/core/ips/parser.py:124-129) rather than by coercing None to 0, so a typo'd friction value is reported as a malformed IPS instead of silently producing a gate that does not gate. Covers both tw_/us_ fields and both failure shapes (null, non-numeric string); bool is excluded explicitly so `true` cannot pass as int. cli.cmd_propose validates before calling propose, so the CLI path returns exit 2 with a message instead of a traceback. Orchestrator verified: validate rejects null/str/bool and accepts 0.585; CLI exits 2, no traceback; main's behaviour on the same input was ['TRIM'], so the regression is closed."
+    },
+    {
+      "id": "R2",
+      "status": "fixed",
+      "covered_by": "manual regeneration, verified by orchestrator against a live propose() run",
+      "note": "README.md sample card and all 5 docs/index.html demo `reason` strings regenerated from an actual propose() run driven by the demo payload's own embedded inputs, not hand-typed. Field-by-field check confirmed only `reason` changed: the friction gate does not alter which cards the demo produces (swap gaps 0.559 and 0.506 vs a 0.1502 threshold). `Estimated round-trip friction` now appears 0 times in both files. Orchestrator verified the README block is byte-identical to live propose() output modulo hard wrap. docs/screenshot-proposals.png deliberately left stale — not regenerable here; logged as debt T16."
+    },
+    {
+      "id": "R5",
+      "status": "fixed",
+      "covered_by": "tests/test_allocator.py::test_us_card_names_hurdle_and_friction_without_a_self_cancelling_total",
+      "note": "Redundant combined figure dropped; the card now names the two components. Chosen over raising precision because higher precision only relocates the problem (any friction small relative to the hurdle re-creates it at whatever precision is picked) and would print mixed scales in one sentence. Exact figures remain available on the card as score_gap and friction_pct."
+    },
+    {
+      "id": "R3",
+      "status": "debt",
+      "became": "T14",
+      "note": "Routed to debt at review time, not implemented. LOW; unknown market strings silently take the US friction."
+    },
+    {
+      "id": "R4",
+      "status": "debt",
+      "became": "T15",
+      "note": "Routed to debt at review time, not implemented. LOW; a gap exactly equal to the threshold is rejected by one ULP."
+    }
+  ],
+  "rejected": [],
+  "existing_tests_modified": [],
+  "gate": {"ruff": "pass", "pytest": "110 passed", "run_by": "orchestrator", "date": "2026-08-27"}
+}
