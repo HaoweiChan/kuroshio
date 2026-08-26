@@ -154,7 +154,8 @@ Pure function. v1 logic:
    auto-targeted — emit ALERT suggesting research instead). Propose SWAP when
    `challenger.final_score - incumbent.score ≥ ips.turnover.hurdle` **and** expected edge
    clears friction (`score_gap` must also exceed friction expressed as a score-equivalent —
-   v1: gap ≥ hurdle and note friction_pct on the card).
+   gap ≥ hurdle + `friction.{tw,us}_roundtrip_pct` / 100, picked per market, and the card
+   cites the friction it cleared).
 4. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 5. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).

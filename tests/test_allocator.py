@@ -173,3 +173,25 @@ def test_incumbent_not_double_swapped():
     assert sells == {"W1", "W2"}  # each incumbent swapped away at most once
     buys = {c.buy for c in swaps}
     assert buys == {"C1", "C2"}  # each challenger used at most once
+
+
+def test_friction_gates_a_swap_that_only_clears_the_bare_hurdle():
+    # TW round-trip friction is 0.585% -> 0.00585 in score space, so the real
+    # threshold is 0.15 + 0.00585 = 0.15585, not the bare 0.15 hurdle.
+    holdings = [Holding(ticker="WEAK", weight=0.05, score=0.40)]
+    ips = make_ips(**{"turnover.hurdle": 0.15})
+
+    # gap 0.152: over the bare hurdle, under hurdle + friction -> not proposed.
+    thin = propose(holdings, [cand("THIN", final_score=0.552)], ips, "tw", verdicts={"THIN": "buy"})
+    assert [c for c in thin if c.action == "SWAP"] == []
+
+    # gap 0.16: clears hurdle + friction -> proposed, and the card still cites friction.
+    thick = propose(holdings, [cand("THICK", final_score=0.560)], ips, "tw", verdicts={"THICK": "buy"})
+    swaps = [c for c in thick if c.action == "SWAP"]
+    assert [c.buy for c in swaps] == ["THICK"]
+    assert "0.585%" in swaps[0].reason
+    assert "friction.tw_roundtrip_pct" in swaps[0].ips_clauses
+
+    # US friction is only 0.02% -> 0.0002, so the same thin gap still clears there.
+    us = propose(holdings, [cand("THIN", final_score=0.552)], ips, "us", verdicts={"THIN": "buy"})
+    assert [c.buy for c in us if c.action == "SWAP"] == ["THIN"]
