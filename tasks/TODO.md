@@ -226,3 +226,38 @@ Spec: cli.py:46 `item.get('ticker', '?')` returns None (not `'?'`) when the key 
 present but null, so `- {ticker: null, weight: 0.1, bogus: 1}` produces
 `holdings.yml: None: unknown key 'bogus'`.
 Acceptance: the message reads `?` (or `<no ticker>`) when the ticker is absent or null.
+
+### T24 — Provider fetch + ImportError hint is now copy-pasted three times [status: todo]
+Origin: T4
+Spec: `cmd_screen` (cli.py:151-160), `cmd_backtest` and now `cmd_propose` each carry
+the same `get_provider(name)` / `fetch_panel(...)` / `except ImportError -> print
+'the X provider is not installed' -> return 2` block. T4 followed the existing pattern
+rather than widen its diff; the third copy is the one that argues for extracting it.
+Acceptance: one helper (e.g. `_fetch_panel(profile, provider_name, tickers, ...)`)
+returning the panel or signalling the exit-2 path, used by all three commands, with
+the existing provider-missing tests still passing unchanged.
+
+### T25 — propose drops the US `sector` factor because it has no --sector-map [status: todo]
+Origin: T4
+Spec: T4 calls `profile.screen(panel)` / `profile.score_names(panel, tickers=...)` with
+no `sector_map`, because `propose` has no `--sector-map` flag (`screen`/`backtest` both
+do). For `--market us` that silently drops the `sector` factor (0.20 of WEIGHTS) and
+renormalizes, so an auto-filled score is not the same number `kuroshio screen
+--sector-map ...` would print for the same name on the same day. Same for `--asof`:
+propose always scores the latest session.
+Acceptance: `propose` accepts `--sector-map` (and, if wanted, `--asof`) and threads it
+into both screening calls, matching `cmd_screen`'s `screen_kwargs` handling; one test
+proving the sector factor appears in an auto-filled US score.
+
+### T26 — Auto-filled incumbent scores are pctranked against a tiny pool [status: todo]
+Origin: T4
+Spec: `score_names` pctranks cross-sectionally over the tickers it is given, so a
+two-name holdings.yml always produces scores of exactly 0.0 and 1.0 — the weakest
+incumbent scores 0.0 and every challenger then clears `turnover.hurdle` by
+construction. Hand-typed scores came from a full `kuroshio screen` run over a real
+universe and did not have this property, so wiring the screener in makes the hurdle
+weaker for small portfolios, not stronger. Options: score incumbents inside the
+challenger cross-section (one `screen`-sized pool), require a minimum pool size, or
+warn on the card.
+Acceptance: a decision recorded in docs/ARCHITECTURE.md plus a test pinning the chosen
+behaviour for a 2-name holdings file.

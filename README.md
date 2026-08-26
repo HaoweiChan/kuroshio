@@ -50,6 +50,9 @@ printf -- '- {ticker: AAPL, weight: 0.08, theme: tech, score: 0.55}\n- {ticker: 
 kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
 
+`score:` is optional — leave it out and `propose` scores that holding with the same screener
+`screen` uses (hand-typed scores always win). Same for `final_score:` in a candidates file.
+
 `screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
 IPS clause that triggered it:
 

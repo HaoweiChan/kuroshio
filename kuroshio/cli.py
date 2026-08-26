@@ -2,10 +2,10 @@
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
-touches the network. Network calls happen only in the ``screen``,
-``backtest``, and ``research`` commands; ``research`` additionally requires
-the optional ``agents`` extra (LLM engine) and exits 2 with an install hint
-if it's missing.
+touches the network. Network calls happen only in the ``screen``, ``backtest``,
+``research`` and — when a score is missing from the input files — ``propose``.
+``research`` additionally requires the optional ``agents`` extra (LLM engine)
+and exits 2 with an install hint if it's missing.
 """
 
 from __future__ import annotations
@@ -70,7 +70,9 @@ def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], d
             verdicts[ticker] = item["verdict"]
         if item.get("theme") is not None:
             themes[ticker] = item["theme"]
-        candidates.append(Candidate(ticker=ticker, date=today, rank=0, final_score=item["final_score"]))
+        # final_score may be absent — cmd_propose fills it from the gated screener
+        # (and drops whatever the gate rejected) before any Candidate reaches propose().
+        candidates.append(Candidate(ticker=ticker, date=today, rank=0, final_score=item.get("final_score")))
     return candidates, verdicts, themes
 
 
@@ -233,9 +235,36 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # --- propose -------------------------------------------------------------
 
 
+def _score_missing(holdings: list[Holding], challengers: list[Candidate], profile, panel):
+    """Fill in the scores the user didn't hand-type, and return the surviving challengers.
+
+    Incumbents go through the market's ungated ``score_names``, challengers through
+    the gated ``screen`` — that split is the scale-compatibility contract documented
+    on ``core/screening/us.py:score_names``. Hand-written scores win: this only ever
+    fills a ``None``, per name. A challenger the Stage-1 gate rejected gets no score
+    and is therefore not a challenger.
+    """
+    if any(h.score is None for h in holdings):
+        # every incumbent, not just the unscored ones — pctrank is cross-sectional,
+        # so the wider the pool the more stable the scores it fills in.
+        scored = profile.score_names(panel, tickers=[h.ticker for h in holdings])
+        scores = {c.ticker: c.final_score for c in scored}
+        for h in holdings:
+            if h.score is None:
+                h.score = scores.get(h.ticker)
+    if any(c.final_score is None for c in challengers):
+        scores = {c.ticker: c.final_score for c in profile.screen(panel)}
+        for c in challengers:
+            if c.final_score is None:
+                c.final_score = scores.get(c.ticker)
+        challengers = [c for c in challengers if c.final_score is not None]
+    return challengers
+
+
 def cmd_propose(args: argparse.Namespace) -> int:
     from kuroshio.core.allocator import propose
     from kuroshio.core.ips import parse_ips, validate
+    from kuroshio.providers import get_provider
 
     ips = parse_ips(args.ips)
     problems = validate(ips)
@@ -252,6 +281,31 @@ def cmd_propose(args: argparse.Namespace) -> int:
     challengers, verdicts, themes = [], {}, {}
     if args.candidates:
         challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
+
+    # The user is no longer the integration layer: anything without a hand-typed
+    # score gets one from the screener. No missing score -> no fetch, no network.
+    if any(h.score is None for h in holdings) or any(c.final_score is None for c in challengers):
+        profile = get_profile(args.market)
+        provider_name = args.provider or profile.default_provider
+        fetch_tickers = list(
+            dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers])
+        )
+        if profile.benchmark and profile.benchmark not in fetch_tickers:
+            fetch_tickers.append(profile.benchmark)
+        try:
+            provider = get_provider(provider_name)
+            panel = provider.fetch_panel(fetch_tickers, profile.lookback_days)
+        except ImportError:
+            print(
+                f'error: the {provider_name!r} provider is not installed. '
+                f'Run: pip install "kuroshio[{provider_name}]"',
+                file=sys.stderr,
+            )
+            return 2
+        # ponytail: latest session only, and no sector_map for `us` (that factor
+        # renormalizes away) — add --asof/--sector-map here when propose needs to
+        # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T26.
+        challengers = _score_missing(holdings, challengers, profile, panel)
 
     cards = propose(
         holdings, challengers, ips, args.market,
@@ -392,6 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
     p_propose.add_argument("--market", choices=["us", "tw"], required=True)
+    p_propose.add_argument("--provider")
     p_propose.add_argument("--candidates")
     p_propose.add_argument("--swaps-this-week", type=int, default=0)
     p_propose.add_argument(

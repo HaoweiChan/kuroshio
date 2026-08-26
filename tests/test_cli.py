@@ -7,10 +7,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
-from kuroshio.cli import _candidates_from_yaml, _holdings_from_yaml, _parse_tickers, main
-from kuroshio.types import Candidate, Holding
+from kuroshio.cli import (
+    _candidates_from_yaml,
+    _holdings_from_yaml,
+    _parse_tickers,
+    _score_missing,
+    main,
+)
+from kuroshio.core.screening import get_profile
+from kuroshio.types import Candidate, Holding, Panel
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -214,3 +222,154 @@ def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
     )
     assert code == 2
     assert "entrey_price" in capsys.readouterr().err
+
+
+# --- propose: screener wiring (T4) --------------------------------------------
+#
+# No network: a stub provider is injected by monkeypatching the lazily-imported
+# `kuroshio.providers.get_provider` that cmd_propose resolves at call time.
+
+N_TW = 65  # TW profile needs MA60 -> 60 sessions of clean history
+
+
+def _ramp(lo: float, hi: float) -> list[float]:
+    return [lo + (hi - lo) * i / (N_TW - 1) for i in range(N_TW)]
+
+
+def _tw_panel() -> Panel:
+    """1102 = strongest breakout, 1101 = mild uptrend, 1103 = downtrend (fails Stage-1)."""
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=N_TW)]
+    close = pd.DataFrame(
+        {"1101": _ramp(50.0, 80.0), "1102": _ramp(50.0, 150.0), "1103": _ramp(120.0, 60.0)},
+        index=dates,
+    )
+    volume = pd.DataFrame({t: [1_000_000.0] * N_TW for t in close.columns}, index=dates)
+    volume.loc[dates[-1], "1101"] = 1_800_000.0   # 1.8x baseline -> clears VOL_MULT_MIN
+    volume.loc[dates[-1], "1102"] = 3_000_000.0   # 3x baseline
+    return Panel(close=close, volume=volume)
+
+
+class _StubProvider:
+    name = "stub"
+
+    def __init__(self, panel: Panel):
+        self.panel = panel
+        self.calls: list[tuple] = []
+
+    def fetch_panel(self, tickers, lookback_days, end=None):
+        self.calls.append((list(tickers), lookback_days, end))
+        return self.panel
+
+
+def _use_stub(monkeypatch) -> _StubProvider:
+    stub = _StubProvider(_tw_panel())
+    monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: stub)
+    return stub
+
+
+def test_propose_scores_score_less_holdings_via_provider(tmp_path, capsys, monkeypatch):
+    """Acceptance: a score-less holdings.yml produces scored cards end-to-end."""
+    stub = _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1101", weight: 0.05}\n- {ticker: "1103", weight: 0.05}\n')
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1102", final_score: 0.90, verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "No current holding has a screener score" not in out
+    assert "SWAP 1103 → 1102" in out
+    assert set(stub.calls[0][0]) == {"1101", "1102", "1103"}
+
+
+def test_score_missing_keeps_hand_written_scores_per_name():
+    """Acceptance: hand-written scores still win; only the absent ones get filled."""
+    profile = get_profile("tw")
+    holdings = [
+        Holding(ticker="1101", weight=0.05, score=0.123),  # hand-typed, must survive
+        Holding(ticker="1103", weight=0.05),               # absent -> screener fills it
+    ]
+    challengers = _score_missing(holdings, [], profile, _tw_panel())
+    assert challengers == []
+    assert holdings[0].score == 0.123
+    assert holdings[1].score is not None
+
+
+def test_propose_scores_candidates_through_the_gated_screener(tmp_path, capsys, monkeypatch):
+    """Candidates with no final_score go through the GATED screen — a name that
+    fails Stage-1 gets no score and is therefore not a challenger."""
+    _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1101", weight: 0.05, score: 0.10}\n')
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text(
+        '- {ticker: "1102", verdict: buy}\n'
+        '- {ticker: "1103", verdict: buy}\n'  # downtrend -> Stage-1 rejects, dropped
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "SWAP 1101 → 1102" in out
+    assert "1103" not in out
+    assert "incumbent 1101's 0.100" in out  # the hand-typed score, untouched
+
+
+def test_propose_never_fetches_when_every_score_is_hand_written(tmp_path, capsys, monkeypatch):
+    def _boom(name):
+        raise AssertionError("propose must not touch a provider when all scores are present")
+
+    monkeypatch.setattr("kuroshio.providers.get_provider", _boom)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1101", weight: 0.05, score: 0.40}\n')
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1102", final_score: 0.90, verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    assert code == 0
+    assert "SWAP 1101 → 1102" in capsys.readouterr().out
+
+
+def test_propose_exits_2_when_the_provider_is_not_installed(tmp_path, capsys, monkeypatch):
+    def _missing(name):
+        raise ImportError("no FinMind here")
+
+    monkeypatch.setattr("kuroshio.providers.get_provider", _missing)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1101", weight: 0.05}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    assert code == 2
+    assert "not installed" in capsys.readouterr().err

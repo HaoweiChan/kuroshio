@@ -199,7 +199,10 @@ stay optional.
 argparse, three subcommands (v1):
 - `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
   `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
-- `kuroshio propose --ips path.md --holdings holdings.yml [--market us]` — proposal cards to stdout
+- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
+  cards to stdout. A `score:` / `final_score:` missing from the input files is filled from the
+  screener (incumbents via `score_names`, challengers via the gated `screen`, one fetch through
+  the market's provider); hand-written values always win, per name. Every score hand-typed = no fetch.
 - `kuroshio ips-validate path.md`
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
