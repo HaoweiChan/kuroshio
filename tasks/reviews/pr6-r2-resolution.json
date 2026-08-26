@@ -1,0 +1,21 @@
+{
+  "pr": 6,
+  "round": 2,
+  "gate_after_repair": "pass — ruff clean, 128 passed",
+  "resolutions": [
+    {
+      "id": "R10",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_marks_a_tight_dispersion_gap_as_a_rank_distance; ::test_propose_marks_an_auto_filled_gap_as_a_rank_distance[2|3|8]",
+      "note": "Took the first branch of R10's acceptance (disclosure, not a rederived floor). pctrank pins its extremes to 0.000/1.000 regardless of dispersion, so the max-min the swap gate consumes is identical at n=2 and n=800 — no pool size makes that gap a factor comparison, which makes a floor the wrong instrument. The floor is removed; a SWAP whose gap uses an auto-filled score now discloses on the card that it is a rank distance within the user's own files. Docs corrected to match."
+    },
+    {
+      "id": "R11",
+      "status": "fixed",
+      "test": "n/a — the `+ 2` constant no longer exists",
+      "note": "Fixed by deletion, so R11's literal acceptance (a 7-name boundary test) is moot; the replacement guard is pinned instead. Mutation proof: `if auto:` -> `if False:` gives 5 failed / 123 passed; hardcoding the pool size in the disclosure string gives 2 failed / 126 passed."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": []
+}
