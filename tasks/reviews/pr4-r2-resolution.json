@@ -1,0 +1,18 @@
+{
+  "pr": 4,
+  "round": 2,
+  "task": "T2",
+  "resolutions": [
+    {
+      "id": "R1",
+      "status": "fixed",
+      "covered_by": "tests/test_ips.py::test_validate_catches_bad_friction, tests/test_allocator.py::test_no_accepted_ips_ever_swaps_below_its_own_hurdle",
+      "note": "Root cause was validating type without domain. Guard extended in the same place to `isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 <= v < 100)`, matching the neighbouring `0 < hurdle < 1` idiom. `not (0 <= v < 100)` rejects NaN for free (all NaN comparisons are False), both infinities, and negatives in one expression; the type test stays first because `0 <= \"0.585\" < 100` raises rather than returning False. Upper bound 100 is where friction/100 reaches 1.0 — the widest gap two 0..1 scores can produce — so at or above it the gate is an unconditional refusal, not a strict policy; interval left half-open and 0 allowed, since zero-friction is a legitimate commission-free setting. The round-1 self-reported negative-friction debt is closed by this same guard and was not logged separately. Orchestrator verified: .nan/.inf/-.inf/-10.0/100.0 all REJECTED; 0.0/0.585/99.9 valid and still gating a 0.067 gap against a 0.15 hurdle; all three shipped examples/ips-*.md still validate."
+    }
+  ],
+  "rejected": [],
+  "existing_tests_modified": [
+    "tests/test_ips.py::test_validate_catches_non_numeric_friction -> renamed test_validate_catches_bad_friction, four cases added to its tuple (.nan, .inf, -10.0, 100.0); loop body unchanged, no assertion weakened. This test was itself added in round 1 of this PR — nothing pre-existing to T2 was modified in any round."
+  ],
+  "gate": {"ruff": "pass", "pytest": "111 passed", "run_by": "orchestrator", "date": "2026-08-27"}
+}

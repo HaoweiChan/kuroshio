@@ -1,0 +1,20 @@
+{
+  "pr": 4,
+  "round": 2,
+  "task": "T2",
+  "result": "REQUEST_CHANGES",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "MEDIUM",
+      "route": "repair",
+      "reopened": true,
+      "claim": "The new friction check is type-only, so a NaN friction value still passes `ips-validate` and then silently disables the turnover gate entirely — every challenger becomes a SWAP, with card text asserting a falsehood.",
+      "evidence": "kuroshio/core/ips/parser.py:126-129 accepts any non-bool int/float, so `friction:\\n  us_roundtrip_pct: .nan` (PyYAML resolves `.nan` to float('nan')) validates OK. engine.py:99 then computes `hurdle = 0.15 + nan/100 = nan` and engine.py:115 `if gap < hurdle` is False for every gap, so a 0.000-gap challenger is proposed with reason \"a gap of 0.000, above your IPS turnover hurdle of 0.150 plus estimated round-trip friction of nan%\". main rejects that same swap, so it is a regression the round-1 repair did not close. `.inf` is the mirror case (validate OK, every swap silently suppressed). `us_roundtrip_pct: -10.0` also validates OK and proposes on a gap of 0.067.",
+      "repro": "parse_ips with `us_roundtrip_pct: .nan` -> validate() returns []; propose() with a 0.0001 gap against a 0.15 hurdle emits a SWAP. Orchestrator confirmed independently: .nan -> SWAP on a 0.067 gap vs 0.15 hurdle; -10.0 -> same; .inf -> every swap suppressed; main -> no SWAP in all three cases.",
+      "acceptance": "`validate()` rejects non-finite (and negative) friction as well as non-numeric, so `ips-validate` exits 2 on `us_roundtrip_pct: .nan`; a test in tests/test_ips.py covers `.nan`/`.inf` alongside the existing None/string cases, and a test asserts propose() never emits a SWAP whose gap is below the bare hurdle.",
+      "route_reason": "Regression introduced by this PR (main rejects these swaps) AND it makes a published card claim dishonest — a card stating a 0.000 gap is 'above your IPS turnover hurdle of 0.150'. Both scope triggers hit."
+    }
+  ],
+  "gate": {"ruff": "pass", "pytest": "110 passed", "run_by": "orchestrator", "date": "2026-08-27"}
+}
