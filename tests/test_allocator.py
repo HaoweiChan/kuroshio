@@ -195,3 +195,15 @@ def test_friction_gates_a_swap_that_only_clears_the_bare_hurdle():
     # US friction is only 0.02% -> 0.0002, so the same thin gap still clears there.
     us = propose(holdings, [cand("THIN", final_score=0.552)], ips, "us", verdicts={"THIN": "buy"})
     assert [c.buy for c in us if c.action == "SWAP"] == ["THIN"]
+
+
+def test_us_card_names_hurdle_and_friction_without_a_self_cancelling_total():
+    # US friction is 0.02%, so a combined threshold rendered at 3dp reads as the same
+    # number as the bare hurdle ("0.150 plus 0.020%, 0.150 together"). The card names
+    # the two components instead; score_gap/friction_pct carry the exact figures.
+    holdings = [Holding(ticker="TSLA", weight=0.05, score=0.233)]
+    ips = make_ips(**{"turnover.hurdle": 0.15})
+
+    cards = propose(holdings, [cand("GE", final_score=0.792)], ips, "us", verdicts={"GE": "neutral"})
+    reason = [c for c in cards if c.action == "SWAP"][0].reason
+    assert "your IPS turnover hurdle of 0.150 plus estimated round-trip friction of 0.020%." in reason

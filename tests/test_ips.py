@@ -112,3 +112,18 @@ def test_verdict_hold_is_alias_for_neutral():
     assert verdict_at_least("buy", "Hold") is True
     assert verdict_at_least("sell", "hold") is False
     assert VERDICT_ORDER == ["sell", "underweight", "neutral", "overweight", "buy"]  # no sixth rung
+
+
+def test_validate_catches_non_numeric_friction():
+    # A friction value that isn't a number used to pass ips-validate and then blow up
+    # the allocator's hurdle arithmetic (None / 100 -> TypeError). cli.cmd_propose bails
+    # on any validate() problem before calling propose(), so catching it here is what
+    # keeps "ips-validate said OK" and "propose runs" the same answer.
+    malformed = (
+        "tw_roundtrip_pct:", "us_roundtrip_pct:",  # present but null
+        'tw_roundtrip_pct: "0.585"', "us_roundtrip_pct: abc",  # non-numeric
+    )
+    for friction in malformed:
+        ips = parse_ips(f"---\nfriction:\n  {friction}\n---\nbody\n")
+        problems = validate(ips)
+        assert any("friction" in p for p in problems), f"{friction!r} was accepted"

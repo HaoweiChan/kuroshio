@@ -121,6 +121,13 @@ def validate(ips: IPS) -> list[str]:
     if not (0 < ips.turnover.hurdle < 1):
         problems.append(f"turnover.hurdle ({ips.turnover.hurdle}) must be in (0, 1)")
 
+    # the allocator divides these by 100 to put friction in score space, so a value the
+    # YAML left as None (`tw_roundtrip_pct:`) or quoted as a string is a TypeError there.
+    for f in ("tw_roundtrip_pct", "us_roundtrip_pct"):
+        v = getattr(ips.friction, f)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            problems.append(f"friction.{f} ({v!r}) must be a number (percent, e.g. 0.585)")
+
     if ips.turnover.verdict_floor.lower() not in VERDICT_ORDER:
         problems.append(
             f"turnover.verdict_floor: unknown verdict {ips.turnover.verdict_floor!r} "

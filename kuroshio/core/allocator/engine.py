@@ -123,8 +123,8 @@ def propose(
                     f"Challenger {c.ticker} scores {c.final_score:.3f} vs incumbent "
                     f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
                     f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
-                    f"round-trip friction of {friction_pct:.3f}%, {hurdle:.3f} together. "
-                    f"{c.ticker}'s verdict is '{verdict}', at or above your floor of '{floor}'."
+                    f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
+                    f"'{verdict}', at or above your floor of '{floor}'."
                 ),
                 ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
                 score_gap=gap,

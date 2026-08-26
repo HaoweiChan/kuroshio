@@ -57,8 +57,8 @@ IPS clause that triggered it:
 ### SWAP TSLA → GE
 
 Challenger GE scores 0.792 vs incumbent TSLA's 0.233 — a gap of 0.559, above your IPS turnover
-hurdle of 0.150. GE's verdict is 'neutral', at or above your floor of 'neutral'. Estimated
-round-trip friction: 0.020%.
+hurdle of 0.150 plus estimated round-trip friction of 0.020%. GE's verdict is 'neutral', at or
+above your floor of 'neutral'.
 - score gap: +0.559
 - est. friction: 0.020%
 - per your IPS: turnover.hurdle, turnover.verdict_floor, friction.us_roundtrip_pct
