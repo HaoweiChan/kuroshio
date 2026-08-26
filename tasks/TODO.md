@@ -249,15 +249,36 @@ Acceptance: `propose` accepts `--sector-map` (and, if wanted, `--asof`) and thre
 into both screening calls, matching `cmd_screen`'s `screen_kwargs` handling; one test
 proving the sector factor appears in an auto-filled US score.
 
-### T26 — Auto-filled incumbent scores are pctranked against a tiny pool [status: todo]
-Origin: T4
-Spec: `score_names` pctranks cross-sectionally over the tickers it is given, so a
-two-name holdings.yml always produces scores of exactly 0.0 and 1.0 — the weakest
-incumbent scores 0.0 and every challenger then clears `turnover.hurdle` by
-construction. Hand-typed scores came from a full `kuroshio screen` run over a real
-universe and did not have this property, so wiring the screener in makes the hurdle
-weaker for small portfolios, not stronger. Options: score incumbents inside the
-challenger cross-section (one `screen`-sized pool), require a minimum pool size, or
-warn on the card.
-Acceptance: a decision recorded in docs/ARCHITECTURE.md plus a test pinning the chosen
-behaviour for a 2-name holdings file.
+### T27 — --provider and the us benchmark append have no test that can go red [status: todo]
+Origin: PR #6 R7
+Spec: cli.py:449 adds `--provider` to propose and cli.py:288 resolves it; cli.py:293-294
+appends `profile.benchmark` for `us`. Every new T4 test uses `--market tw` with
+`_use_stub` = `monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: stub)`,
+which discards `name` — deleting `args.provider or` from cli.py:288 still leaves the suite
+at 121 passed. `profile.benchmark` is None for tw, so cli.py:293-294 never executes in any
+test, while docs/ARCHITECTURE.md:202 advertises `[--provider ...]` on propose.
+Acceptance: one test asserting `get_provider` is called with the value of `--provider`
+(stub captures `name`), and one `--market us` test asserting `SPY` is in the fetched
+ticker list.
+
+### T28 — Candidate.final_score is annotated float but now holds None [status: todo]
+Origin: PR #6 R8
+Spec: types.py:29 declares `final_score: float`; cli.py:75 now stores
+`item.get("final_score")`, i.e. None, and `propose()` in core/allocator/engine.py sorts
+challengers by `final_score`, which would raise TypeError if a None ever reached it. Not
+reachable through `cmd_propose` today (the `any(... is None)` guard routes to
+`_score_missing`, which filters), but `_candidates_from_yaml` is called directly in tests
+and is now a documented-optional-field parser with a lying type.
+Acceptance: `final_score: float | None` on the dataclass, or `_candidates_from_yaml`
+returns only scored candidates.
+
+### T29 — Unknown --provider value is a traceback, not exit 2 [status: todo]
+Origin: PR #6 R9
+Spec: `get_provider(provider_name)` is called inside `try: ... except ImportError` in all
+three commands (cmd_screen, cmd_backtest, and now cmd_propose at cli.py:296), but
+providers/__init__.py:23 raises `ValueError(f"Unknown provider {name!r}...")` — so
+`--provider bogus` prints a traceback instead of the exit-2 install hint next to it.
+Pre-existing shape, newly reproduced on the propose surface.
+Acceptance: `except (ImportError, ValueError)` (or `choices=sorted(_REGISTRY)`) so an
+unknown provider exits 2 with the message on stderr, in all three commands.
+
