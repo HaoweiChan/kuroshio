@@ -708,7 +708,8 @@ def test_a_pre_t3_portfolio_still_gets_no_cards_at_all():
 
 @pytest.mark.parametrize(
     "entry,level",
-    [(6.60, 5.61), (9.00, 7.65), (13.00, 11.05), (18.00, 15.30), (3.40, 2.89), (100.00, 85.00)],
+    [(6.60, 5.61), (9.00, 7.65), (13.00, 11.05), (18.00, 15.30), (3.40, 2.89), (100.00, 85.00),
+     (0.20, 0.17), (0.60, 0.51)],  # sub-dollar, where a half-cent of slop is percentage points
 )
 def test_the_level_the_card_prints_is_the_level_it_enforces(entry, level):
     """R1: `entry x 0.85` lands a hair under the exact -15% price for most entries —
@@ -720,11 +721,6 @@ def test_the_level_the_card_prints_is_the_level_it_enforces(entry, level):
     assert len(cards) == 1, f"{entry} -> {level} is exactly -15% and must decide"
     assert f"the {level:.2f} level from that entry" in cards[0].reason
     assert cards[0].details["trigger_price"] == level  # printed == enforced
-
-    # a provider close carries float noise too (adjusted closes land on 84.99999999999999),
-    # and a price that prints as the level is at the level on both sides of the comparison
-    holdings, prices = loser(level + 1e-9, entry=entry)
-    assert len(decides(propose(holdings, [], make_ips(), "us", prices=prices))) == 1
 
     # and not by widening the rule: one cent above the printed level is not past it
     holdings, prices = loser(round(level + 0.01, 2), entry=entry)
@@ -762,3 +758,36 @@ def test_a_decided_incumbent_is_not_told_to_add_and_sold_in_the_same_run():
     plain_swap = next(c for c in plain if c.action == "SWAP")
     assert "DECIDE" not in plain_swap.reason
     assert plain_swap.details["incumbent_decided"] is False
+
+
+# --- PR #10 round 2 repair -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,price,pct,loss",
+    [
+        (0.03, 0.030, -15, "+0.0%"),    # breakeven: the exact level is 0.0255
+        (0.03, 0.029, -15, "-3.3%"),
+        (0.10, 0.090, -15, "-10.0%"),
+        (0.20, 0.180, -15, "-10.0%"),
+        (1.10, 0.940, -15, "-14.5%"),   # exact level 0.935 — the cent above it is not past it
+        (1.00, 0.670, -33.3, "-33.0%"),
+    ],
+)
+def test_a_position_short_of_the_threshold_is_never_decided(entry, price, pct, loss):
+    """R7: rounding the trigger *up* to the cent widened the rule by half a cent, which is
+    a fixed absolute slop and therefore unbounded in percentage terms as the entry price
+    falls — a position at breakeven was handed a card reading "+0.0% ... at or past your
+    IPS max adverse excursion of -15.0%". The trigger may never be above the exact level."""
+    ips = make_ips(**{"caps.max_adverse_excursion_pct": pct})
+    holdings, prices = loser(price, entry=entry)
+    cards = decides(propose(holdings, [], ips, "us", prices=prices))
+    assert cards == [], f"{loss} is short of {pct}% and must not be decided"
+
+    # the rule is still live at this entry: the next cent down is past the level, and the
+    # level it names there is the floored one it enforced, not the raw product rounded
+    holdings, prices = loser(round(price - 0.01, 2), entry=entry)
+    fired = decides(propose(holdings, [], ips, "us", prices=prices))
+    assert len(fired) == 1
+    assert f"the {fired[0].details['trigger_price']:.2f} level from that entry" in fired[0].reason
+    assert prices["LOSER"] <= fired[0].details["trigger_price"]

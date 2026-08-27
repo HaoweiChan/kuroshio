@@ -14,6 +14,8 @@ docs/ARCHITECTURE.md `core/allocator`.
 
 from __future__ import annotations
 
+from decimal import ROUND_FLOOR, Decimal
+
 from kuroshio.core.allocator.signals import MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
 
@@ -43,6 +45,28 @@ def _entry_price(h) -> float | None:
     loss-from-entry rule would divide by one and the reason string would report a move
     from a number the user never paid (tasks/TODO.md T43)."""
     return h.entry_price if h.entry_price and h.entry_price > 0 else None
+
+
+def _trigger_price(entry_price: float, mae_pct: float) -> float:
+    """The price at or below which a position is past `caps.max_adverse_excursion_pct`:
+    the exact threshold level, rounded **down** to the cent.
+
+    Exact, because binary floats are not: `6.60 * 0.85` is 5.609999999999999, so a plain
+    product silently holds a position sitting on the user's own threshold, and rounding
+    that product to the nearest cent trades the miss for the opposite error — half a cent
+    of slop is fixed in absolute terms and therefore unbounded in percentage terms as the
+    entry falls, which handed a 0.03 position at breakeven a card claiming it was past -15%.
+
+    Down, because the trigger is a price and prices are quoted in cents: flooring can never
+    put the level above the exact threshold, and no cent-quoted price can land between the
+    two, so `price <= trigger` and `price <= exact level` are the same test on any price a
+    market can print. It is also the number the card prints, at the precision it prints it.
+
+    ponytail: cents, because US and TW both quote in them. A market quoted finer wants the
+    profile's tick size here — never an epsilon, which is the slop this docstring is about.
+    """
+    exact = Decimal(str(entry_price)) * (1 + Decimal(str(mae_pct)) / 100)
+    return float(exact.quantize(Decimal("0.01"), rounding=ROUND_FLOOR))
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
@@ -233,14 +257,8 @@ def propose(
                 else f"entry_price {h.entry_price} is not a price"
             ) + ", so the loss from entry is not watched"
             continue
-        # Both sides at the cent the cards print, so the level the card names is the level
-        # it enforces: `entry x (1 + pct/100)` lands a hair under the exact percentage for
-        # most entries (6.60 -> 5.609999999999999), which silently held a position sitting
-        # exactly on the user's own threshold and advertised a level nothing compared
-        # against. ponytail: cents, because US and TW both quote in them; a market quoted
-        # finer wants the profile's tick size here, not a smaller epsilon.
-        trigger = round(entry_price * (1 + mae_pct / 100), 2)
-        if round(price, 2) > trigger:
+        trigger = _trigger_price(entry_price, mae_pct)
+        if price > trigger:
             continue
         note = thesis_note.get(h.ticker)
         decided[h.ticker] = f"{price / entry_price - 1:+.1%}"
