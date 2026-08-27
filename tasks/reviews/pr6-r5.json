@@ -1,0 +1,29 @@
+{
+  "pr": 6,
+  "round": 5,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass — ruff clean, 132 passed",
+  "note": "Final micro-round authorized by the human after the round-4 escalation.",
+  "round4_findings_resolved": [
+    "R17",
+    "R18"
+  ],
+  "reviewer_verifications": [
+    "Three claimed mutations reproduce exactly: us.MIN_RANK_WEIGHT=0.0 -> 1 failed/131 passed; =0.99 -> 1 failed/131 passed; notice revert -> 2 failed/130 passed.",
+    "Round-3 guard still pinned: +2->+1 gives 3 failed, +2->+3 gives 2 failed.",
+    "Round-2 both-auto disclosure still pinned: 4 failed when removed.",
+    "The R17 test genuinely populates Panel.institutional and 'institution' really lands in scores."
+  ],
+  "findings": [
+    {
+      "id": "R19",
+      "severity": "MEDIUM",
+      "claim": "The repair's replacement wording is still false — for `--market us` the guard's own worst-case claim does not hold: on the fully degraded US weighting a 3-name pool already produces a non-zero composite gap of 0.0629 < the 0.1502 hurdle, so the notice's \"it takes 4 names before two scores can differ by less than the hurdle, so below that the hurdle can reject nothing\" is arithmetically wrong, as is the same assertion now written into ARCHITECTURE.md, README.md and T30.",
+      "evidence": "The whole derivation assumes the composite moves in integer steps of `min_rank_weight / (n - 1)`, which is only true when the present weights are commensurate at `min_rank_weight`. TW is (degraded 1/3,1/3,1/3; present 1/6,1/6,1/6,1/2). US is not: kuroshio/core/screening/us.py:33-38 sets `MIN_RANK_WEIGHT = min(0.333, 0.20)/(0.333+0.20) = 0.37523`, but the degraded composite is `0.62477*momentum + 0.37523*volume`, and at n=3 the combination `0.5*w_mom - 1.0*w_vol` = -0.06285 is a reachable gap. Concrete input (no SPY column, i.e. the coarsest weighting the notice names): AAA/BBB/CCC 210-session ramps to 130/110/160 with last-day volumes 1M/3M/2M -> real `us.score_names` output CCC 0.812383, BBB 0.375235, AAA 0.312383, adjacent gaps [0.062852, 0.437148] vs hurdle 0.1502. The false sentences: kuroshio/cli.py:290-299 (the notice), kuroshio/cli.py:270-278, docs/ARCHITECTURE.md:209-218, README.md:57-60, tasks/TODO.md:290-292, and the pre-existing docs/adding-a-market.md:81-87. The new R18 test pins the false claim: tests/test_cli.py:573 asserts `\"coarsest weighting\" in cap.err` on exactly this 3-name US refusal. The guard still errs safe (it over-refuses; `need`=4 is above the true threshold), so no fabricated gap reaches a card — only the stated reason is wrong, same class as R17.",
+      "repro": "scratchpad/r19_repro.py — asserts the notice prints \"takes 4 names before two scores can differ by less than the hurdle\" for that pool while `us.score_names` on the same panel returns gaps [0.062852, 0.437148]; passes at HEAD. Orchestrator-verified independently: degraded US weights (0.62477, 0.37523), achievable n=3 gaps 0.0629 / 0.1248 / 0.1876 vs hurdle 0.1502.",
+      "acceptance": "Either the notice/docs stop asserting the step-grid claim as a universal and state something true of both markets (e.g. `need` is a heuristic floor derived from the single coarsest factor weight, which over-refuses and is exact only when the surviving weights are equal), or `min_rank_weight` is redefined so it really is the composite's minimum non-zero step for every registered profile. Either way one US case pins it, so reverting to the current sentence goes red.",
+      "route": "repair",
+      "route_reason": "Dishonest claim in four documents of record (README.md, docs/ARCHITECTURE.md, docs/adding-a-market.md, the user-facing notice) plus T30. Orchestrator-verified: degraded US weights are unequal (0.62477/0.37523), so the composite does not move on a min_rank_weight grid and gaps of 0.0629 and 0.1248 are reachable at n=3, both under the 0.1502 hurdle. Guard still errs safe; only the stated reason is wrong."
+    }
+  ]
+}

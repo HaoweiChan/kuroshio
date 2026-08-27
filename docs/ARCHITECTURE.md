@@ -199,10 +199,33 @@ stay optional.
 argparse, three subcommands (v1):
 - `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
   `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
-- `kuroshio propose --ips path.md --holdings holdings.yml [--market us]` — proposal cards to stdout
+- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
+  cards to stdout. A `score:` / `final_score:` missing from the input files is filled from one
+  ungated `score_names` cross-section over *the tickers in those files* (one fetch through the
+  market's provider); the gated `screen` decides challenger eligibility only, and names it drops
+  are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
+  the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
+  auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). Two consequences, both handled:
+  (1) below `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for both
+  markets under the balanced IPS) nothing is filled and the allocator's ALERT stands. That
+  floor is a heuristic, not a theorem: it scales one pctrank step `1/(n-1)` by the largest
+  share of the score a single pctrank carries in the market's fully degraded composite, and
+  refuses when that is already hurdle-sized — the pool is thin enough that the hurdle may be
+  doing no work, so `propose` declines rather than decide case by case. It over-refuses on
+  purpose (the live composite is usually finer, and with unequal surviving weights the score
+  does not land on that grid at all), and must not be sharpened into an exact minimum step —
+  see `cli.py:_score_missing`. (2) Above that size `pctrank`
+  still pins its extremes to 0.000/1.000 however tightly the factors cluster — eight names
+  0.007% apart yield a 0.857 gap — so the SWAP card discloses which names were auto-filled and
+  how many they were ranked against. When only one side is auto-filled the card says so
+  differently: that gap subtracts a percentile from a hand-typed number and is a rank distance
+  in neither scale. Hand-written values always win, per name, and carry no disclosure.
+  Every score hand-typed = no fetch.
 - `kuroshio ips-validate path.md`
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
+`candidates.yml`: list of {ticker, final_score?, verdict?, theme?} — same rule (`final_scores:` is a typo, not a request to fetch one).
 
 ## What deliberately does not exist yet (YAGNI)
 

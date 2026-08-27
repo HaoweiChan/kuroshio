@@ -1,0 +1,98 @@
+{
+  "pr": 6,
+  "round": 1,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass — ruff clean, 121 passed",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "HIGH",
+      "claim": "`_score_missing` scores incumbents and challengers against two different pctrank pools, so the two numbers the swap gate subtracts are not on the same scale — the exact thing the scale-compatibility contract in `us.py:score_names` forbids, despite the docstring claiming to honor it.",
+      "evidence": "kuroshio/cli.py:250 calls `profile.score_names(panel, tickers=[holdings])` (pool = holdings only) while kuroshio/cli.py:256 calls `profile.screen(panel)` (pool = every gate-passing column of the panel = holdings + candidates). Same panel, same session, one ticker: with close=[1101→100.0, 1102→100.1, 1103→100.2], `score_names(panel, ['1101','1102'])` gives 1102=1.0, and `screen(panel)` gives 1102=0.5. `_score_missing`'s docstring at kuroshio/cli.py:242-245 asserts \"that split is the scale-compatibility contract\"; the contract at kuroshio/core/screening/us.py:203-209 says the two must \"stay comparable on the same scale\", which requires the same cross-section, not just the same formula.",
+      "repro": "scratchpad/r4.py → prints `incumbent pool score_names([1101,1102]): {'1102': 1.0, '1101': 0.0}` vs `challenger pool screen(panel): {'1103': 1.0, '1102': 0.5, '1101': 0.0}`",
+      "acceptance": "Incumbent and challenger scores are produced from one cross-section (e.g. score the whole panel once with gate=False for ranking and use the gate only to decide challenger eligibility), plus a test asserting that a ticker present in both roles gets the identical final score from the same panel.",
+      "route": "repair",
+      "route_reason": "Spec names the scale-compatibility contract explicitly; violating it makes the printed score gap on a SWAP card a fabricated number."
+    },
+    {
+      "id": "R2",
+      "severity": "HIGH",
+      "claim": "Auto-filled incumbent scores are pctranked over the user's own holdings only, so the weakest incumbent is always exactly 0.0 (and a lone holding is 0.0 regardless of how strong it is), collapsing `turnover.hurdle` and making `propose` emit confidently wrong SWAP cards where it previously emitted an honest ALERT.",
+      "evidence": "kuroshio/cli.py:250 + kuroshio/core/screening/score.py:pctrank (`n<=1 → 0.0`; n=2 → {0.0,1.0}). Concrete: a sole holding 1103 whose close ramps 50→200 (the strongest name in the panel, unscored) scores 0.000, and a candidate 1101 whose close ramps 120→60 with a hand-typed `final_score: 0.20` wins: `SWAP 1103 → 1101 … gap of 0.200, above your IPS turnover hurdle of 0.150`. Second case: three names 0.1% apart (100.0/100.1/100.2) yield `SWAP 1101 → 1103 … a gap of 1.000`. Before this PR the same score-less holdings.yml produced the allocator's ALERT at kuroshio/core/allocator/engine.py (\"No current holding has a screener score … run the screener before evaluating swaps\") — a refusal, not a fabricated number. The PR's own acceptance test (tests/test_cli.py:`test_propose_scores_score_less_holdings_via_provider`) is an instance of this: 2 holdings ⇒ weakest is 0.0 by construction ⇒ the 0.90 candidate clears the hurdle no matter what the factor math says.",
+      "repro": "scratchpad/r3.py (sole-holding case) and scratchpad/r2.py (three near-identical names → gap 1.000)",
+      "acceptance": "Either the incumbent cross-section is widened to a real universe, or `propose` refuses to auto-fill below a minimum pool size and falls back to the existing ALERT; a test with a 2-name and a 1-name score-less holdings.yml pins that no SWAP is emitted on a fabricated gap. Deferring this to T26 is not acceptable: T26 says the hurdle gets \"weaker for small portfolios\" but the shipped behavior is wrong output on the acceptance case itself.",
+      "route": "repair",
+      "route_reason": "Dishonest published number: propose emits a SWAP card with a gap the data does not support, and regresses a case that previously produced an honest ALERT. Also lands on T4's own acceptance case."
+    },
+    {
+      "id": "R3",
+      "severity": "HIGH",
+      "claim": "The challenger side has the mirror-image bug not covered by the T26 debt note: when only one candidate clears Stage-1, `pctrank` returns 0.0 for it, so a genuine breakout is scored 0.000 and silently never proposed.",
+      "evidence": "kuroshio/cli.py:256 `profile.screen(panel)` on a panel containing only the user's own names; kuroshio/core/screening/score.py pctrank returns [0.0] for n==1. Holdings 1101 (120→60) and 1102 (140→70) both fail Stage-1, candidate 1103 ramps 50→200 with 5x volume — the only gate passer — and gets final_score 0.000, gap 0.000 < hurdle. Output: `No proposals — portfolio is within policy.` tasks/TODO.md T26 describes only the incumbent side and would not catch this.",
+      "repro": "scratchpad/r3.py, first block: prints `No proposals — portfolio is within policy.` for a monster-breakout challenger against two downtrending incumbents",
+      "acceptance": "A single gate-passing challenger receives a score that reflects its strength relative to a real cross-section (see R1's shared-pool fix), with a test pinning that a lone strong challenger against weak incumbents produces a SWAP.",
+      "route": "repair",
+      "route_reason": "Same root cause as R1; silently suppresses a valid proposal, so the 'produces scored cards end-to-end' acceptance is only accidentally met."
+    },
+    {
+      "id": "R4",
+      "severity": "MEDIUM",
+      "claim": "Relaxing `item[\"final_score\"]` to `item.get(\"final_score\")` turns a typo'd key into silence — candidates.yml has no unknown-key validation (unlike holdings.yml, which T3 deliberately made loud), so `final_scores: 0.90` is silently discarded, a network fetch is triggered, and a fabricated score replaces the user's intent.",
+      "evidence": "kuroshio/cli.py:75 (`item.get(\"final_score\")`) with no `known`-key check anywhere in `_candidates_from_yaml` (kuroshio/cli.py:65-77), contrast `_holdings_from_yaml` kuroshio/cli.py:44-48 which raises `unknown key {key!r}`. Input `- {ticker: \"1102\", final_scores: 0.90, verdict: buy}` parses to `Candidate(final_score=None)`, fetches, and produces `Challenger 1102 scores 1.000 … gap of 0.600`. Pre-PR the same file raised `KeyError: 'final_score'`. No test covers a typo'd or unknown candidates.yml key.",
+      "repro": "scratchpad/r5.py, first block",
+      "acceptance": "`_candidates_from_yaml` rejects unknown keys with the same `path: ticker: unknown key 'x'` message `_holdings_from_yaml` uses, plus a test asserting exit 2 and the key name in stderr for `final_scores:`.",
+      "route": "repair",
+      "route_reason": "Regression introduced by this PR (loud KeyError -> silent drop), and the silently discarded value is then replaced by a fabricated score, so 'hand-written scores still win' fails on a typo."
+    },
+    {
+      "id": "R5",
+      "severity": "MEDIUM",
+      "claim": "Candidates rejected by Stage-1 are dropped with no message at all, so a user who lists 10 unscored candidates and gets \"No proposals — portfolio is within policy\" cannot tell whether the names were considered and lost or never scored.",
+      "evidence": "kuroshio/cli.py:259-260 `challengers = [c for c in challengers if c.final_score is not None]` — no stderr note, no count. With holdings `1101 score:0.4` and candidates `- {ticker: \"1103\", verdict: buy}` (downtrend) the run prints only `No proposals — portfolio is within policy.` The new test at tests/test_cli.py:`test_propose_scores_candidates_through_the_gated_screener` asserts `\"1103\" not in out`, i.e. it pins the silence as intended behavior. This is also a change in kind: previously every listed candidate carried a hand-typed score and was always evaluated.",
+      "repro": "scratchpad/r5.py, second block",
+      "acceptance": "Names dropped by the gate are reported (e.g. `notice: 1 candidate(s) had no hand-typed score and did not pass the Stage-1 gate: 1103`), with a test asserting the ticker appears in the notice.",
+      "route": "repair",
+      "route_reason": "'No proposals - portfolio is within policy' is a claim this PR makes false: names were never scored, not evaluated and rejected."
+    },
+    {
+      "id": "R6",
+      "severity": "MEDIUM",
+      "claim": "README and ARCHITECTURE claim propose fills a missing score \"with the same screener `screen` uses\", which is false for every market (different pctrank cross-section) and additionally false for `us` (the 0.20-weight `sector` factor is silently dropped).",
+      "evidence": "README.md:53-54 \"`propose` scores that holding with the same screener `screen` uses\"; docs/ARCHITECTURE.md:202-205 \"filled from the screener (incumbents via `score_names`, challengers via the gated `screen`…)\". The implementer's own tasks/TODO.md T25 states \"an auto-filled score is not the same number `kuroshio screen --sector-map ...` would print for the same name on the same day\", and R1 shows the number differs even without sector_map. Neither doc mentions that the pool is the user's own names, nor (in README) that `propose` now performs a network fetch.",
+      "repro": "Read README.md:53-54 against tasks/TODO.md T25/T26 and scratchpad/r4.py output",
+      "acceptance": "The docs state plainly that an auto-filled score is a percentile within the names in your own files (not a `kuroshio screen` number), and that `propose` fetches from the provider when any score is missing — or the code is changed to actually match the current wording.",
+      "route": "repair",
+      "route_reason": "README and ARCHITECTURE are documents of record; they now state something the code does not do."
+    },
+    {
+      "id": "R7",
+      "severity": "MEDIUM",
+      "claim": "Two behaviors this PR adds have no test that could go red: the `--provider` override and the `--market us` benchmark auto-append; every new test uses `--market tw` and a stub whose `get_provider` lambda ignores the provider name.",
+      "evidence": "kuroshio/cli.py:449 adds `--provider`, kuroshio/cli.py:288 resolves it, kuroshio/cli.py:293-294 appends `profile.benchmark`. tests/test_cli.py `_use_stub` is `monkeypatch.setattr(\"kuroshio.providers.get_provider\", lambda name: stub)` — `name` is discarded, so deleting `args.provider or` would still pass. `profile.benchmark` is `None` for tw (kuroshio/core/screening/__init__.py PROFILES), so lines 293-294 are never executed by any new test; the only fetch-args assertion is `set(stub.calls[0][0]) == {\"1101\",\"1102\",\"1103\"}` on the tw path. docs/ARCHITECTURE.md:202 now advertises `[--provider ...]` on propose.",
+      "repro": "pytest tests/test_cli.py -q after stubbing out `args.provider or` in kuroshio/cli.py:288 → still 121 passed",
+      "acceptance": "One test asserting `get_provider` is called with the value of `--provider` (stub captures `name`), and one `--market us` test asserting `SPY` is in the fetched ticker list.",
+      "route": "debt",
+      "route_reason": "MEDIUM but blocks nothing: no acceptance criterion violated, gate green, no dishonest claim. Coverage gap on two new flags -> T27."
+    },
+    {
+      "id": "R8",
+      "severity": "LOW",
+      "claim": "`Candidate.final_score` is annotated `float` but now legitimately holds `None` between parsing and `_score_missing`; `propose()` sorts challengers by `final_score` and would raise `TypeError` if a `None` ever reached it.",
+      "evidence": "kuroshio/types.py:29 `final_score: float`; kuroshio/cli.py:75 now stores `item.get(\"final_score\")` (None); kuroshio/core/allocator/engine.py `sorted(challengers, key=lambda c: c.final_score, reverse=True)`. Not reachable through `cmd_propose` today (the `any(... is None)` guard at kuroshio/cli.py:287 always routes to `_score_missing`, which filters), but `_candidates_from_yaml` is exercised directly in tests/test_cli.py and is now a documented-optional-field parser with a lying type.",
+      "repro": "python -c \"from kuroshio.cli import _candidates_from_yaml; print(_candidates_from_yaml(p)[0])\" on a candidates.yml with no `final_score:` → `final_score=None`",
+      "acceptance": "`final_score: float | None` on the dataclass, or `_candidates_from_yaml` returns only scored candidates.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T28."
+    },
+    {
+      "id": "R9",
+      "severity": "LOW",
+      "claim": "The new `--provider` flag has no `choices=` and an unknown value produces an uncaught `ValueError` traceback rather than exit 2 with a hint.",
+      "evidence": "kuroshio/cli.py:449 `p_propose.add_argument(\"--provider\")`; kuroshio/cli.py:296 `get_provider(provider_name)` inside `try: … except ImportError`, while kuroshio/providers/__init__.py:23 raises `ValueError(f\"Unknown provider {name!r}…\")`. Same pattern already exists in `cmd_screen`/`cmd_backtest`, so this is a pre-existing shape reproduced on a new surface.",
+      "repro": "python -c \"from kuroshio.cli import main; main(['propose','--ips','examples/ips-balanced.md','--holdings',h,'--market','tw','--provider','bogus'])\" → `ValueError: Unknown provider 'bogus'` traceback",
+      "acceptance": "`except (ImportError, ValueError)` (or `choices=sorted(_REGISTRY)`) so an unknown provider exits 2 with the message on stderr, in all three commands.",
+      "route": "debt",
+      "route_reason": "LOW, and a pre-existing shape reproduced on a new surface (screen/backtest have it too). -> T29."
+    }
+  ]
+}

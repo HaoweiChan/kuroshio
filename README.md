@@ -50,6 +50,20 @@ printf -- '- {ticker: AAPL, weight: 0.08, theme: tech, score: 0.55}\n- {ticker: 
 kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
 
+`score:` is optional (same for `final_score:` in a candidates file) — leave it out and `propose`
+fetches prices from the market's provider and fills it in. Hand-typed values always win, per name.
+An auto-filled score is **a percentile rank within the names in your own files**, not the number
+`kuroshio screen` prints for that name: the pool is your holdings + candidates, not a universe,
+and `propose` passes no `--sector-map`/`--asof`. Two things follow. A pool small enough that
+your turnover hurdle may not be doing any work gets nothing filled at all — you get the "no
+holding has a screener score" ALERT instead of a made-up gap. (That floor is a deliberately
+conservative rule of thumb, not an exact cutoff: it will sometimes refuse a pool your hurdle
+could have judged fine. Hand-type the scores, or list more names.) Above that size the score is
+filled, but percentile ranks pin their extremes to 0.000 and 1.000 however tightly the names
+cluster, so every card built from one says which scores were filled and how many names they were
+ranked against — and, when the other side of the swap is hand-typed, that the gap spans two
+different scales.
+
 `screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
 IPS clause that triggered it:
 

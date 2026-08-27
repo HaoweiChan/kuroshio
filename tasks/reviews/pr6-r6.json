@@ -1,0 +1,27 @@
+{
+  "pr": 6,
+  "round": 6,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 132 passed",
+  "note": "Final micro-round authorized by the human after the round-5 escalation.",
+  "round5_findings_resolved": [
+    "R19"
+  ],
+  "reviewer_verifications": [
+    "No behaviour change: the repair diff touches only docstrings, comments and f-string prose; the need computation and the refusal branch are byte-identical to b8658a0. Independently confirmed by the orchestrator.",
+    "All three claimed mutations reproduce exactly: notice reverted to round-4 wording -> 2 failed/130 passed; over-refusal admission dropped -> 1 failed/131 passed; 'Below that the hurdle can reject nothing.' appended -> 2 failed/130 passed. The third proves _STEP_GRID_CLAIMS fires on its own.",
+    "Repo-wide grep for the step-grid phrasings finds only tw.py:33-38 (already debt T35) and the name/docstring of test_propose_refuses_when_the_hurdle_cannot_reject_anything, which is TW-only so true in its scope."
+  ],
+  "findings": [
+    {
+      "id": "R20",
+      "severity": "MEDIUM",
+      "claim": "The repair leaves (and re-writes) a second TW-true/US-false generalisation: every site defines `min_rank_weight` as \"the largest share of `final_score` a single pctrank can control\", but the code takes the *smallest* surviving weight, and for US the two differ (0.375 vs 0.625) — the notice's new phrase \"read off this market's single coarsest factor weight\" names the finer of the two weights, not the coarsest.",
+      "evidence": "kuroshio/core/screening/us.py:33 says \"Largest share of `final_score` a single pctrank can control\" while us.py:38-40 computes `min(WEIGHTS['momentum'], WEIGHTS['volume'])/(sum)` = 0.37523 — and line 35, added by this diff, prints the contradicting pair \"(0.625/0.375)\" two lines below it. US momentum is a single pctrank of `mom_raw` (us.py:135,155,163), so the largest share one pctrank carries in the degraded composite is 0.62477. The same inverted definition is in prose rewritten this round: kuroshio/cli.py:268, docs/ARCHITECTURE.md:212-213, and the user-facing notice at kuroshio/cli.py:296 (\"this market's single coarsest factor weight\"); it also stands unchanged at docs/adding-a-market.md:81 and kuroshio/core/screening/__init__.py:26. TW is unaffected (degraded weights 1/3,1/3,1/3 — largest == smallest), which is exactly R19's failure shape: a TW-true statement written as a general law, in the file where it is false. Consequence beyond wording: docs/adding-a-market.md:81-88 tells a new-market author to compute the max, so a profile with 0.625/0.375-shaped degraded weights would get `min_rank_weight`=0.625 and `need`=6 where us.py's own rule gives 0.375 and `need`=4. The docstring's guarantee \"Both make the floor conservative, never permissive\" (cli.py:276-277) is only derivable from the *minimum* per-pctrank weight, since the true minimum non-zero gap is <= min_weight/(n-1); it does not follow from the definition the same paragraph gives.",
+      "repro": "python -c \"from kuroshio.core.screening import us; w=us.WEIGHTS; t=w['momentum']+w['volume']; print({k:round(w[k]/t,5) for k in ('momentum','volume')}, round(us.MIN_RANK_WEIGHT,5))\" -> {'momentum': 0.62477, 'volume': 0.37523} 0.37523 — the constant the comment calls the largest share is the smaller of the two. Orchestrator-verified.",
+      "acceptance": "The six sites (us.py:33, cli.py:268, cli.py:296 notice, docs/ARCHITECTURE.md:212-213, docs/adding-a-market.md:81, screening/__init__.py:26) describe `min_rank_weight` as the *smallest* per-pctrank share of the fully degraded composite — which is what `min(...)` in us.py and `1/MOMENTUM_RANKS` in tw.py both compute, and what makes 'conservative, never permissive' true — or drop the superlative entirely and point at the code. No behaviour change; `need` stays 4 for both markets.",
+      "route": "repair",
+      "route_reason": "False claim standing in documents of record (docs/adding-a-market.md instructs a future market author to compute the wrong extremum) plus the user-facing notice. Orchestrator-verified: us.py:33 says 'Largest share ... the composite at its coarsest' while us.py:38 computes min(...) = 0.37523, the smaller of (0.62477, 0.37523)."
+    }
+  ]
+}

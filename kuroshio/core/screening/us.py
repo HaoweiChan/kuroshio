@@ -30,6 +30,14 @@ DOLLAR_VOL_MIN = 25_000_000.0   # liquidity floor: close × avg20 volume ($/day)
 
 # US factor weights, renormalized over whichever factors are available (sum 1 when all present).
 WEIGHTS = {"momentum": 0.333, "rs": 0.267, "volume": 0.20, "sector": 0.20}
+# Largest share of `final_score` a single pctrank can control — the composite at its
+# coarsest. `rs`/`sector` drop out when their data is missing, leaving momentum+volume
+# renormalized (0.625/0.375). Those two are unequal, so the composite does NOT move on a
+# grid of this number: it is the input to `propose`'s conservative auto-fill floor, not an
+# exact minimum gap. See tw.MIN_RANK_WEIGHT and cli.py:_score_missing.
+MIN_RANK_WEIGHT = min(WEIGHTS["momentum"], WEIGHTS["volume"]) / (
+    WEIGHTS["momentum"] + WEIGHTS["volume"]
+)
 
 _FACTOR_KEYS = ("close", "mom_raw", "vol_raw", "rs_raw", "sector_raw")
 
@@ -205,6 +213,11 @@ def score_names(
     against it. This is deliberately the SAME scoring path as ``screen`` (just
     gate=False) so a challenger's ``final_score`` and an incumbent's ``score``
     stay comparable on the same scale; do not fork a separate ranking formula here.
+
+    Same scale means the same CROSS-SECTION, not just the same formula: ``pctrank``
+    ranks within whatever pool it is handed, so two numbers are only subtractable if
+    both came out of one call. Rank everyone in one ``score_names`` pass and use
+    ``screen`` for eligibility if you need a gate (see ``cli.py:_score_missing``).
     """
     return _screen_or_score(
         panel, asof, gate=False, sector_map=sector_map, benchmark=benchmark, tickers=tickers

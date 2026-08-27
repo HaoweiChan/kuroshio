@@ -2,10 +2,10 @@
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
-touches the network. Network calls happen only in the ``screen``,
-``backtest``, and ``research`` commands; ``research`` additionally requires
-the optional ``agents`` extra (LLM engine) and exits 2 with an install hint
-if it's missing.
+touches the network. Network calls happen only in the ``screen``, ``backtest``,
+``research`` and — when a score is missing from the input files — ``propose``.
+``research`` additionally requires the optional ``agents`` extra (LLM engine)
+and exits 2 with an install hint if it's missing.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -59,18 +60,31 @@ def _holdings_from_yaml(path: str) -> list[Holding]:
     return holdings
 
 
+# candidates.yml is not a Candidate dump: `verdict`/`theme` are separate maps the
+# allocator takes, and the computed fields (date/rank/scores/...) are not user input.
+_CANDIDATE_KEYS = ("ticker", "final_score", "verdict", "theme")
+
+
 def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], dict[str, str]]:
     today = datetime.date.today().isoformat()
     candidates: list[Candidate] = []
     verdicts: dict[str, str] = {}
     themes: dict[str, str] = {}
     for item in _load_yaml(path):
+        where = f"{path}: {item.get('ticker', '?')}"
+        for key in item:
+            if key not in _CANDIDATE_KEYS:
+                raise ValueError(
+                    f"{where}: unknown key {key!r} (expected one of {sorted(_CANDIDATE_KEYS)})"
+                )
         ticker = item["ticker"]
         if item.get("verdict") is not None:
             verdicts[ticker] = item["verdict"]
         if item.get("theme") is not None:
             themes[ticker] = item["theme"]
-        candidates.append(Candidate(ticker=ticker, date=today, rank=0, final_score=item["final_score"]))
+        # final_score may be absent — cmd_propose ranks it with the rest of the file and
+        # drops (loudly) whatever Stage-1 rejects, before any Candidate reaches propose().
+        candidates.append(Candidate(ticker=ticker, date=today, rank=0, final_score=item.get("final_score")))
     return candidates, verdicts, themes
 
 
@@ -233,9 +247,92 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # --- propose -------------------------------------------------------------
 
 
+def _score_missing(
+    holdings: list[Holding], challengers: list[Candidate], profile, panel, hurdle: float
+):
+    """Fill in the scores the user didn't hand-type; return (surviving challengers, auto-filled).
+
+    ONE cross-section for everybody: every ticker in the input files is ranked once by
+    the market's ungated ``score_names``, so an incumbent's ``score`` and a challenger's
+    ``final_score`` are literally the same number for the same name — the scale the swap
+    gate is allowed to subtract on (the contract on ``core/screening/us.py:score_names``).
+    The gated ``screen`` decides challenger *eligibility* only: a name Stage-1 rejects is
+    not a challenger, and is reported rather than dropped in silence.
+
+    ``hurdle`` is the full swap bar (turnover hurdle + friction — ``swap_hurdle``), and
+    below ``floor(profile.min_rank_weight / hurdle) + 2`` names nothing is auto-filled:
+    the allocator's "no holding has a screener score" ALERT stands, because a refusal
+    beats a fabricated number.
+
+    That floor is a **heuristic, not a theorem**. It scales one pctrank step, ``1/(n-1)``,
+    by ``min_rank_weight`` — the largest share of the score any single pctrank carries in
+    the market's fully degraded composite — and asks whether the result is already as big
+    as the hurdle. In a pool that small the scores are spread thinly enough that the
+    hurdle may be doing no work at all, so ``propose`` declines to auto-fill rather than
+    decide case by case. It over-refuses on purpose, and in two directions: the real
+    composite is usually finer than the degraded one (TW with institutional flow present
+    carries 1/6 per momentum rank, not 1/3 — R17), and where the surviving weights are
+    unequal the score does not land on a ``min_rank_weight`` grid at all, so smaller gaps
+    than the formula suggests are reachable (US degraded is 0.625/0.375 — R19). Both make
+    the floor conservative, never permissive. Do not sharpen it into an exact minimum
+    step: three rounds of this PR tried, and each precise claim was false in the
+    configuration it was not derived on. The cost of over-refusing is one manual
+    ``kuroshio screen``; the cost of a wrong exact claim is a fabricated gap on a card.
+
+    Above that size the score is still only a percentile **within this pool** — pctrank
+    pins its extremes to 0.000/1.000 however tightly the factors cluster — so the second
+    return value maps each auto-filled ticker to the pool it was ranked in and ``propose``
+    discloses that on the card itself (see ``core/allocator/engine.py``). Hand-typed
+    scores are untouched and undisclosed.
+    """
+    names = list(dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers]))
+    ranked = {c.ticker: c.final_score for c in profile.score_names(panel, tickers=names)}
+    need = math.floor(profile.min_rank_weight / hurdle) + 2
+    if len(ranked) < need:
+        print(
+            f"notice: {len(ranked)} name(s) in your files is too small a cross-section to "
+            f"rank against a turnover hurdle of {hurdle:.3f}. propose auto-fills scores "
+            f"only at {need} names or more — a deliberately conservative floor, read off "
+            f"this market's single coarsest factor weight rather than worked out exactly: "
+            f"in a pool this small the scores may be spread too thinly for the hurdle to "
+            f"be telling you anything, and propose would rather refuse than decide that "
+            f"case by case. It may well be refusing a pool your hurdle could have judged "
+            f"fine. No score was auto-filled — hand-type one, or list more names.",
+            file=sys.stderr,
+        )
+        ranked = {}
+    eligible = {c.ticker for c in profile.screen(panel)}
+    auto: dict[str, int] = {}
+
+    for h in holdings:
+        if h.score is None and h.ticker in ranked:
+            h.score = ranked[h.ticker]
+            auto[h.ticker] = len(ranked)
+
+    kept, dropped = [], []
+    for c in challengers:
+        if c.final_score is None:
+            if c.ticker not in eligible or c.ticker not in ranked:
+                dropped.append(c.ticker)
+                continue
+            c.final_score = ranked[c.ticker]
+            auto[c.ticker] = len(ranked)
+        kept.append(c)
+    if dropped:
+        why = "did not pass the Stage-1 gate" if ranked else "could not be auto-scored"
+        print(
+            f"notice: {len(dropped)} candidate(s) had no hand-typed final_score and "
+            f"{why}: {', '.join(dropped)}",
+            file=sys.stderr,
+        )
+    return kept, auto
+
+
 def cmd_propose(args: argparse.Namespace) -> int:
     from kuroshio.core.allocator import propose
+    from kuroshio.core.allocator.engine import swap_hurdle
     from kuroshio.core.ips import parse_ips, validate
+    from kuroshio.providers import get_provider
 
     ips = parse_ips(args.ips)
     problems = validate(ips)
@@ -244,18 +341,46 @@ def cmd_propose(args: argparse.Namespace) -> int:
             print(p)
         return 2
 
+    challengers, verdicts, themes, auto_scored = [], {}, {}, {}
     try:
         holdings = _holdings_from_yaml(args.holdings)
+        if args.candidates:
+            challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    challengers, verdicts, themes = [], {}, {}
-    if args.candidates:
-        challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
+
+    # The user is no longer the integration layer: anything without a hand-typed
+    # score gets one from the screener. No missing score -> no fetch, no network.
+    if any(h.score is None for h in holdings) or any(c.final_score is None for c in challengers):
+        profile = get_profile(args.market)
+        provider_name = args.provider or profile.default_provider
+        fetch_tickers = list(
+            dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers])
+        )
+        if profile.benchmark and profile.benchmark not in fetch_tickers:
+            fetch_tickers.append(profile.benchmark)
+        try:
+            provider = get_provider(provider_name)
+            panel = provider.fetch_panel(fetch_tickers, profile.lookback_days)
+        except ImportError:
+            print(
+                f'error: the {provider_name!r} provider is not installed. '
+                f'Run: pip install "kuroshio[{provider_name}]"',
+                file=sys.stderr,
+            )
+            return 2
+        # ponytail: latest session only, and no sector_map for `us` (that factor
+        # renormalizes away) — add --asof/--sector-map here when propose needs to
+        # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
+        challengers, auto_scored = _score_missing(
+            holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0]
+        )
 
     cards = propose(
         holdings, challengers, ips, args.market,
         verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
+        auto_scored=auto_scored,
     )
 
     if not cards:
@@ -392,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
     p_propose.add_argument("--market", choices=["us", "tw"], required=True)
+    p_propose.add_argument("--provider")
     p_propose.add_argument("--candidates")
     p_propose.add_argument("--swaps-this-week", type=int, default=0)
     p_propose.add_argument(

@@ -8,17 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T3 — Position records with entry state and thesis [status: pr]
-Spec: `Holding` (types.py) carries no entry_price, entry_date, or reason — nothing
-downstream can reason about "why do I own this". Add optional fields: entry_price,
-entry_date, setup_type (enum: value_dip | pullback_add | trend_add | other),
-thesis (free text), invalidation_price. Make holdings.yml parsing tolerant of the
-new keys (cli.py `Holding(**item)` currently TypeErrors on unknown fields) while
-keeping old files valid.
-Acceptance: old holdings.yml still loads; new fields round-trip; a holdings file
-with unknown keys fails with a clear message naming the key, not a bare TypeError.
-
-### T4 — Wire the screener into propose [status: todo]
+### T4 — Wire the screener into propose [status: pr]
 Spec: `kuroshio propose` requires hand-typed `score:` in holdings.yml and
 `final_score:` in candidates.yml — the user is the integration layer. When scores
 are absent, propose should invoke the market's `score_names(gate=False)` on
@@ -180,15 +170,14 @@ rejected; only the explanation misleads.
 Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
 
-### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: todo]
+### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: partial]
 Origin: T3
 Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
-`error:`/exit-2 path in `cmd_propose`. `_candidates_from_yaml` (cli.py:62) still
-does bare `item["ticker"]` / `item["final_score"]`, so a missing or misspelled key
-raises a context-free `KeyError` traceback out of the CLI, and any other unknown
-key (`fina1_score`, `note`) is silently dropped — the same silent-drop class the
-holdings loader now rejects. `_load_yaml` also assumes a top-level list: a file
-written as a YAML mapping iterates as strings and dies on `item.get`.
+`error:`/exit-2 path in `cmd_propose`. PR #6 R4 gave `_candidates_from_yaml` the
+same unknown-key check and routed it through the same exit-2 path; what is left is
+the *missing*-key half — bare `item["ticker"]` still raises a context-free
+`KeyError` traceback out of the CLI. `_load_yaml` also assumes a top-level list: a
+file written as a YAML mapping iterates as strings and dies on `item.get`.
 Acceptance: a candidates.yml with a missing/misspelled key exits 2 with a message
 naming the file and the key; a non-list top-level document is rejected with a
 clear message — this covers `_holdings_from_yaml` too, whose `item.get` is the
@@ -236,3 +225,164 @@ Spec: cli.py:46 `item.get('ticker', '?')` returns None (not `'?'`) when the key 
 present but null, so `- {ticker: null, weight: 0.1, bogus: 1}` produces
 `holdings.yml: None: unknown key 'bogus'`.
 Acceptance: the message reads `?` (or `<no ticker>`) when the ticker is absent or null.
+
+### T24 — Provider fetch + ImportError hint is now copy-pasted three times [status: todo]
+Origin: T4
+Spec: `cmd_screen` (cli.py:151-160), `cmd_backtest` and now `cmd_propose` each carry
+the same `get_provider(name)` / `fetch_panel(...)` / `except ImportError -> print
+'the X provider is not installed' -> return 2` block. T4 followed the existing pattern
+rather than widen its diff; the third copy is the one that argues for extracting it.
+Acceptance: one helper (e.g. `_fetch_panel(profile, provider_name, tickers, ...)`)
+returning the panel or signalling the exit-2 path, used by all three commands, with
+the existing provider-missing tests still passing unchanged.
+
+### T25 — propose drops the US `sector` factor because it has no --sector-map [status: todo]
+Origin: T4
+Spec: T4 calls `profile.screen(panel)` / `profile.score_names(panel, tickers=...)` with
+no `sector_map`, because `propose` has no `--sector-map` flag (`screen`/`backtest` both
+do). For `--market us` that silently drops the `sector` factor (0.20 of WEIGHTS) and
+renormalizes, so an auto-filled score is not the same number `kuroshio screen
+--sector-map ...` would print for the same name on the same day. Same for `--asof`:
+propose always scores the latest session.
+Acceptance: `propose` accepts `--sector-map` (and, if wanted, `--asof`) and threads it
+into both screening calls, matching `cmd_screen`'s `screen_kwargs` handling; one test
+proving the sector factor appears in an auto-filled US score.
+
+### T27 — --provider and the us benchmark append have no test that can go red [status: todo]
+Origin: PR #6 R7
+Spec: cli.py:449 adds `--provider` to propose and cli.py:288 resolves it; cli.py:293-294
+appends `profile.benchmark` for `us`. Every new T4 test uses `--market tw` with
+`_use_stub` = `monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: stub)`,
+which discards `name` — deleting `args.provider or` from cli.py:288 still leaves the suite
+at 121 passed. `profile.benchmark` is None for tw, so cli.py:293-294 never executes in any
+test, while docs/ARCHITECTURE.md:202 advertises `[--provider ...]` on propose.
+Acceptance: one test asserting `get_provider` is called with the value of `--provider`
+(stub captures `name`), and one `--market us` test asserting `SPY` is in the fetched
+ticker list.
+
+### T28 — Candidate.final_score is annotated float but now holds None [status: todo]
+Origin: PR #6 R8
+Spec: types.py:29 declares `final_score: float`; cli.py:75 now stores
+`item.get("final_score")`, i.e. None, and `propose()` in core/allocator/engine.py sorts
+challengers by `final_score`, which would raise TypeError if a None ever reached it. Not
+reachable through `cmd_propose` today (the `any(... is None)` guard routes to
+`_score_missing`, which filters), but `_candidates_from_yaml` is called directly in tests
+and is now a documented-optional-field parser with a lying type.
+Acceptance: `final_score: float | None` on the dataclass, or `_candidates_from_yaml`
+returns only scored candidates.
+
+### T29 — Unknown --provider value is a traceback, not exit 2 [status: todo]
+Origin: PR #6 R9
+Spec: `get_provider(provider_name)` is called inside `try: ... except ImportError` in all
+three commands (cmd_screen, cmd_backtest, and now cmd_propose at cli.py:296), but
+providers/__init__.py:23 raises `ValueError(f"Unknown provider {name!r}...")` — so
+`--provider bogus` prints a traceback instead of the exit-2 install hint next to it.
+Pre-existing shape, newly reproduced on the propose surface.
+Acceptance: `except (ImportError, ValueError)` (or `choices=sorted(_REGISTRY)`) so an
+unknown provider exits 2 with the message on stderr, in all three commands.
+
+### T30 — auto-filled scores are percentiles within the user's own files [status: todo]
+Origin: PR #6 R2
+Spec: PR #6 put incumbents and challengers on one cross-section, guarded by a minimum
+pool size and a disclosure on the card. The guard was re-derived in round 3 (R13): it
+keys off the composite's *step* — `profile.min_rank_weight / (n - 1)`, read from each
+profile's factor weights — and refuses when that step is >= `turnover.hurdle +
+friction/100` (n <= 3 for both markets under the balanced IPS). That is a conservative
+heuristic, not an exact minimum step — it over-refuses both when the live composite is
+finer than the degraded one (R17) and when the surviving weights are unequal (R19). Above that size the number is still
+rank-within-your-portfolio, not strength within a market, and it moves when you add a
+ticker to the file; the card discloses that rather than fixing it. The real fix is a
+cross-section that is a universe: score against a `--universe` ticker file (or a cached
+`kuroshio screen` run's scores) and read the incumbent's and challenger's percentiles
+out of that, or give the screener an absolute score.
+Acceptance: an auto-filled score for a name is unchanged by adding an unrelated
+ticker to holdings.yml, and a 2-name portfolio gets a real universe distance instead
+of a refusal; the pool-size guard and the rank-distance disclosure can then go.
+
+### T35 — tw.MIN_RANK_WEIGHT's comment states a market-specific law as a general one [status: todo]
+Origin: PR #6 R19
+Spec: `kuroshio/core/screening/tw.py:35` says two names in a pool of n "cannot differ by
+less than MIN_RANK_WEIGHT / (n - 1) without tying". That is true for TW, whose degraded
+weights are equal (1/3, 1/3, 1/3), and false in general — US degraded is 0.625/0.375 and
+reaches smaller gaps (R19). Left as-is because it is correct where it is written, but it
+is the sentence someone will copy when adding a market, which is exactly how R19 got in.
+Acceptance: the comment scopes the claim to TW's equal degraded weights, or drops the
+arithmetic and points at `cli.py:_score_missing` like the US one now does.
+
+### T31 — Drop notice misattributes a provider no-data miss as a gate failure [status: todo]
+Origin: PR #6 R12
+Spec: cli.py:295 picks the reason with
+`why = "did not pass the Stage-1 gate" if ranked else "could not be auto-scored"` —
+keyed off whether the *pool* was ranked, not off why *this* name is missing. A
+candidate the provider returned no data for (`- {ticker: "9999", verdict: buy}`,
+typo or delisted) is reported as `... did not pass the Stage-1 gate: 9999`. Mirror
+case: a holding `9999` gets `h.score = ranked.get(...) -> None` at cli.py:283 and is
+excluded from ranking with no notice at all, against the same block's stated
+"reported rather than dropped in silence" principle.
+Acceptance: the reason is split per name (`not in ranked` -> "no price data returned
+by the provider", `not in eligible` -> "did not pass the Stage-1 gate"), unscorable
+holdings are reported on stderr too, and a test asserts the no-data wording for a
+ticker the stub panel does not contain.
+
+### T32 — details["auto_scored"] is written but nothing reads it [status: todo]
+Origin: PR #6 R15
+Spec: core/allocator/engine.py:150 records `"auto_scored": auto` on the card, but
+`details` is referenced nowhere in `to_markdown` (types.py:69) or in
+integrations/discord.py, and no test asserts it — mutating the line to
+`"auto_scored": []` leaves the suite at 128 passed. It also drops the pool size the
+prose disclosure carries, so it is not even a machine-readable copy of the sentence.
+Acceptance: either the field is dropped (nothing reads it) or one allocator test
+asserts it, e.g. `cards[0].details["auto_scored"] == ["1102", "1101"]`, so the
+mutation goes red.
+
+### T33 — Disclosed pool size is unpinned when the provider returns fewer names [status: todo]
+Origin: PR #6 R16
+Spec: cli.py:275,284 record `len(ranked)` and engine.py:129 prints
+`auto_scored[auto[0]]`. Mutating those cli lines to `len(names)` leaves 128 passed,
+because every stub panel in tests/test_cli.py contains every requested ticker; the two
+numbers diverge only when a provider returns no data for a listed ticker (the T31 case),
+where the card then overstates how many names it ranked against. The card also reports
+only the first auto-filled ticker's pool size.
+Acceptance: one case with a stub panel missing a listed ticker asserts the disclosure
+reports the number actually ranked, not the number listed.
+
+### T34 — The US `need` value is pinned by a bucket, not a number [status: todo]
+Origin: PR #6 R19 (reviewer note)
+Spec: `test_propose_guards_the_us_pool_too` pins that a 3-name US pool refuses and a
+4-name pool scores, which constrains `us.MIN_RANK_WEIGHT` only to the interval
+[0.3004, 0.4506) — any value in that range is a silent no-op, so a wrong derivation
+inside the bucket ships green. The TW side has the same shape. No test asserts the
+printed `need` itself.
+Acceptance: one case asserts the `need` value the notice prints for each market, so a
+change to `MIN_RANK_WEIGHT` that stays inside the bucket still goes red.
+
+### T36 — Two step-grid sentences left standing in TW-only scope [status: todo]
+Origin: PR #6 R20 (reviewer note)
+Spec: a repo-wide grep after round 6 leaves exactly two step-grid claims: tw.py:33-38
+(already T35) and the name plus docstring of
+`tests/test_cli.py::test_propose_refuses_when_the_hurdle_cannot_reject_anything`, which
+still say "clears the hurdle by construction and the gate cannot reject anything". That
+test is TW-only (`--market tw`, degraded 1/3 grid), so the claim is true in its scope,
+but it is the same sentence T35 is about and reads as a general law to the next reader.
+Acceptance: folded into T35's fix — both sites either scope the claim to equal surviving
+weights or stop asserting it.
+
+### T37 — min_rank_weight is documented as the largest share, computed as the smallest [status: todo]
+Origin: PR #6 R20
+Spec: six sites define `min_rank_weight` as "the largest share of `final_score` a single
+pctrank can control" while the code takes the smallest surviving weight: us.py:33 says
+"Largest share ... the composite at its coarsest" and us.py:38 computes
+`min(WEIGHTS["momentum"], WEIGHTS["volume"]) / (sum)` = 0.37523, the smaller of
+(0.62477, 0.37523). Also cli.py:268, the cli.py:296 notice ("this market's single
+coarsest factor weight"), docs/ARCHITECTURE.md:212-213, docs/adding-a-market.md:81 and
+core/screening/__init__.py:26. TW is unaffected — its degraded weights are equal, so
+largest == smallest. The consequence with teeth: adding-a-market.md instructs a new
+market's author to compute the max, which for a 0.625/0.375-shaped profile yields
+`need` = 6 where us.py's own rule yields 4. "Conservative, never permissive" is only
+derivable from the minimum per-pctrank weight, not from the definition given.
+Merged as named debt at the human's direction (option B at the round-6 circuit breaker);
+no behaviour is wrong, only the definition.
+Acceptance: the six sites describe `min_rank_weight` as the smallest per-pctrank share of
+the fully degraded composite, or drop the superlative and point at the code. No behaviour
+change; `need` stays 4 for both markets. Fold in T35 and T36 while there.
+

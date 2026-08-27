@@ -28,6 +28,14 @@ CROWDED_THRESHOLD = 70.0   # price_pos_60d above this flags crowded
 MIN_SESSIONS = MA_LONG     # MA60 / 60d-high need 60 sessions of history
 
 WEIGHTS = {"momentum": 0.5, "institution": 0.5}
+MOMENTUM_RANKS = 3  # momentum is the mean of r_ma20, r_ma60, r_vol
+# Largest share of `final_score` a single pctrank can control, i.e. the composite at its
+# coarsest: with the institution factor degraded away, `weighted_score` renormalizes
+# momentum to 1.0 and each of its MOMENTUM_RANKS ranks carries 1/3. Two names in a pool
+# of n therefore cannot differ by less than MIN_RANK_WEIGHT / (n - 1) without tying —
+# which is what decides whether an IPS turnover hurdle can reject anything at all
+# (cli.py:_score_missing).
+MIN_RANK_WEIGHT = 1.0 / MOMENTUM_RANKS
 
 _UNIVERSE_RE = re.compile(r"^\d{4}$")
 
@@ -246,5 +254,10 @@ def score_names(panel: Panel, tickers: Sequence[str], asof: str | None = None) -
     deliberately the SAME scoring path as ``screen`` (just gate=False) so a
     challenger's ``final_score`` and an incumbent's ``score`` stay comparable on
     the same scale; do not fork a separate ranking formula here.
+
+    Same scale means the same CROSS-SECTION, not just the same formula: ``pctrank``
+    ranks within whatever pool it is handed, so two numbers are only subtractable if
+    both came out of one call. Rank everyone in one ``score_names`` pass and use
+    ``screen`` for eligibility if you need a gate (see ``cli.py:_score_missing``).
     """
     return _screen_or_score(panel, asof, gate=False, tickers=tickers)

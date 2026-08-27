@@ -1,0 +1,26 @@
+{
+  "pr": 6,
+  "round": 4,
+  "gate_after_repair": "pass — ruff clean, 132 passed",
+  "resolutions": [
+    {
+      "id": "R17",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_refusal_notice_owns_up_to_being_the_worst_case",
+      "note": "Took the wording branch of the acceptance; the guard is unchanged. The notice, the _score_missing docstring, docs/ARCHITECTURE.md, README.md and T30 all repeated the false universal 'every non-tie ordering clears it by construction' — all five now state the actual rule: min_rank_weight is the coarsest (fully degraded) composite, so below `need` the hurdle cannot reject under the worst-case weighting, and with more factors present the grid is finer and a smaller pool may have sufficed. First TW stub panel in the suite with a populated Panel.institutional; the test asserts 'institution' in scores so the non-degraded path is genuinely exercised."
+    },
+    {
+      "id": "R18",
+      "status": "fixed",
+      "test": "tests/test_cli.py::test_propose_guards_the_us_pool_too[tickers0|tickers1]",
+      "note": "yfinance-shaped 210-session stub panel including SPY; 3-name pool asserts the refusal notice + ALERT, 4-name pool asserts the SWAP, 'among the 4 names in your own files', and the both-auto disclosure. The behaviour was already correct at HEAD (us need = 4); the finding was that nothing pinned it, so the evidence is the mutation pair."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [],
+  "mutation_proofs": [
+    "us.MIN_RANK_WEIGHT = 0.0 -> 1 failed, 131 passed (3-name pool scores instead of refusing)",
+    "us.MIN_RANK_WEIGHT = 0.99 -> 1 failed, 131 passed (4-name pool refuses instead of scoring)",
+    "notice reverted to 'every non-tie ordering clears it by construction' -> 2 failed, 130 passed"
+  ]
+}
