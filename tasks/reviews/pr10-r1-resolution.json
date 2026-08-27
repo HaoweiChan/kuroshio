@@ -1,0 +1,30 @@
+{
+  "pr": 10,
+  "round": 1,
+  "gate_after_repair": "pass - ruff clean, 168 passed",
+  "resolutions": [
+    {
+      "id": "R1",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_the_level_the_card_prints_is_the_level_it_enforces (parametrised over 6.60/9.00/13.00/18.00/3.40/100.00)",
+      "note": "Rule: both sides of the comparison round to the cent the cards print - trigger = round(entry * (1 + pct/100), 2) and round(price, 2) > trigger - because every price the card states is a cent and both US and TW quote in cents. Printed level == enforced level: the card interpolates {trigger:.2f} and details['trigger_price'] is that same rounded trigger, asserted per case. A ponytail: comment names the cent assumption and the profile-tick-size upgrade path. Orchestrator independently re-ran the full cent-grid sweep (entries 1.00-999.99 whose exact -15% lands on a cent): 0 exact-threshold misses (was 1095) and 0 firing one cent above, so the rule was pinned, not widened."
+    },
+    {
+      "id": "R4",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_a_decided_incumbent_is_not_told_to_add_and_sold_in_the_same_run",
+      "note": "The existing SWAP bridge gained one sentence and details['incumbent_decided']: \"LOSER is also -30.0% from its entry price and has a DECIDE card above: this SWAP is the 'kill it' option on that card, not a fourth one.\" DECIDE prints above SWAP, so 'above' is true and is asserted by index. The test also pins the negative half - an undecided incumbent's SWAP says nothing of the sort. Ranking untouched."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [],
+  "mutation_proofs": [
+    "trigger back to the raw product (the shipped bug): 5 failed",
+    "price side left unrounded: 6 failed",
+    "rule widened (> trigger + 0.01): 7 failed",
+    "SWAP goes silent about the DECIDE: 1 failed",
+    "every SWAP claims a decision: 19 failed",
+    "details['incumbent_decided'] hard-coded False: 1 failed",
+    "printed level diverges from enforced ({raw:.2f}): 168 passed - equivalent mutant, since .2f applies the same rounding to the same product; the observable difference lives in details['trigger_price'], covered by the first mutation."
+  ]
+}
