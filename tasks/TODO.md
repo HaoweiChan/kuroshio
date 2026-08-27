@@ -451,3 +451,58 @@ the setup's own invalidation before a dip position may be swapped out. Whichever
 way, the reason string must say why that incumbent was picked, and the existing
 `test_theme_breach_alert_and_same_theme_swap_constraint` style coverage must
 still pass for holdings with no setup_type.
+
+### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: todo]
+Priority: P2
+Origin: PR #9 R2
+Spec: engine.py:126-131 builds `entry` = "entry price not recorded"; the trend_add branch
+at :136 lists that gap on the coverage card, but the dip branch at :150-161 never checks
+`h.entry_price`. `propose([Holding('DIP',0.05,score=0.2,setup_type='value_dip',
+invalidation_price=85.0)], [], ips, 'us', prices={'DIP':84.0}, ma50={'DIP':100.0})`
+returns one card ending "(entry price not recorded)" and no coverage card — the opposite
+of what the trend_add path does for the identical gap. No test covers a dip setup with an
+invalidation_price and entry_price=None.
+Acceptance: either the dip branch lists a missing entry_price on the coverage card the
+same way trend_add does, or the asymmetry is a stated rule in docs/ARCHITECTURE.md; a
+test pins whichever is intended.
+
+### T41 — Drawdown-from-entry, T5's second trend_add trigger, is not implemented [status: todo]
+Priority: P2
+Depends: T6
+Origin: PR #9 R4
+Spec: T5's spec reads "trend_add alerts on trend break (close < MA50 or ATR trail) **and**
+drawdown-from-entry". Only the MA break ships: engine.py:143 `if price >= ma: continue` is
+the sole trigger, and the drawdown figure is interpolated into a reason string that is
+only built after the MA test already fired. A trend_add at entry 200, price 130, MA50 120
+— a deep loss still above its trend — produces no card at all. T5 deferred it because the
+threshold belongs to T6's forced-decision card with its own IPS key; recorded here so the
+gap is a numbered deferral rather than a code comment.
+Acceptance: the drawdown trigger ships with a threshold owned by T6's IPS key; until then
+a trend_add at any loss above its MA50 is silent, and that is stated where the monitoring
+rules are documented.
+
+### T42 — Both thesis comparison boundaries are unpinned [status: todo]
+Priority: P2
+Origin: PR #9 R7
+Spec: engine.py:152 `if price > h.invalidation_price: continue` and engine.py:143
+`if price >= ma: continue`. Mutating the first to `>=` and the second to `>` each leave
+the suite green, while README.md:70 promises a dip is "alerted only when it closes at or
+below the invalidation price you recorded" — so the documented boundary is unpinned.
+(Mutating MONITORED_SETUPS or removing entry_price from the reason string IS caught, so
+the core dispatch itself is properly pinned.)
+Acceptance: one case with `price == invalidation_price` asserting the alert fires and one
+with `price == ma50` asserting whichever the docs say; both mutations go red.
+
+### T43 — entry_price 0.0 falls between two disagreeing gates [status: todo]
+Priority: P3
+Origin: PR #9 R8
+Spec: engine.py:126-131 gates the entry string on truthiness (`if h.entry_price`) while
+the coverage listing at :136 gates on `h.entry_price is None`, so
+`Holding('Z',0.05,score=0.5,setup_type='trend_add',entry_price=0.0)` at price 90 / ma50
+100 emits one ALERT reading "(entry price not recorded)" with `details['entry_price'] ==
+0.0` and no coverage card. The holdings parser (cli.py:51) validates setup_type but not
+entry_price sign or zero.
+Acceptance: the two gates agree — either a non-positive entry_price is rejected at parse
+time with a message naming the key, or both places use the same test so the position
+lands on the coverage card.
+
