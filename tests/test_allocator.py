@@ -341,14 +341,24 @@ def test_missing_monitoring_fields_are_named_not_silently_unwatched():
         Holding(ticker="OPTOUT", weight=0.05, score=0.5, setup_type="other"),
         Holding(ticker="NOPRICE", weight=0.05, score=0.5, setup_type="trend_add", entry_price=1.0),
     ]
-    # NOPRICE is the only one the caller could not price this session
-    prices = BELOW_MA | {"NODIP": 10.0, "NOENTRY": 10.0, "LEGACY": 10.0, "OPTOUT": 10.0}
+    # NOPRICE is the only one the caller could not price this session. NOENTRY sits
+    # *below* its MA50 on purpose: its one watched axis fires, so it is the case where a
+    # blanket "nothing is watching this" claim would contradict the run's own alert.
+    prices = BELOW_MA | {"NODIP": 10.0, "NOENTRY": 8.0, "LEGACY": 10.0, "OPTOUT": 10.0}
     cards = propose(holdings, [], make_ips(), "us", prices=prices, ma50=MA50 | {"NOENTRY": 9.0})
-    gaps = [c for c in cards if c.action == "ALERT" and c.details.get("unmonitored")]
+    gaps = [
+        c for c in cards
+        if c.action == "ALERT" and (
+            c.details.get("unmonitored") or c.details.get("partially_monitored")
+        )
+    ]
     assert len(gaps) == 1
     named = gaps[0].details["unmonitored"]
-    assert set(named) == {"NODIP", "NOENTRY", "LEGACY", "OPTOUT", "NOPRICE"}
-    for ticker in named:
+    assert set(named) == {"NODIP", "LEGACY", "OPTOUT", "NOPRICE"}
+    # NOENTRY is watched on its MA50 — and this run alerted on it, so it is not unwatched
+    assert gaps[0].details["partially_monitored"] == ["NOENTRY"]
+    assert "NOENTRY" in thesis_alerts(cards)
+    for ticker in named + gaps[0].details["partially_monitored"]:
         assert ticker in gaps[0].reason
     # the three fully-equipped positions are watched, so they are not in the gap list
     assert not {"TREND", "DIP", "ADD"} & set(named)
@@ -374,8 +384,108 @@ def test_monitor_inputs_reads_the_last_session_and_skips_short_history():
         },
         index=dates,
     )
-    prices, ma50 = monitor_inputs(Panel(close=close, volume=close))
+    prices, ma50, asof = monitor_inputs(Panel(close=close, volume=close))
 
+    assert asof == dates[-1]
     assert prices == {"LONG": 59.0, "SHORT": 100.0}
     # mean of 10..59
     assert ma50 == {"LONG": pytest.approx(34.5)}
+
+
+# --- PR #9 round 1 repairs -----------------------------------------------------
+
+
+def test_a_partially_monitored_position_is_not_also_claimed_unwatched():
+    """R1: NOENTRY has no entry_price but its MA50 break *is* watched — and here it
+    breaks, so the same run alerts on it. The coverage card must not also claim the run
+    says nothing about it either way; that claim belongs to LEGACY alone."""
+    holdings = [
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+    ]
+    cards = propose(
+        holdings, [], make_ips(), "us",
+        prices={"NOENTRY": 90.0, "LEGACY": 10.0}, ma50={"NOENTRY": 100.0},
+    )
+    assert "NOENTRY" in thesis_alerts(cards)  # the trend break is alerted
+    gap = next(
+        c for c in cards
+        if c.details.get("unmonitored") or c.details.get("partially_monitored")
+    )
+    assert gap.details["unmonitored"] == ["LEGACY"]
+    assert gap.details["partially_monitored"] == ["NOENTRY"]
+    # and the two claims are per-item, not one blanket sentence over both
+    blanket, partly = gap.reason.split("Partly watched:")
+    assert "NOENTRY" not in blanket
+    assert "LEGACY" not in partly
+
+
+def test_ma50_survives_a_suspension_gap_inside_the_window():
+    """R3: one missing session (a FinMind suspension day, or a non-reference ticker on
+    yf's reference calendar) must not void MA50 for a ticker with 199 real sessions."""
+    import pandas as pd
+
+    from kuroshio.core.allocator.signals import monitor_inputs
+
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=200)]
+    holed = [100.0] * 200
+    holed[190] = float("nan")  # suspended, inside the trailing 50
+    close = pd.DataFrame({"CLEAN": [100.0] * 200, "HOLE": holed}, index=dates)
+    prices, ma50, asof = monitor_inputs(Panel(close=close, volume=close))
+
+    assert asof == dates[-1]
+    assert prices == {"CLEAN": 100.0, "HOLE": 100.0}
+    assert ma50 == {"CLEAN": 100.0, "HOLE": 100.0}
+
+    # end to end: the trend_add stays monitored, and is not told it has too little history
+    holdings = [Holding(
+        ticker="HOLE", weight=0.05, score=0.5, setup_type="trend_add", entry_price=90.0
+    )]
+    cards = propose(holdings, [], make_ips(), "us", prices=prices, ma50=ma50)
+    assert cards == []
+
+
+def test_swap_selling_a_monitored_incumbent_says_whether_its_thesis_is_intact():
+    """R5: the SWAP card's sell side is a value_dip monitoring just checked and left
+    alone. The card must name the setup_type and the state, so the two halves of the
+    run visibly agree instead of both going silent."""
+    holdings = [h for h in thesis_portfolio() if h.ticker in ("TREND", "DIP")]
+    cards = propose(
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0, "DIP": 90.0}, ma50=MA50,
+    )
+    assert thesis_alerts(cards) == {}  # both theses intact this run
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "DIP"
+    assert "value_dip" in swap.reason
+    assert "85.00" in swap.reason  # the invalidation level monitoring checked
+    assert "not breached" in swap.reason
+    assert swap.details["incumbent_setup_type"] == "value_dip"
+
+
+def test_a_still_forming_bar_is_not_reported_as_a_close():
+    """R6: mid-session, the panel's last row is a live print. The card may not call it
+    a close, and must name the session it read."""
+    import datetime
+
+    today = datetime.date.today().isoformat()
+    holdings = [h for h in thesis_portfolio() if h.ticker == "TREND"]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices=BELOW_MA, ma50=MA50, asof=today
+    )
+    card = thesis_alerts(cards)["TREND"]
+    assert "closed at" not in card.reason
+    assert today in card.reason
+    assert card.details["asof"] == today
+
+
+def test_a_finished_session_is_named_on_the_card():
+    """R6, the other half: a past session is a real close and the card says which one."""
+    holdings = [h for h in thesis_portfolio() if h.ticker == "DIP"]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50, asof="2026-01-05"
+    )
+    card = thesis_alerts(cards)["DIP"]
+    assert "closed at 84.00" in card.reason
+    assert "2026-01-05" in card.reason
+    assert card.details["asof"] == "2026-01-05"

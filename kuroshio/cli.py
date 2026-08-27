@@ -356,6 +356,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
     # the prices its thesis rule reads. Neither needed -> no fetch, no network.
     prices: dict[str, float] = {}
     ma50: dict[str, float] = {}
+    asof = None
     need_scores = any(h.score is None for h in holdings) or any(
         c.final_score is None for c in challengers
     )
@@ -386,12 +387,12 @@ def cmd_propose(args: argparse.Namespace) -> int:
                 holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0]
             )
         # the monitoring seam: prices enter here, never inside the allocator.
-        prices, ma50 = monitor_inputs(panel)
+        prices, ma50, asof = monitor_inputs(panel)
 
     cards = propose(
         holdings, challengers, ips, args.market,
         verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
-        auto_scored=auto_scored, prices=prices, ma50=ma50,
+        auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
     )
 
     if not cards:

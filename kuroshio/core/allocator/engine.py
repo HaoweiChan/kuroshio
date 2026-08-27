@@ -13,11 +13,26 @@ docs/ARCHITECTURE.md `core/allocator`.
 
 from __future__ import annotations
 
+import datetime
+
+from kuroshio.core.allocator.signals import MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
 
 # setup_types that carry a monitoring rule. "other" (and a missing setup_type) carry
 # none — see the dispatch in `propose` step 3 and `signals.monitor_inputs`.
 MONITORED_SETUPS = ("value_dip", "pullback_add", "trend_add")
+
+
+def _price_phrase(price: float, asof: str | None) -> str:
+    """How the card names the last print. The panel's final row is a *close* only once
+    that session is over: run mid-session, the last bar carries a live intraday price
+    (providers/yf.py drops it only when the reference ticker has no print at all), so
+    "it closed at X" would be stating something the run cannot know."""
+    if asof is None:
+        return f"it last traded at {price:.2f}"
+    if asof >= datetime.date.today().isoformat():
+        return f"it is at {price:.2f} in the still-open {asof} session"
+    return f"it closed at {price:.2f} in the {asof} session"
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
@@ -45,6 +60,7 @@ def propose(
     auto_scored: dict[str, int] | None = None,
     prices: dict[str, float] | None = None,
     ma50: dict[str, float] | None = None,
+    asof: str | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -61,6 +77,8 @@ def propose(
     # (allocator.signals.monitor_inputs) — core/allocator takes no panel and no provider.
     prices = prices or {}
     ma50 = ma50 or {}
+    # `asof` is the session `prices` was read from (signals.monitor_inputs), so a card can
+    # name it instead of calling a still-forming bar a close — see _price_phrase.
     theme_cap = ips.caps.theme_pct / 100
     hard_cap = ips.caps.position_hard_pct / 100
     exempt = {(e.ticker, e.cap) for e in ips.caps.exemptions}
@@ -115,7 +133,10 @@ def propose(
     # trail needs a data-model change first (tasks/TODO.md T38). Drawdown from entry is
     # reported on the card, not thresholded: the loss-from-entry threshold is T6's, with
     # its own IPS key, and two thresholds would be one too many.
-    unmonitored: list[str] = []
+    unmonitored: list[str] = []   # nothing at all is watching these
+    partial: list[str] = []       # watched, but not on every axis their setup has
+    # ticker -> what monitoring concluded, for the SWAP card in step 4 to quote.
+    thesis_note: dict[str, str] = {}
     for h in holdings:
         if h.setup_type not in MONITORED_SETUPS:
             why = f"setup_type '{h.setup_type}'" if h.setup_type else "no setup_type"
@@ -130,21 +151,28 @@ def propose(
             if h.entry_price  # 0.0 is not a price: unrecorded beats dividing by it
             else "entry price not recorded"
         )
+        at = _price_phrase(price, asof)
         if h.setup_type == "trend_add":
             ma = ma50.get(h.ticker)
             if ma is None:
-                unmonitored.append(f"{h.ticker} (trend_add, no MA50 — too little price history)")
+                unmonitored.append(
+                    f"{h.ticker} (trend_add, no MA50 — fewer than {MA_TREND} traded sessions)"
+                )
                 continue
             if h.entry_price is None:
-                unmonitored.append(
+                partial.append(
                     f"{h.ticker} (trend_add, no entry_price — the MA50 break is watched, "
                     f"drawdown from entry is not)"
                 )
             if price >= ma:
+                thesis_note[h.ticker] = (
+                    f"its trend is intact — {at}, at or above its 50-day moving "
+                    f"average of {ma:.2f}"
+                )
                 continue
             reason = (
-                f"{h.ticker} was opened as a trend_add and the trend has broken: it closed "
-                f"at {price:.2f}, below its 50-day moving average of {ma:.2f} ({entry}). "
+                f"{h.ticker} was opened as a trend_add and the trend has broken: {at}, "
+                f"below its 50-day moving average of {ma:.2f} ({entry}). "
                 f"The setup that justified the position no longer holds."
             )
             details = {"ma50": ma}
@@ -155,35 +183,51 @@ def propose(
                 )
                 continue
             if price > h.invalidation_price:
+                thesis_note[h.ticker] = (
+                    f"its invalidation price of {h.invalidation_price:.2f} is not "
+                    f"breached — {at}"
+                )
                 continue
             reason = (
                 f"{h.ticker} was opened as a {h.setup_type} and its invalidation price is "
-                f"breached: it closed at {price:.2f}, at or below the "
+                f"breached: {at}, at or below the "
                 f"{h.invalidation_price:.2f} you recorded as the level that ends the thesis "
                 f"({entry})."
             )
             details = {"invalidation_price": h.invalidation_price}
+        thesis_note[h.ticker] = "its thesis broke this run — see the ALERT above"
         alerts.append(ProposalCard(
             action="ALERT",
             reason=reason,
             details={
                 "ticker": h.ticker, "setup_type": h.setup_type,
-                "entry_price": h.entry_price, "price": price, **details,
+                "entry_price": h.entry_price, "price": price, "asof": asof, **details,
             },
         ))
     # Only when the portfolio is actually using thesis monitoring: with no setup_type
     # anywhere, no position can look watched, and a pre-T3 holdings file gets its cards
     # unchanged. Mixed coverage is the dangerous case — that is what this names.
-    if unmonitored and any(h.setup_type in MONITORED_SETUPS for h in holdings):
+    # A partially-monitored position is not an unwatched one: its rule did run, on the
+    # axes it had data for, and the same run may well have alerted on it. Claiming "this
+    # run says nothing about it either way" over both groups made two cards contradict
+    # each other about one ticker, so each group now states its own claim.
+    if (unmonitored or partial) and any(h.setup_type in MONITORED_SETUPS for h in holdings):
+        said = [f"{len(unmonitored) + len(partial)} position(s) are not fully thesis-monitored."]
+        if unmonitored:
+            said.append(
+                f"Nothing is watching {', '.join(unmonitored)}: monitoring dispatches on "
+                f"setup_type, and a position missing the fields its rule reads gets no "
+                f"thesis check — this run says nothing about those either way."
+            )
+        if partial:
+            said.append(f"Partly watched: {', '.join(partial)}.")
         alerts.append(ProposalCard(
             action="ALERT",
-            reason=(
-                f"{len(unmonitored)} position(s) are not fully thesis-monitored: "
-                f"{', '.join(unmonitored)}. Monitoring dispatches on setup_type, so a "
-                f"position missing the fields its rule reads is not being watched for a "
-                f"thesis break — the rest of this run says nothing about it either way."
-            ),
-            details={"unmonitored": [u.split(" (")[0] for u in unmonitored]},
+            reason=" ".join(said),
+            details={
+                "unmonitored": [u.split(" (")[0] for u in unmonitored],
+                "partially_monitored": [u.split(" (")[0] for u in partial],
+            },
         ))
 
     # 4. challenger vs incumbent.
@@ -240,6 +284,16 @@ def propose(
                     f"scales: it is not a rank distance, and {hand}'s own rank in that pool "
                     f"would give a different number."
                 )
+            # The bridge between step 3 and step 4: the ranking is a momentum composite
+            # and does not read setup_type (tasks/TODO.md T39), so a thesis-intact
+            # value_dip can still be the weakest incumbent. Say so on the card rather
+            # than letting both halves of the run go silent about the same position.
+            note = thesis_note.get(incumbent.ticker)
+            bridge = (
+                f" Monitoring checked {incumbent.ticker} this run: it is a "
+                f"{incumbent.setup_type} and {note}."
+                if note else ""
+            )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
@@ -249,7 +303,7 @@ def propose(
                     f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
                     f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
                     f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
-                    f"'{verdict}', at or above your floor of '{floor}'.{disclosure}"
+                    f"'{verdict}', at or above your floor of '{floor}'.{bridge}{disclosure}"
                 ),
                 ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
                 score_gap=gap,
@@ -259,6 +313,8 @@ def propose(
                     "incumbent_score": incumbent.score,
                     "verdict": verdict,
                     "auto_scored": auto,
+                    "incumbent_setup_type": incumbent.setup_type,
+                    "incumbent_thesis": note,
                 },
             ))
 

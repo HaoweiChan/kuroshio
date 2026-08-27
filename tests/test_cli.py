@@ -689,3 +689,7 @@ def test_propose_fetches_for_monitoring_and_dispatches_on_setup_type(
     assert "1103 was opened as a trend_add and the trend has broken" in out
     assert "1104 was opened as a value_dip and its invalidation price is breached" in out
     assert "1105" not in out
+    # R6: the session the panel was read from reaches the card, so "closed" is a claim
+    # the run can back rather than a live intraday print
+    last_session = _tw_panel().close.index[-1]
+    assert f"it closed at 60.00 in the {last_session} session" in out

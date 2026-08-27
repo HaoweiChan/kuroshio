@@ -160,13 +160,21 @@ Pure function. v1 logic:
    `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);
    `value_dip` / `pullback_add` → ALERT only when the close is at or below the
    `invalidation_price` the user recorded, never on MA distance. Cards name the setup_type,
-   the level breached, and the entry price with the move from it. The two numbers per ticker
-   (last close, MA50) are computed by the caller — `allocator/signals.py:monitor_inputs(panel)`
-   — and passed in as `prices` / `ma50` dicts, because `propose` takes no panel (rules 3, 5).
+   the level breached, the entry price with the move from it, and the session the price came
+   from — a run started mid-session reads a still-forming bar, so the card says "it is at X
+   in the still-open <date> session" rather than calling a live print a close. The inputs
+   (last close, MA50, session label) are computed by the caller —
+   `allocator/signals.py:monitor_inputs(panel)` — and passed in as `prices` / `ma50` / `asof`,
+   because `propose` takes no panel (rules 3, 5). MA50 averages each ticker's last 50 *traded*
+   sessions, not the last 50 rows: panel columns carry NaN holes wherever a ticker did not
+   trade on a day another did, and `rolling().mean()` would void the average over one hole.
    A position whose rule has no data to read (no `setup_type`, `setup_type: other`, a
-   `value_dip` with no `invalidation_price`, no price for the session) is named in one
+   `value_dip` with no `invalidation_price`, no price for the session) is named on a
    "not fully thesis-monitored" ALERT rather than passed over in silence — emitted only when
    at least one holding does carry a monitored setup_type, so a pre-T3 file is unaffected.
+   That card separates the positions nothing is watching from the partly-watched ones (a
+   `trend_add` with no `entry_price` still has its MA50 break checked), so it never claims
+   the run is silent about a ticker the run just alerted on.
    No ATR trail: `Panel` has no high/low (tasks/TODO.md T38). No loss-from-entry threshold
    either — the drawdown is reported, not judged; the threshold is T6's.
 4. **Challenger vs incumbent**: for each challenger not already held and passing
@@ -175,7 +183,10 @@ Pure function. v1 logic:
    `challenger.final_score - incumbent.score ≥ ips.turnover.hurdle` **and** expected edge
    clears friction (`score_gap` must also exceed friction expressed as a score-equivalent —
    gap ≥ hurdle + `friction.{tw,us}_roundtrip_pct` / 100, picked per market, and the card
-   cites the friction it cleared).
+   cites the friction it cleared). The ranking does not read `setup_type` (tasks/TODO.md T39),
+   so a thesis-intact `value_dip` can still be the weakest incumbent; when the sell side is a
+   monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
+   both halves of the run silent about the same position.
 5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).

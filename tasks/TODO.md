@@ -506,3 +506,18 @@ Acceptance: the two gates agree — either a non-positive entry_price is rejecte
 time with a message naming the key, or both places use the same test so the position
 lands on the coverage card.
 
+### T44 — MA50 now skips suspension holes and can average a stale window [status: todo]
+Priority: P3
+Origin: PR #9 R3
+Spec: the R3 fix in `core/allocator/signals.py:monitor_inputs` averages each
+ticker's last `MA_TREND` *traded* closes instead of the last `MA_TREND` rows, so a
+one-day suspension no longer voids MA50. The trade-off it buys: holes are skipped,
+not counted, so a ticker halted for months averages 50 closes that may reach far
+further back than 50 sessions, and nothing on the card says the number is stale.
+The panel's own `lookback_days` bounds how far back it can reach, which is why this
+is P3 and not higher. A staleness signal needs a per-ticker "sessions spanned"
+number, which is the same shape as the high/low data the ATR trail needs (T38).
+Acceptance: either a trend_add whose MA50 spans materially more than `MA_TREND`
+calendar sessions is named on the coverage card with that reason, or the tolerance
+is bounded (skip at most N holes) — pinned by a test with a long gap inside the
+window.

@@ -20,17 +20,30 @@ from kuroshio.types import Panel
 MA_TREND = 50  # the trend_add break window; see engine.propose step 3
 
 
-def monitor_inputs(panel: Panel) -> tuple[dict[str, float], dict[str, float]]:
-    """Return (last close, MA50) per ticker, as of the panel's final session.
+def monitor_inputs(panel: Panel) -> tuple[dict[str, float], dict[str, float], str]:
+    """Return (last close, MA50, session label) as of the panel's final session.
 
-    A ticker whose value is NaN — no data at all, or fewer than MA_TREND sessions of
-    it — is simply absent from the dict; `propose` names such positions as unmonitored
-    rather than treating a missing number as "nothing is wrong".
+    MA50 is the mean of each ticker's last MA_TREND *sessions that traded*, not of the
+    last MA_TREND rows: a panel column carries NaN holes wherever that ticker did not
+    trade on a day some other ticker did (FinMind returns per-ticker suspension days;
+    `providers/yf.py:_shape_panel` keeps rows on the reference ticker's calendar), and
+    `rolling().mean()` — pandas defaults `min_periods` to the window — would void the
+    average of a ticker with 199 good sessions over one hole.
+
+    A ticker with fewer than MA_TREND traded sessions, or no close on the final one, is
+    simply absent from the dict; `propose` names such positions as unmonitored rather
+    than treating a missing number as "nothing is wrong".
     """
     close = panel.close
     if close.empty:
-        return {}, {}
-    last = close.iloc[-1]
-    ma = close.rolling(MA_TREND).mean().iloc[-1]
-    drop_na = lambda row: {t: float(v) for t, v in row.items() if pd.notna(v)}  # noqa: E731
-    return drop_na(last), drop_na(ma)
+        return {}, {}, ""
+    last = {t: float(v) for t, v in close.iloc[-1].items() if pd.notna(v)}
+    # ponytail: holes are skipped, not counted, so a long suspension averages across a
+    # stale window. The panel's own lookback bounds how stale; a per-ticker staleness
+    # check belongs with the ATR/high-low work (tasks/TODO.md T38).
+    ma = {}
+    for ticker, series in close.items():
+        traded = series.dropna()
+        if len(traded) >= MA_TREND:
+            ma[ticker] = float(traded.iloc[-MA_TREND:].mean())
+    return last, ma, str(close.index[-1])
