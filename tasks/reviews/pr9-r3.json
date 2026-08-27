@@ -1,0 +1,24 @@
+{
+  "pr": 9,
+  "round": 3,
+  "result": "APPROVED",
+  "gate": "pass - ruff clean, 149 passed",
+  "round2_findings_resolved": [
+    "R6",
+    "R9",
+    "R10"
+  ],
+  "reviewer_verifications": [
+    "Verified in a scratch copy; the worktree was never mutated and git status is clean.",
+    "R6/R9: engine.py:25-35 makes no open/closed claim. A repo-wide grep for 'still-open' / 'closed at' / 'it is at' / 'last traded at' across every non-.git file returns only the three negative assertions in tests - nothing in README.md, docs/ARCHITECTURE.md, cli.py or any card path. README.md contains no rendering of the price phrase, so the untouched-and-correct claim holds.",
+    "R10: tests/test_allocator.py:467-495 assert on swap.reason, which is exactly the string cli.py prints via card.to_markdown(); engine.py:291-306 splices thesis_note into that reason verbatim.",
+    "M12 (restore `asof >= date.today()`) = 5 failed / 144, matching the claim. Directional check with a mutant that keeps the 'at X (asof session)' substring and appends an adjective: params -400 and -1 fail on 'closed at', params 0 and +1 fail on 'still-open' - the parametrization genuinely spans both directions rather than all four dying on one assertion.",
+    "M8 (trend-intact note flipped) = 1 failed / 148; M9 ('thesis broke' -> 'is intact') = 1 failed / 148. All counts reproduce."
+  ],
+  "findings": [],
+  "debt_logged_from_notes": [
+    "T49 (no-asof branch unpinned)",
+    "T50 (guard rails are substring negatives)",
+    "T47 amended (ARCHITECTURE/README still say the rules fire on 'the close')"
+  ]
+}

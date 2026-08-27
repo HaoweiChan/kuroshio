@@ -1,3 +1,4 @@
+import datetime
 from itertools import product
 
 import pytest
@@ -5,7 +6,7 @@ import pytest
 from kuroshio.core.allocator import propose
 from kuroshio.core.ips import IPS, validate
 from kuroshio.core.ips.schema import CapExemption
-from kuroshio.types import Candidate, Holding
+from kuroshio.types import Candidate, Holding, Panel, ProposalCard
 
 
 def make_ips(**overrides) -> IPS:
@@ -248,3 +249,268 @@ def test_no_accepted_ips_ever_swaps_below_its_own_hurdle():
             where = f"hurdle={hurdle} friction={friction} market={market} {inc}->{chal}"
             assert card.score_gap >= hurdle, where
             assert card.score_gap >= hurdle + friction / 100, where
+
+
+# --- T5: thesis-aware monitoring per setup_type -------------------------------
+#
+# The acceptance fixture: one position per setup_type, all three in the same tape.
+# TREND and DIP sit at the same place relative to their MA50 on purpose — the whole
+# point of the dispatch is that the same price action means different things.
+
+def thesis_portfolio() -> list[Holding]:
+    return [
+        Holding(
+            ticker="TREND", weight=0.05, score=0.60,
+            setup_type="trend_add", entry_price=80.0,
+        ),
+        Holding(
+            ticker="DIP", weight=0.05, score=0.20,
+            setup_type="value_dip", entry_price=100.0, invalidation_price=85.0,
+        ),
+        Holding(
+            ticker="ADD", weight=0.05, score=0.30,
+            setup_type="pullback_add", entry_price=50.0, invalidation_price=44.0,
+        ),
+    ]
+
+
+# every name below its MA50 — a "trend break" for all three, if MA distance were the axis
+BELOW_MA = {"TREND": 90.0, "DIP": 90.0, "ADD": 46.0}
+MA50 = {"TREND": 100.0, "DIP": 100.0, "ADD": 52.0}
+
+
+def thesis_alerts(cards) -> dict[str, ProposalCard]:
+    return {
+        c.details["ticker"]: c
+        for c in cards
+        if c.action == "ALERT" and "ticker" in c.details
+    }
+
+
+def test_trend_add_alerts_on_ma_break_and_the_dip_setups_do_not():
+    """Acceptance clauses 1 and 2: same tape, three positions under their MA50 — only
+    the trend_add is alerted, because only its thesis was the trend."""
+    cards = propose(
+        thesis_portfolio(), [], make_ips(), "us", prices=BELOW_MA, ma50=MA50
+    )
+    assert set(thesis_alerts(cards)) == {"TREND"}
+
+
+def test_value_dip_alerts_on_invalidation_breach():
+    """Acceptance clause 3: the value_dip's own invalidation price is what ends it —
+    and the pullback_add answers to the same rule."""
+    breach = {"TREND": 110.0, "DIP": 84.0, "ADD": 43.0}
+    cards = propose(
+        thesis_portfolio(), [], make_ips(), "us", prices=breach, ma50=MA50
+    )
+    alerts = thesis_alerts(cards)
+    assert set(alerts) == {"DIP", "ADD"}
+    assert "85.00" in alerts["DIP"].reason  # cites the level it breached
+
+
+def test_every_thesis_card_names_its_setup_type_and_entry_price():
+    """Acceptance clause 4, plus the spec's "cards must cite the setup_type and
+    entry_price" — checked over both trigger paths at once."""
+    for prices in (BELOW_MA, {"TREND": 110.0, "DIP": 84.0, "ADD": 43.0}):
+        cards = propose(
+            thesis_portfolio(), [], make_ips(), "us", prices=prices, ma50=MA50
+        )
+        alerts = thesis_alerts(cards)
+        assert alerts
+        for ticker, card in alerts.items():
+            holding = next(h for h in thesis_portfolio() if h.ticker == ticker)
+            assert holding.setup_type in card.reason
+            assert f"{holding.entry_price:.2f}" in card.reason
+            assert card.details["setup_type"] == holding.setup_type
+
+
+def test_a_value_dip_is_never_alerted_on_ma_distance_however_far_it_falls():
+    # The spec's "never on MA distance alone", pushed: DIP is 60% under its MA50 and
+    # still one cent above its invalidation price.
+    holdings = [h for h in thesis_portfolio() if h.ticker == "DIP"]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"DIP": 85.01}, ma50={"DIP": 220.0}
+    )
+    assert thesis_alerts(cards) == {}
+
+
+def test_missing_monitoring_fields_are_named_not_silently_unwatched():
+    holdings = thesis_portfolio() + [
+        Holding(ticker="NODIP", weight=0.05, score=0.5, setup_type="value_dip"),
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+        Holding(ticker="OPTOUT", weight=0.05, score=0.5, setup_type="other"),
+        Holding(ticker="NOPRICE", weight=0.05, score=0.5, setup_type="trend_add", entry_price=1.0),
+    ]
+    # NOPRICE is the only one the caller could not price this session. NOENTRY sits
+    # *below* its MA50 on purpose: its one watched axis fires, so it is the case where a
+    # blanket "nothing is watching this" claim would contradict the run's own alert.
+    prices = BELOW_MA | {"NODIP": 10.0, "NOENTRY": 8.0, "LEGACY": 10.0, "OPTOUT": 10.0}
+    cards = propose(holdings, [], make_ips(), "us", prices=prices, ma50=MA50 | {"NOENTRY": 9.0})
+    gaps = [
+        c for c in cards
+        if c.action == "ALERT" and (
+            c.details.get("unmonitored") or c.details.get("partially_monitored")
+        )
+    ]
+    assert len(gaps) == 1
+    named = gaps[0].details["unmonitored"]
+    assert set(named) == {"NODIP", "LEGACY", "OPTOUT", "NOPRICE"}
+    # NOENTRY is watched on its MA50 — and this run alerted on it, so it is not unwatched
+    assert gaps[0].details["partially_monitored"] == ["NOENTRY"]
+    assert "NOENTRY" in thesis_alerts(cards)
+    for ticker in named + gaps[0].details["partially_monitored"]:
+        assert ticker in gaps[0].reason
+    # the three fully-equipped positions are watched, so they are not in the gap list
+    assert not {"TREND", "DIP", "ADD"} & set(named)
+
+
+def test_pre_t3_portfolio_is_untouched_by_monitoring():
+    # No holding carries a setup_type -> thesis monitoring is not in use, nothing can
+    # look monitored, and propose() behaves exactly as it did before T5.
+    holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
+    assert propose(holdings, [], make_ips(), "us") == []
+
+
+def test_monitor_inputs_reads_the_last_session_and_skips_short_history():
+    import pandas as pd
+
+    from kuroshio.core.allocator.signals import monitor_inputs
+
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=60)]
+    close = pd.DataFrame(
+        {
+            "LONG": [float(i) for i in range(60)],   # 60 sessions -> MA50 exists
+            "SHORT": [float("nan")] * 20 + [100.0] * 40,  # only 40 -> no MA50
+        },
+        index=dates,
+    )
+    prices, ma50, asof = monitor_inputs(Panel(close=close, volume=close))
+
+    assert asof == dates[-1]
+    assert prices == {"LONG": 59.0, "SHORT": 100.0}
+    # mean of 10..59
+    assert ma50 == {"LONG": pytest.approx(34.5)}
+
+
+# --- PR #9 round 1 repairs -----------------------------------------------------
+
+
+def test_a_partially_monitored_position_is_not_also_claimed_unwatched():
+    """R1: NOENTRY has no entry_price but its MA50 break *is* watched — and here it
+    breaks, so the same run alerts on it. The coverage card must not also claim the run
+    says nothing about it either way; that claim belongs to LEGACY alone."""
+    holdings = [
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+    ]
+    cards = propose(
+        holdings, [], make_ips(), "us",
+        prices={"NOENTRY": 90.0, "LEGACY": 10.0}, ma50={"NOENTRY": 100.0},
+    )
+    assert "NOENTRY" in thesis_alerts(cards)  # the trend break is alerted
+    gap = next(
+        c for c in cards
+        if c.details.get("unmonitored") or c.details.get("partially_monitored")
+    )
+    assert gap.details["unmonitored"] == ["LEGACY"]
+    assert gap.details["partially_monitored"] == ["NOENTRY"]
+    # and the two claims are per-item, not one blanket sentence over both
+    blanket, partly = gap.reason.split("Partly watched:")
+    assert "NOENTRY" not in blanket
+    assert "LEGACY" not in partly
+
+
+def test_ma50_survives_a_suspension_gap_inside_the_window():
+    """R3: one missing session (a FinMind suspension day, or a non-reference ticker on
+    yf's reference calendar) must not void MA50 for a ticker with 199 real sessions."""
+    import pandas as pd
+
+    from kuroshio.core.allocator.signals import monitor_inputs
+
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=200)]
+    holed = [100.0] * 200
+    holed[190] = float("nan")  # suspended, inside the trailing 50
+    close = pd.DataFrame({"CLEAN": [100.0] * 200, "HOLE": holed}, index=dates)
+    prices, ma50, asof = monitor_inputs(Panel(close=close, volume=close))
+
+    assert asof == dates[-1]
+    assert prices == {"CLEAN": 100.0, "HOLE": 100.0}
+    assert ma50 == {"CLEAN": 100.0, "HOLE": 100.0}
+
+    # end to end: the trend_add stays monitored, and is not told it has too little history
+    holdings = [Holding(
+        ticker="HOLE", weight=0.05, score=0.5, setup_type="trend_add", entry_price=90.0
+    )]
+    cards = propose(holdings, [], make_ips(), "us", prices=prices, ma50=ma50)
+    assert cards == []
+
+
+def test_swap_selling_a_monitored_incumbent_says_whether_its_thesis_is_intact():
+    """R5: the SWAP card's sell side is a value_dip monitoring just checked and left
+    alone. The card must name the setup_type and the state, so the two halves of the
+    run visibly agree instead of both going silent."""
+    holdings = [h for h in thesis_portfolio() if h.ticker in ("TREND", "DIP")]
+    cards = propose(
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0, "DIP": 90.0}, ma50=MA50,
+    )
+    assert thesis_alerts(cards) == {}  # both theses intact this run
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "DIP"
+    assert "value_dip" in swap.reason
+    assert "85.00" in swap.reason  # the invalidation level monitoring checked
+    assert "not breached" in swap.reason
+    assert swap.details["incumbent_setup_type"] == "value_dip"
+
+
+def test_swap_selling_an_intact_trend_add_says_the_trend_is_intact():
+    """R10: the trend_add-intact branch of the same bridge. Unpinned, it could be
+    flipped to say the trend has broken while no ALERT says any such thing."""
+    holdings = [h for h in thesis_portfolio() if h.ticker == "TREND"]
+    cards = propose(
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0}, ma50=MA50,
+    )
+    assert thesis_alerts(cards) == {}
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "TREND"
+    assert "its trend is intact" in swap.reason
+    assert "at or above its 50-day moving average of 100.00" in swap.reason
+    assert "broken" not in swap.reason
+
+
+def test_swap_selling_an_incumbent_whose_thesis_broke_agrees_with_the_alert():
+    """R10: the third branch. This is the R1 defect one card over — an ALERT saying the
+    thesis broke and a SWAP below it calling the same position intact — so the SWAP's
+    wording is pinned against the ALERT that ran in the same call."""
+    holdings = [h for h in thesis_portfolio() if h.ticker in ("TREND", "DIP")]
+    cards = propose(
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0, "DIP": 84.0}, ma50=MA50,
+    )
+    assert set(thesis_alerts(cards)) == {"DIP"}
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "DIP"
+    assert "its thesis broke this run — see the ALERT above" in swap.reason
+    assert "intact" not in swap.reason
+
+
+@pytest.mark.parametrize("days_from_today", [-400, -1, 0, 1])
+def test_the_card_names_the_session_and_claims_nothing_about_its_state(days_from_today):
+    """R6/R9: nothing in the run knows whether the session it read is open or closed —
+    that needs the market's close time in the market's own timezone, and the local
+    machine clock is not it (Taipei 01:00 with --market us is mid-NYSE-session on
+    *yesterday's* label; Taipei 21:00 with --market tw is hours past the close on
+    today's). So the card names the label and stops. asof is varied against the local
+    date because a comparison between the two was exactly the bug."""
+    asof = (datetime.date.today() + datetime.timedelta(days=days_from_today)).isoformat()
+    holdings = [h for h in thesis_portfolio() if h.ticker == "DIP"]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50, asof=asof
+    )
+    card = thesis_alerts(cards)["DIP"]
+    assert f"at 84.00 ({asof} session)" in card.reason
+    assert "closed at" not in card.reason
+    assert "still-open" not in card.reason
+    assert card.details["asof"] == asof

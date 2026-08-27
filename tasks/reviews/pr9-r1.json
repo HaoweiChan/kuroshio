@@ -1,0 +1,88 @@
+{
+  "pr": 9,
+  "round": 1,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 140 passed",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "MEDIUM",
+      "claim": "The \"not fully thesis-monitored\" coverage card asserts \"the rest of this run says nothing about it either way\" for a ticker that has its own thesis ALERT card in the very same run.",
+      "evidence": "kuroshio/core/allocator/engine.py:136-141 appends a trend_add with `entry_price is None` to `unmonitored` and then falls through to the MA break check at :143, so a trend_add with no entry_price and price < MA50 emits both an ALERT (\"the trend has broken\") and a coverage-card entry. Confirmed output: `propose([Holding('NOENTRY', 0.05, score=0.5, setup_type='trend_add')], [], ips, 'us', prices={'NOENTRY':90.0}, ma50={'NOENTRY':100.0})` returns two ALERTs, the second reading \"1 position(s) are not fully thesis-monitored: NOENTRY ... is not being watched for a thesis break — the rest of this run says nothing about it either way.\"",
+      "repro": "propose() call as above; note tests/test_allocator.py:352 sets NOENTRY price 10.0 vs ma50 9.0 (above the MA), the only arrangement that avoids the contradiction, so the suite never sees it.",
+      "acceptance": "A position that produces a thesis ALERT is not also blanket-claimed unwatched — either exclude partially-monitored positions from the coverage card's flat sentence, or reword the card so its claim is per-item. A test asserting a trend_add with no entry_price and price < MA50 does not appear in both card sets with contradictory text.",
+      "route": "repair",
+      "route_reason": "Two cards in one run make contradictory claims about the same ticker; the coverage card says nothing is watching a position the run just alerted on. A card a user reads is a published claim."
+    },
+    {
+      "id": "R2",
+      "severity": "MEDIUM",
+      "claim": "A `value_dip`/`pullback_add` with an invalidation_price but no entry_price emits an alert card that cites no entry price and is never named on the coverage card — the opposite of what the trend_add path does for the identical gap.",
+      "evidence": "kuroshio/core/allocator/engine.py:126-131 builds `entry` = \"entry price not recorded\"; the trend_add branch at :136 explicitly lists that gap in `unmonitored`, but the dip branch at :150-161 never checks `h.entry_price`. Confirmed: `propose([Holding('DIP',0.05,score=0.2,setup_type='value_dip',invalidation_price=85.0)], [], ips, 'us', prices={'DIP':84.0}, ma50={'DIP':100.0})` returns exactly one card whose reason ends \"(entry price not recorded)\" and no coverage card.",
+      "repro": "scratch case E. No test covers a dip setup with invalidation_price and entry_price=None — test_missing_monitoring_fields only has NODIP (missing invalidation) and NOENTRY (trend_add).",
+      "acceptance": "Either the dip branch lists a missing entry_price on the coverage card the same way trend_add does, or the asymmetry is a stated rule in ARCHITECTURE.md. Add a test with a dip setup that breaches while entry_price is None and pin which of the two behaviours is intended.",
+      "route": "debt",
+      "route_reason": "MEDIUM but blocks nothing: the card does cite the entry price honestly ('entry price not recorded'), every acceptance clause holds, gate green. The trend_add/dip asymmetry is real but is consistency work -> T40."
+    },
+    {
+      "id": "R3",
+      "severity": "MEDIUM",
+      "claim": "A single missing session anywhere in the trailing 50 rows makes MA50 NaN for that ticker, so the trend_add drops out of monitoring entirely — and the user is told the false reason \"too little price history\".",
+      "evidence": "kuroshio/core/allocator/signals.py:33 uses `close.rolling(MA_TREND).mean()` with pandas' default `min_periods=window`, so one NaN in the window yields NaN. engine.py:135 then reports `f\"{h.ticker} (trend_add, no MA50 — too little price history)\"`. Verified: a 200-row frame with one NaN at row 190 yields `ma50 == {'CLEAN': 100.0}` — ONEHOLE, with 199 real sessions, is dropped. Realistic input: FinMind returns per-ticker suspension days, and providers/yf.py:_shape_panel keeps rows on the reference ticker's calendar only, leaving NaN holes in other columns.",
+      "repro": "python -c \"import pandas as pd; from kuroshio.types import Panel; from kuroshio.core.allocator.signals import monitor_inputs; d=[x.strftime('%Y-%m-%d') for x in pd.bdate_range('2024-01-01',periods=200)]; b=[100.0]*200; b[190]=float('nan'); c=pd.DataFrame({'CLEAN':[100.0]*200,'ONEHOLE':b},index=d); print(monitor_inputs(Panel(close=c,volume=c))[1])\"",
+      "acceptance": "MA50 tolerates sparse holes (per-column dropna, or `min_periods` set deliberately with the choice documented), or the reason string stops claiming \"too little price history\" when the ticker has >=50 sessions. A test with a NaN gap inside the window and 200 sessions of history asserts the trend_add is still monitored (or is named with an accurate reason).",
+      "route": "repair",
+      "route_reason": "Dishonest claim plus a functional gap: a ticker with 199 sessions is dropped from monitoring and told it has 'too little price history'. Realistic input on both providers."
+    },
+    {
+      "id": "R4",
+      "severity": "MEDIUM",
+      "claim": "The spec's second trend_add trigger — drawdown-from-entry — is not implemented; drawdown is only printed inside a card that some *other* rule already fired.",
+      "evidence": "T5 spec: \"trend_add alerts on trend break (close < MA50 or ATR trail) **and** drawdown-from-entry.\" kuroshio/core/allocator/engine.py:143 `if price >= ma: continue` is the only trigger; the `entry` string at :127 is interpolated into a reason only built after the MA test passes. A trend_add at entry 200, price 130, MA50 120 (deep loss, still above the trend) produces no card at all. Deferral is argued only in the code comment at :115-117 and ARCHITECTURE.md:168-169; unlike ATR (T38) and swap ranking (T39), no TODO entry records this as a T5 deferral.",
+      "repro": "propose([Holding('T',0.05,score=0.5,setup_type='trend_add',entry_price=200.0)], [], ips, 'us', prices={'T':130.0}, ma50={'T':120.0}) -> []",
+      "acceptance": "Either the drawdown trigger ships with a threshold, or the deferral is logged as a numbered TODO entry (as T38/T39 were) naming T6 as the owner and stating that until then a trend_add at any loss above its MA50 is silent.",
+      "route": "debt",
+      "route_reason": "The spec names drawdown-from-entry but T5's acceptance clauses do not, and the finding's own acceptance allows logging the deferral as a numbered entry. Routing it to debt IS that entry -> T41, naming T6 as owner."
+    },
+    {
+      "id": "R5",
+      "severity": "MEDIUM",
+      "claim": "The spec's stated motivation is untouched: a thesis-intact value_dip is still the SWAP card's sell side, and the PR makes the two halves of one run openly contradict each other.",
+      "evidence": "kuroshio/core/allocator/engine.py:190 `incumbent = min(pool, key=lambda h: h.score)` is unchanged, and the SWAP reason string names no setup_type. Verified: holdings TREND(score .60, trend_add) + DIP(score .20, value_dip, invalidation 85, price 90 — thesis intact), challenger NEW(.95, verdict buy) -> monitoring emits nothing and the single card is \"SWAP sell=DIP ... a gap of 0.750\". Spec sentence 1: \"value_dip and pullback_add positions are structurally the 'weakest incumbent' and get proposed for sale.\" Logged as T39 (P1) with an honest acceptance, so this is a rated deferral, not a hidden one — but the motivating defect is 100% present after T5 ships.",
+      "repro": "scratch case B.",
+      "acceptance": "Judgement call for the orchestrator: T5's acceptance clause is alerts-only, so T39 is a legitimate split — but ship it with a user-visible bridge (the SWAP card names the incumbent's setup_type and whether its invalidation is intact) or move T39 in front of the release. Silence on both sides is the one outcome that should not ship.",
+      "route": "repair",
+      "route_reason": "Bounded to the bridge only, NOT the ranking fix. The ranking change stays T39. What blocks is that one run now emits a SWAP telling the user to sell a position the same run verified as thesis-intact, without saying so — the reviewer's 'silence on both sides' outcome."
+    },
+    {
+      "id": "R6",
+      "severity": "MEDIUM",
+      "claim": "Thesis cards state \"it closed at X\" with no session date, and a mid-session yfinance run puts a live intraday price on the card.",
+      "evidence": "kuroshio/core/allocator/engine.py:145 and :156 both say \"it closed at {price:.2f}\". `price` is `close.iloc[-1]` (signals.py:32) from a panel fetched with `end=today+1day` (providers/yf.py:59-60). providers/yf.py:30 only drops the last row when the reference ticker is NaN — that catches pre-market, not mid-session, where today's bar carries the live price. `screen` already prints `asof=` (cli.py:98); propose's new cards carry no date in the reason or in `details`.",
+      "repro": "Inspect providers/yf.py:59-60 `end_ts = pd.Timestamp.today().normalize()`; any live run during market hours. No test pins the wording against a partial bar.",
+      "acceptance": "The card names the session it read (`details['asof']` plus the date in the reason), or the panel's last row is dropped when it is today's still-forming bar. A test with a panel whose last index is the current date asserts the card does not call an intraday print a close.",
+      "route": "repair",
+      "route_reason": "Dishonest claim: the card says 'it closed at X' for what may be a live intraday tick, with no session named."
+    },
+    {
+      "id": "R7",
+      "severity": "LOW",
+      "claim": "Both comparison boundaries are untested: flipping the invalidation test from `>` to `>=` or the MA test from `>=` to `>` passes the entire suite, while the first contradicts README's documented \"at or below\".",
+      "evidence": "engine.py:152 `if price > h.invalidation_price: continue` and engine.py:143 `if price >= ma: continue`. Mutation runs: `price >= h.invalidation_price` -> 51 passed; `price > ma` -> 51 passed. README.md:70 promises \"alerted only when it closes at or below the invalidation price you recorded\"; nothing pins it. (Mutating MONITORED_SETUPS or removing entry_price from the reason string IS caught, so the core dispatch is properly pinned.)",
+      "repro": "sed the two comparisons in engine.py, then pytest tests/test_allocator.py tests/test_cli.py -q",
+      "acceptance": "One case with `price == invalidation_price` asserting the alert fires, and one with `price == ma50` asserting it does not (or does, whichever the docs say). Both mutations go red.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T42."
+    },
+    {
+      "id": "R8",
+      "severity": "LOW",
+      "claim": "`entry_price: 0.0` (or a negative value) is silently reported as \"entry price not recorded\" but, unlike `None`, is never named on the coverage card.",
+      "evidence": "engine.py:126-131 gates the entry string on truthiness (`if h.entry_price`) while the coverage listing at :136 gates on `h.entry_price is None`. Verified: `Holding('Z',0.05,score=0.5,setup_type='trend_add',entry_price=0.0)` with price 90 / ma50 100 emits one ALERT reading \"...(entry price not recorded)...\" with `details['entry_price'] == 0.0` and no coverage card. The holdings parser (cli.py:51) validates setup_type but not entry_price sign/zero.",
+      "repro": "scratch case D.",
+      "acceptance": "The two gates agree — either reject a non-positive entry_price at parse time with a message naming the key, or use the same truthiness test in both places so the position lands on the coverage card.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T43."
+    }
+  ]
+}

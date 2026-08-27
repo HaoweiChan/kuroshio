@@ -1,0 +1,36 @@
+{
+  "pr": 9,
+  "round": 2,
+  "gate_after_repair": "pass - ruff clean, 149 passed",
+  "resolutions": [
+    {
+      "id": "R6",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_the_card_names_the_session_and_claims_nothing_about_its_state (4 params; -1 and -400 are the R6 direction)",
+      "note": "Took the second branch of the acceptance - no market calendar. _price_phrase names the session label and stops asserting state: 'at 191.35 (2026-08-27 session)', or 'at 191.35' with no asof. The docstring states why the local clock is not a session-state oracle in either direction."
+    },
+    {
+      "id": "R9",
+      "status": "fixed",
+      "test": "same parametrized test; params 0 and +1 are the R9 direction",
+      "note": "Same fix. No same-day run can now call a finished TW session still-open, because the card makes no open/closed claim at all."
+    },
+    {
+      "id": "R10",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_swap_selling_an_intact_trend_add_says_the_trend_is_intact; ::test_swap_selling_an_incumbent_whose_thesis_broke_agrees_with_the_alert",
+      "note": "Both previously unpinned thesis_note branches now asserted on the SWAP reason text."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [
+    "T48"
+  ],
+  "mutation_proofs": [
+    "M8 trend-intact note flipped: 1 failed / 148",
+    "M9 'its thesis broke this run' -> 'is intact this run': 1 failed / 148",
+    "M12 restore the old `asof >= date.today()` phrase: 5 failed / 144 - params -400/-1 go red on 'closed at' (R6), params 0/+1 go red on 'still-open' (R9), plus the CLI end-to-end case. This is the proof the new test varies asof against the local date.",
+    "Pre-fix red run of the R6/R9 test: 4 failed, showing 'it is at 84.00 in the still-open 2026-08-28 session' for a today+1 label."
+  ],
+  "process_note": "Mutations were worked on a scratch copy this round, never in the worktree. Orchestrator independently verified _price_phrase at asof offsets -400/-1/0/+1 and None: no session-state claim in any direction."
+}

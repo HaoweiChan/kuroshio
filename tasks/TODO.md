@@ -14,7 +14,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T5 — Thesis-aware alert rules per setup_type [status: todo]
+### T5 — Thesis-aware alert rules per setup_type [status: pr]
 Depends: T3
 Spec: today the only ranking axis is MA distance, so value_dip and pullback_add
 positions are structurally the "weakest incumbent" and get proposed for sale.
@@ -408,4 +408,197 @@ no behaviour is wrong, only the definition.
 Acceptance: the six sites describe `min_rank_weight` as the smallest per-pctrank share of
 the fully degraded composite, or drop the superlative and point at the code. No behaviour
 change; `need` stays 4 for both markets. Fold in T35 and T36 while there.
+
+
+### T38 — The ATR trail T5 was specced with is not computable [status: todo]
+Priority: P3
+Origin: T5
+Spec: T5's spec says a trend_add alerts on "close < MA50 or ATR trail". Only the
+MA50 half shipped: `Panel` (kuroshio/types.py:15) carries `close`, `volume` and
+`institutional` and nothing else, so no true range — and therefore no ATR — is
+reachable from any provider's output today. Both providers
+(`providers/yf.py`, `providers/finmind.py`) fetch OHLCV and keep close/volume;
+the fields exist upstream, they are dropped at the boundary. An ATR trail is the
+better trend-break signal for a volatile name, where a fixed MA50 either whipsaws
+or lags depending on the tape, so this is a real gap, not a stylistic one — it is
+just a data-model change (Panel gains high/low, both providers populate it,
+backtest/screening keep working) that exceeds a monitoring-rules task.
+Acceptance: `Panel` carries high/low from both providers, and the trend_add rule
+alerts on either the MA50 break or an ATR-multiple trail from the running high,
+with a test per trigger. Until then `core/allocator/engine.py` step 3 says MA50
+only, in a `ponytail:` comment naming this task.
+
+### T39 — Thesis-intact dip setups are still the swap path's weakest incumbent [status: todo]
+Priority: P1
+Origin: T5
+Spec: T5 fixed the alerting axis, not the ranking one, and its own opening
+sentence is about the ranking one. `core/allocator/engine.py` step 4 picks
+`incumbent = min(pool, key=lambda h: h.score)`, where `score` is the screener's
+momentum composite: `screening/us.py:135` computes `mom_raw = (c / ma50 - 1) +
+(c / ma200 - 1)` — literally MA distance — at the largest single factor weight
+(0.333 of four), and TW's momentum half is close/MA20 + close/MA60 + volume
+multiple. A `value_dip` bought *because* it is far under its MAs therefore scores
+lowest by construction and is the name proposed for sale, even while its
+invalidation price is untouched and T5's monitoring is deliberately silent about
+it. The two halves now disagree: monitoring says "thesis intact", the SWAP card
+says "sell this one". T5's acceptance covers alerts only, so this was logged
+rather than fixed.
+Acceptance: a fixture with one thesis-intact `value_dip` (score lowest, price
+above `invalidation_price`) and one `trend_add` shows the swap path not choosing
+the value_dip as the sell side — whether by excluding intact dip setups from the
+incumbent pool, ranking on something other than the momentum score, or requiring
+the setup's own invalidation before a dip position may be swapped out. Whichever
+way, the reason string must say why that incumbent was picked, and the existing
+`test_theme_breach_alert_and_same_theme_swap_constraint` style coverage must
+still pass for holdings with no setup_type.
+
+### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: todo]
+Priority: P2
+Origin: PR #9 R2
+Spec: engine.py:126-131 builds `entry` = "entry price not recorded"; the trend_add branch
+at :136 lists that gap on the coverage card, but the dip branch at :150-161 never checks
+`h.entry_price`. `propose([Holding('DIP',0.05,score=0.2,setup_type='value_dip',
+invalidation_price=85.0)], [], ips, 'us', prices={'DIP':84.0}, ma50={'DIP':100.0})`
+returns one card ending "(entry price not recorded)" and no coverage card — the opposite
+of what the trend_add path does for the identical gap. No test covers a dip setup with an
+invalidation_price and entry_price=None.
+Acceptance: either the dip branch lists a missing entry_price on the coverage card the
+same way trend_add does, or the asymmetry is a stated rule in docs/ARCHITECTURE.md; a
+test pins whichever is intended.
+
+### T41 — Drawdown-from-entry, T5's second trend_add trigger, is not implemented [status: todo]
+Priority: P2
+Depends: T6
+Origin: PR #9 R4
+Spec: T5's spec reads "trend_add alerts on trend break (close < MA50 or ATR trail) **and**
+drawdown-from-entry". Only the MA break ships: engine.py:143 `if price >= ma: continue` is
+the sole trigger, and the drawdown figure is interpolated into a reason string that is
+only built after the MA test already fired. A trend_add at entry 200, price 130, MA50 120
+— a deep loss still above its trend — produces no card at all. T5 deferred it because the
+threshold belongs to T6's forced-decision card with its own IPS key; recorded here so the
+gap is a numbered deferral rather than a code comment.
+Acceptance: the drawdown trigger ships with a threshold owned by T6's IPS key; until then
+a trend_add at any loss above its MA50 is silent, and that is stated where the monitoring
+rules are documented.
+
+### T42 — Both thesis comparison boundaries are unpinned [status: todo]
+Priority: P2
+Origin: PR #9 R7
+Spec: engine.py:152 `if price > h.invalidation_price: continue` and engine.py:143
+`if price >= ma: continue`. Mutating the first to `>=` and the second to `>` each leave
+the suite green, while README.md:70 promises a dip is "alerted only when it closes at or
+below the invalidation price you recorded" — so the documented boundary is unpinned.
+(Mutating MONITORED_SETUPS or removing entry_price from the reason string IS caught, so
+the core dispatch itself is properly pinned.)
+Acceptance: one case with `price == invalidation_price` asserting the alert fires and one
+with `price == ma50` asserting whichever the docs say; both mutations go red.
+
+### T43 — entry_price 0.0 falls between two disagreeing gates [status: todo]
+Priority: P3
+Origin: PR #9 R8
+Spec: engine.py:126-131 gates the entry string on truthiness (`if h.entry_price`) while
+the coverage listing at :136 gates on `h.entry_price is None`, so
+`Holding('Z',0.05,score=0.5,setup_type='trend_add',entry_price=0.0)` at price 90 / ma50
+100 emits one ALERT reading "(entry price not recorded)" with `details['entry_price'] ==
+0.0` and no coverage card. The holdings parser (cli.py:51) validates setup_type but not
+entry_price sign or zero.
+Acceptance: the two gates agree — either a non-positive entry_price is rejected at parse
+time with a message naming the key, or both places use the same test so the position
+lands on the coverage card.
+
+### T44 — MA50 now skips suspension holes and can average a stale window [status: todo]
+Priority: P3
+Origin: PR #9 R3
+Spec: the R3 fix in `core/allocator/signals.py:monitor_inputs` averages each
+ticker's last `MA_TREND` *traded* closes instead of the last `MA_TREND` rows, so a
+one-day suspension no longer voids MA50. The trade-off it buys: holes are skipped,
+not counted, so a ticker halted for months averages 50 closes that may reach far
+further back than 50 sessions, and nothing on the card says the number is stale.
+The panel's own `lookback_days` bounds how far back it can reach, which is why this
+is P3 and not higher. A staleness signal needs a per-ticker "sessions spanned"
+number, which is the same shape as the high/low data the ATR trail needs (T38).
+Acceptance: either a trend_add whose MA50 spans materially more than `MA_TREND`
+calendar sessions is named on the coverage card with that reason, or the tolerance
+is bounded (skip at most N holes) — pinned by a test with a long gap inside the
+window.
+
+### T45 — Coverage card's headline count is unpinned [status: todo]
+Priority: P3
+Origin: PR #9 R11
+Spec: engine.py:215 prints
+`f"{len(unmonitored) + len(partial)} position(s) are not fully thesis-monitored."`.
+Mutating it to `len(unmonitored)` alone leaves the suite at 145 passed:
+`test_a_partially_monitored_position_is_not_also_claimed_unwatched` has one unmonitored
+and one partial position and asserts both group lists and the split wording, but never
+the count — so the card would read "1 position(s)" while naming two.
+Acceptance: one assertion on the count in the mixed-group case; the mutation goes red.
+
+### T46 — monitor_inputs' history threshold has an unpinned boundary [status: todo]
+Priority: P3
+Origin: PR #9 R12
+Spec: signals.py:46 `if len(traded) >= MA_TREND:`. The fixtures use 60 traded and 40
+traded sessions; nothing sits at exactly 50, so mutating `>=` to `>` leaves the suite at
+145 passed and a ticker with exactly 50 traded sessions silently flips between monitored
+and "fewer than 50 traded sessions". T42 covers the two comparisons in engine.py, not
+this one — it is new code from PR #9's round-1 repair.
+Acceptance: a fixture column with exactly MA_TREND traded sessions asserts it is
+monitored; the mutation goes red.
+
+### T47 — The alert card still calls the traded-session mean a 50-day moving average [status: todo]
+Priority: P2
+Origin: PR #9 R13
+Spec: PR #9's R3 repair changed MA50 to the mean of each ticker's last 50 *traded* closes
+and corrected engine.py:159 to say "fewer than 50 traded sessions", but engine.py:169-170
+and :175 still say "its 50-day moving average of {ma:.2f}", and README.md:69-71 still says
+"closes under its 50-day mean". After a halt those differ: a TW-shaped 82-row panel with a
+31-session halt ending today yields an ma of 99.40 computed from 51 traded closes spanning
+~115 calendar days, and the card calls it a 50-day moving average. signals.py's docstring
+and docs/ARCHITECTURE.md:167-169 already say "traded sessions"; the user-visible strings
+do not.
+Also fold in (PR #9 R14 note 3): docs/ARCHITECTURE.md:158-161 and README.md:69-71 still
+describe the rules as firing on "the close" ("ALERT when the close is under its 50-day
+mean", "when it closes at or below the invalidation price you recorded") while the card
+now deliberately refuses to call the print a close — the same claim one layer up, in the
+same two files.
+Acceptance: the alert card, README and ARCHITECTURE wording match what the number is
+("50-session" or "the last 50 traded closes") and stop calling the print a close,
+consistent with the coverage card. T44 still owns the staleness signal itself.
+
+
+### T48 — Cards cannot say whether the session they read is open or closed [status: todo]
+Priority: P3
+Origin: PR #9 R6, R9
+Spec: PR #9's round-2 repair dropped the open/closed claim from `_price_phrase`
+(engine.py) — the card now reads "at 60.00 (2026-08-27 session)" and asserts nothing
+about session state, because deciding it needs the market's close time in the market's
+own timezone and no profile carries one. The local date is not that oracle in either
+direction: 01:00 Taipei with `--market us` is mid-NYSE-session under yesterday's local
+date, and 21:00 Taipei with `--market tw` is 7.5h past a close on today's. Saying
+"still-open"/"closed" honestly means encoding (tz, open, close) per market profile in
+`core/screening/__init__.py` and comparing `datetime.now(tz)` against the `asof`
+session's close — a data-model change T5 deliberately did not make. Only do this if a
+user actually wants the adjective; the session label alone is not wrong without it.
+Acceptance: profiles carry a session calendar; `_price_phrase` takes the market and
+says open/closed from it; tests cover a US market read from a UTC+8 clock at 01:00 and
+a TW market read at 21:00, with the clock stubbed, not the local one.
+
+### T49 — _price_phrase's no-asof branch is unpinned [status: todo]
+Priority: P3
+Origin: PR #9 R14 (reviewer note 1)
+Spec: engine.py:33-34's `asof is None` branch is guarded by nothing — mutating it to
+`return f"it closed at {price:.2f} in the still-open session"` leaves the suite at 149
+passed. Not user-visible today: cli.py:357-365 leaves `prices={}` whenever `asof` stays
+None, so the branch is unreachable through the CLI. But PR #9's round-2 repair changed
+its text, and a library caller passing `prices=` without `asof=` would get it.
+Acceptance: one case asserts the no-asof wording; the mutation goes red.
+
+### T50 — The session-state guard rails are substring negatives [status: todo]
+Priority: P2
+Origin: PR #9 R14 (reviewer note 2)
+Spec: the tests that keep PR #9's R6/R9 fix honest assert `"closed at" not in ...` and
+`"still-open" not in ...`, so a differently-worded state claim slips straight through:
+`f"at {price:.2f} ({asof} session), a finished close"` leaves the suite at 149 passed.
+The guard is against two spellings, not against the class of claim.
+Acceptance: a positive full-phrase equality on the price clause of `card.reason`, so any
+added adjective goes red rather than only the two spellings that were shipped.
 
