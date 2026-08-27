@@ -356,3 +356,14 @@ printed `need` itself.
 Acceptance: one case asserts the `need` value the notice prints for each market, so a
 change to `MIN_RANK_WEIGHT` that stays inside the bucket still goes red.
 
+### T36 — Two step-grid sentences left standing in TW-only scope [status: todo]
+Origin: PR #6 R20 (reviewer note)
+Spec: a repo-wide grep after round 6 leaves exactly two step-grid claims: tw.py:33-38
+(already T35) and the name plus docstring of
+`tests/test_cli.py::test_propose_refuses_when_the_hurdle_cannot_reject_anything`, which
+still say "clears the hurdle by construction and the gate cannot reject anything". That
+test is TW-only (`--market tw`, degraded 1/3 grid), so the claim is true in its scope,
+but it is the same sentence T35 is about and reads as a general law to the next reader.
+Acceptance: folded into T35's fix — both sites either scope the claim to equal surviving
+weights or stop asserting it.
+
