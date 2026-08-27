@@ -521,3 +521,41 @@ Acceptance: either a trend_add whose MA50 spans materially more than `MA_TREND`
 calendar sessions is named on the coverage card with that reason, or the tolerance
 is bounded (skip at most N holes) — pinned by a test with a long gap inside the
 window.
+
+### T45 — Coverage card's headline count is unpinned [status: todo]
+Priority: P3
+Origin: PR #9 R11
+Spec: engine.py:215 prints
+`f"{len(unmonitored) + len(partial)} position(s) are not fully thesis-monitored."`.
+Mutating it to `len(unmonitored)` alone leaves the suite at 145 passed:
+`test_a_partially_monitored_position_is_not_also_claimed_unwatched` has one unmonitored
+and one partial position and asserts both group lists and the split wording, but never
+the count — so the card would read "1 position(s)" while naming two.
+Acceptance: one assertion on the count in the mixed-group case; the mutation goes red.
+
+### T46 — monitor_inputs' history threshold has an unpinned boundary [status: todo]
+Priority: P3
+Origin: PR #9 R12
+Spec: signals.py:46 `if len(traded) >= MA_TREND:`. The fixtures use 60 traded and 40
+traded sessions; nothing sits at exactly 50, so mutating `>=` to `>` leaves the suite at
+145 passed and a ticker with exactly 50 traded sessions silently flips between monitored
+and "fewer than 50 traded sessions". T42 covers the two comparisons in engine.py, not
+this one — it is new code from PR #9's round-1 repair.
+Acceptance: a fixture column with exactly MA_TREND traded sessions asserts it is
+monitored; the mutation goes red.
+
+### T47 — The alert card still calls the traded-session mean a 50-day moving average [status: todo]
+Priority: P2
+Origin: PR #9 R13
+Spec: PR #9's R3 repair changed MA50 to the mean of each ticker's last 50 *traded* closes
+and corrected engine.py:159 to say "fewer than 50 traded sessions", but engine.py:169-170
+and :175 still say "its 50-day moving average of {ma:.2f}", and README.md:69-71 still says
+"closes under its 50-day mean". After a halt those differ: a TW-shaped 82-row panel with a
+31-session halt ending today yields an ma of 99.40 computed from 51 traded closes spanning
+~115 calendar days, and the card calls it a 50-day moving average. signals.py's docstring
+and docs/ARCHITECTURE.md:167-169 already say "traded sessions"; the user-visible strings
+do not.
+Acceptance: the alert card and README wording match what the number is ("50-session" or
+"the last 50 traded closes"), consistent with the coverage card and ARCHITECTURE. T44
+still owns the staleness signal itself.
+

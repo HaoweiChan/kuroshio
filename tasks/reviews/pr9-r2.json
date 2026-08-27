@@ -1,0 +1,73 @@
+{
+  "pr": 9,
+  "round": 2,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 145 passed",
+  "round1_findings_resolved": [
+    "R1",
+    "R3",
+    "R5"
+  ],
+  "findings": [
+    {
+      "id": "R6",
+      "severity": "MEDIUM",
+      "claim": "R6 is not resolved: `_price_phrase` compares the session label against the *local machine* date, so for any user east of the market a still-forming bar is still labelled a close — the exact claim R6 was raised about.",
+      "evidence": "kuroshio/core/allocator/engine.py:33 `if asof >= datetime.date.today().isoformat()`. Concrete state: user in Taipei (UTC+8) running `--market us`. Wall clock 01:00 TPE 2026-08-28 == 13:00 ET 2026-08-27, NYSE open. `providers/yf.py:46` sets `end_ts = pd.Timestamp.today().normalize()` (local = 2026-08-28), so yfinance returns a live partial bar labelled 2026-08-27 and `signals.py:48` yields `asof='2026-08-27'`. `'2026-08-27' >= '2026-08-28'` is False -> the card reads `it closed at 191.35 in the 2026-08-27 session` for a live intraday print. Same window every trading day: 00:00-04:00 TPE, 00:00-06:00 AEST. docs/ARCHITECTURE.md:163-166 states the opposite as fact.",
+      "repro": "stub datetime.date.today() to 2026-08-28 and call `_price_phrase(191.35, '2026-08-27')` -> 'it closed at 191.35 in the 2026-08-27 session'. Neither new test can go red on this: test_a_still_forming_bar_is_not_reported_as_a_close derives asof from `datetime.date.today()` (always == today) and test_a_finished_session_is_named_on_the_card hardcodes a date years in the past.",
+      "acceptance": "The still-open/closed decision is made against the market's session calendar (the profile already knows the market), not the local date — or the card stops asserting session state at all and just names the session label. A test with asof = local-today-minus-one and a market whose session is still open asserts the card does not say \"closed at\".",
+      "route": "repair",
+      "route_reason": "Not resolved. Orchestrator-verified in both directions. docs/ARCHITECTURE.md:163-166 asserts the fixed behaviour as fact, so a document of record is false as well as the card."
+    },
+    {
+      "id": "R9",
+      "severity": "MEDIUM",
+      "claim": "The repair introduces the inverse false claim: every same-day run after the close labels a finished session \"still-open\", which on the repo's primary market (TW) is the normal case, not an edge case.",
+      "evidence": "kuroshio/core/allocator/engine.py:33-35. TW session ends 13:30 Taipei; a user running `kuroshio propose --market tw` at 21:00 the same day gets `asof == datetime.date.today().isoformat()` and the card reads \"it is at 60.00 in the still-open 2026-08-27 session\" for a session that closed 7.5 hours earlier. Orchestrator-verified. This is a claim the pre-repair card did not make; the resolution artifact defends not dropping today's bar precisely because \"that discards a legitimately closed session after the US/TW close\" — but then mislabels that legitimately closed session.",
+      "repro": "python -c \"import datetime;from kuroshio.core.allocator.engine import _price_phrase;print(_price_phrase(60.0, datetime.date.today().isoformat()))\"",
+      "acceptance": "Same fix as R6 — session state derived from the market calendar/close time, or the phrase drops the still-open/closed assertion. A test asserting a TW panel whose last index is today, read after 13:30 TPE, is not called still-open.",
+      "route": "repair",
+      "route_reason": "Same root cause as R6, inverse direction, and it is the normal case on the repo's primary market. The repair introduced a claim the pre-repair card did not make."
+    },
+    {
+      "id": "R10",
+      "severity": "MEDIUM",
+      "claim": "Three of the four points step 3 reaches write a `thesis_note` that ends up in the SWAP reason string, and only one of them is pinned — the two unpinned ones can be flipped to statements that contradict the same run's ALERT card with the suite green.",
+      "evidence": "kuroshio/core/allocator/engine.py:168-171 (trend intact) and :198 (\"its thesis broke this run — see the ALERT above\") are asserted by no test. tests/test_allocator.py::test_swap_selling_a_monitored_incumbent_says_whether_its_thesis_is_intact only asserts the value_dip-intact note. Mutations run against the fixed tree: M8 flipping the trend-intact note to \"its trend has broken ... below its 50-day moving\" => 145 passed. M9 flipping \"its thesis broke this run\" to \"its thesis is intact this run\" => 145 passed. M9's output is exactly the R1 defect re-created one card over: an ALERT saying the trend broke, and a SWAP below it saying \"Monitoring checked TREND this run: it is a trend_add and its thesis is intact this run.\"",
+      "repro": "copy the worktree to scratch, apply either replacement to engine.py, run pytest tests/ -q -> 145 passed.",
+      "acceptance": "Cases covering the trend_add-intact incumbent and the thesis-broken incumbent assert the SWAP reason text; both M8 and M9 go red.",
+      "route": "repair",
+      "route_reason": "The REPAIR hard rule requires each fix to be pinned by a gate case. Two of three thesis_note branches are unpinned, and M9 re-creates the R1 defect one card over -- an ALERT saying the trend broke and a SWAP below it saying the thesis is intact -- with the suite green."
+    },
+    {
+      "id": "R11",
+      "severity": "LOW",
+      "claim": "The coverage card's headline count can be made to undercount the positions it then names, with the suite green.",
+      "evidence": "kuroshio/core/allocator/engine.py:215 `f\"{len(unmonitored) + len(partial)} position(s) are not fully thesis-monitored.\"`. Mutation M10 -> `f\"{len(unmonitored)} position(s)\"` => 145 passed. tests/test_allocator.py::test_a_partially_monitored_position_is_not_also_claimed_unwatched has one unmonitored + one partial position and asserts the two group lists and the split wording, but never the count, so the card would read \"1 position(s) are not fully thesis-monitored\" while naming two.",
+      "repro": "apply M10 in a scratch copy, pytest tests/ -q -> 145 passed.",
+      "acceptance": "One assertion on the count in the mixed-group case; M10 goes red.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T45."
+    },
+    {
+      "id": "R12",
+      "severity": "LOW",
+      "claim": "The new hand-written history threshold in `monitor_inputs` has an unpinned boundary — no fixture sits at exactly MA_TREND traded sessions.",
+      "evidence": "kuroshio/core/allocator/signals.py:46 `if len(traded) >= MA_TREND:`. tests/test_allocator.py:379-383 uses LONG=60 traded and SHORT=40 traded; nothing at 50. Mutation M11 `>= MA_TREND` -> `> MA_TREND` => 145 passed, i.e. a ticker with exactly 50 traded sessions silently flips between monitored and \"fewer than 50 traded sessions\" with no test noticing. (T42/R7 covers the two comparisons in engine.py, not this one — it is new code in this diff.)",
+      "repro": "apply M11 in a scratch copy, pytest tests/ -q -> 145 passed.",
+      "acceptance": "A fixture column with exactly MA_TREND traded sessions asserts it is monitored; M11 goes red.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T46."
+    },
+    {
+      "id": "R13",
+      "severity": "LOW",
+      "claim": "The repair corrected one string to say \"traded sessions\" but left the alert card calling the same changed number a \"50-day moving average\", which after the R3 fix it is not.",
+      "evidence": "kuroshio/core/allocator/engine.py:159 was corrected to \"fewer than 50 traded sessions\" while :169-170 and :175 still say \"its 50-day moving average of {ma:.2f}\". Concrete: a TW-shaped 82-row panel (profile.lookback_days=120 for tw) with a 31-session halt ending today yields price 70.0, ma 99.40, computed from 51 traded closes spanning ~115 calendar days; the card then reads \"below its 50-day moving average of 99.40\". docs/ARCHITECTURE.md:167-169 and signals.py's own docstring both say \"traded sessions\"; the user-visible string does not. README.md:69-71 likewise still says \"closes under its 50-day mean\".",
+      "repro": "a column with vals[50:81]=NaN and vals[81]=70.0 over 82 bdates -> ma {'HALT': 99.4}, from 51 traded sessions.",
+      "acceptance": "The alert card's wording matches what the number is (\"50-session\" / \"last 50 traded closes\"), consistent with the coverage card and ARCHITECTURE. T44 still owns the staleness signal itself.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. Real but narrow: the number is the mean of the last 50 traded closes and two user-visible strings still call it a 50-day moving average. -> T47."
+    }
+  ]
+}
