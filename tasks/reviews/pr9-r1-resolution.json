@@ -1,0 +1,45 @@
+{
+  "pr": 9,
+  "round": 1,
+  "gate_after_repair": "pass - ruff clean, 145 passed",
+  "resolutions": [
+    {
+      "id": "R1",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_a_partially_monitored_position_is_not_also_claimed_unwatched; ::test_missing_monitoring_fields_are_named_not_silently_unwatched (repaired)",
+      "note": "Took the per-item-claim branch. `partial` is a separate list from `unmonitored` and the coverage card states one sentence per group. The pre-existing test was arranged so it could not see the bug (NOENTRY at price 10.0 vs ma 9.0, above the MA); moved to 8.0/9.0 so it breaks its MA. details carries both unmonitored and partially_monitored."
+    },
+    {
+      "id": "R3",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_ma50_survives_a_suspension_gap_inside_the_window",
+      "note": "Took tolerate-holes, not report-accurately: reporting alone leaves a ticker with 199 real sessions unmonitored, which is the actual harm. monitor_inputs averages each column's last 50 *traded* closes. Reason string also corrected to 'fewer than 50 traded sessions', so both halves of the acceptance hold. Both realistic inputs verified: yf.py:_shape_panel:30 keeps rows on close[ref].notna() only; finmind.py:_price_frames builds from per-ticker series."
+    },
+    {
+      "id": "R5",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_swap_selling_a_monitored_incumbent_says_whether_its_thesis_is_intact",
+      "note": "Bridge only; ranking untouched (min(pool, key=score) unchanged, T39 intact). Step 3 records a one-line thesis_note per ticker; step 4 appends it to the SWAP reason when the sell side is a monitored setup, plus details['incumbent_setup_type'] and ['incumbent_thesis']."
+    },
+    {
+      "id": "R6",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_a_still_forming_bar_is_not_reported_as_a_close; ::test_a_finished_session_is_named_on_the_card; tests/test_cli.py::test_propose_fetches_for_monitoring_and_dispatches_on_setup_type",
+      "note": "Took the name-the-session branch. monitor_inputs returns the panel's last index label; propose(asof=) threads it; one _price_phrase helper serves both card sites. details['asof'] on every thesis card. Deliberately did NOT drop today's bar in the provider — that discards a legitimately closed session after the US/TW close."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [
+    "T44"
+  ],
+  "mutation_proofs": [
+    "M1 R1 routing partial.append -> unmonitored.append: 2 failed / 143",
+    "M2 R1 wording, blanket claim reapplied to the partial group: 1 failed / 144",
+    "M3 R3 back to close.rolling(50).mean(): 1 failed / 144",
+    "M4 R5 SWAP bridge suppressed: 1 failed / 144",
+    "M5 R6 _price_phrase always says 'it closed at X': 2 failed / 143",
+    "M6 R6 details['asof'] dropped: 2 failed / 143",
+    "M7 R6 cli stops passing asof=: 1 failed / 144 (initially passed 145 - the CLI plumbing was unpinned, so an end-to-end assertion was added and re-run red)"
+  ],
+  "process_note": "The implementer's first mutation run cleaned up with `git checkout <file>`, which reverted the fixes rather than the mutation. It reapplied every edit and re-ran all mutations against the fixed tree; the counts above are from that clean run. The orchestrator independently confirmed the four fixes are present in commit 7eb8a96 and the gate is green."
+}
