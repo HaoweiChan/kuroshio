@@ -26,7 +26,7 @@ kuroshio/
 ├── core/
 │   ├── screening/        # Stage-1 gates + cross-sectional pctrank scoring, per-market profiles
 │   ├── ips/              # IPS schema, parser, presets
-│   ├── allocator/        # challenger-vs-incumbent swap proposals
+│   ├── allocator/        # swap proposals + per-setup_type thesis monitoring
 │   └── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
 ├── agents/
 │   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
@@ -155,15 +155,29 @@ Pure function. v1 logic:
    `ips.caps.theme_pct` → challengers in that theme may only swap against same-theme
    incumbents; also emit an ALERT card for the breach.
 2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card.
-3. **Challenger vs incumbent**: for each challenger not already held and passing
+3. **Thesis monitoring**, dispatched on `setup_type` — the ranking in step 4 is a momentum
+   composite, so a `value_dip` is *meant* to look weak there and must not be alerted on that:
+   `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);
+   `value_dip` / `pullback_add` → ALERT only when the close is at or below the
+   `invalidation_price` the user recorded, never on MA distance. Cards name the setup_type,
+   the level breached, and the entry price with the move from it. The two numbers per ticker
+   (last close, MA50) are computed by the caller — `allocator/signals.py:monitor_inputs(panel)`
+   — and passed in as `prices` / `ma50` dicts, because `propose` takes no panel (rules 3, 5).
+   A position whose rule has no data to read (no `setup_type`, `setup_type: other`, a
+   `value_dip` with no `invalidation_price`, no price for the session) is named in one
+   "not fully thesis-monitored" ALERT rather than passed over in silence — emitted only when
+   at least one holding does carry a monitored setup_type, so a pre-T3 file is unaffected.
+   No ATR trail: `Panel` has no high/low (tasks/TODO.md T38). No loss-from-entry threshold
+   either — the drawdown is reported, not judged; the threshold is T6's.
+4. **Challenger vs incumbent**: for each challenger not already held and passing
    `verdict_floor`: weakest incumbent (lowest score; unscored incumbents are never
    auto-targeted — emit ALERT suggesting research instead). Propose SWAP when
    `challenger.final_score - incumbent.score ≥ ips.turnover.hurdle` **and** expected edge
    clears friction (`score_gap` must also exceed friction expressed as a score-equivalent —
    gap ≥ hurdle + `friction.{tw,us}_roundtrip_pct` / 100, picked per market, and the card
    cites the friction it cleared).
-4. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
-5. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
+5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
+6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
 
 ## `agents/engine` — facet cache
@@ -221,7 +235,9 @@ argparse, three subcommands (v1):
   how many they were ranked against. When only one side is auto-filled the card says so
   differently: that gap subtracts a percentile from a hand-typed number and is a rank distance
   in neither scale. Hand-written values always win, per name, and carry no disclosure.
-  Every score hand-typed = no fetch.
+  The same fetch supplies thesis monitoring's prices, so it also happens when a holding
+  carries a monitored `setup_type`; every score hand-typed *and* no monitored setup_type =
+  no fetch.
 - `kuroshio ips-validate path.md`
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.

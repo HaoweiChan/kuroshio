@@ -652,3 +652,40 @@ def test_propose_exits_2_when_the_provider_is_not_installed(tmp_path, capsys, mo
     )
     assert code == 2
     assert "not installed" in capsys.readouterr().err
+
+
+# --- propose: thesis monitoring wiring (T5) -----------------------------------
+
+
+def test_propose_fetches_for_monitoring_and_dispatches_on_setup_type(
+    tmp_path, capsys, monkeypatch
+):
+    """Acceptance, end to end: every score is hand-typed, so the only reason to touch a
+    provider is monitoring. 1103 and 1104 both close far under their MA50 (the _SPECS
+    ramps are downtrends); only the trend_add is alerted on that, the value_dip on its
+    own invalidation price, and the third value_dip — same tape, level not breached —
+    produces nothing."""
+    stub = _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1103", weight: 0.05, score: 0.5, setup_type: trend_add, entry_price: 100.0}\n'
+        '- {ticker: "1104", weight: 0.05, score: 0.5, setup_type: value_dip,'
+        ' entry_price: 80.0, invalidation_price: 65.0}\n'
+        '- {ticker: "1105", weight: 0.05, score: 0.5, setup_type: value_dip,'
+        ' entry_price: 70.0, invalidation_price: 50.0}\n'
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert stub.calls, "monitoring needs prices — propose must fetch for setup_type holdings"
+    assert "1103 was opened as a trend_add and the trend has broken" in out
+    assert "1104 was opened as a value_dip and its invalidation price is breached" in out
+    assert "1105" not in out

@@ -5,7 +5,7 @@ import pytest
 from kuroshio.core.allocator import propose
 from kuroshio.core.ips import IPS, validate
 from kuroshio.core.ips.schema import CapExemption
-from kuroshio.types import Candidate, Holding
+from kuroshio.types import Candidate, Holding, Panel, ProposalCard
 
 
 def make_ips(**overrides) -> IPS:
@@ -248,3 +248,134 @@ def test_no_accepted_ips_ever_swaps_below_its_own_hurdle():
             where = f"hurdle={hurdle} friction={friction} market={market} {inc}->{chal}"
             assert card.score_gap >= hurdle, where
             assert card.score_gap >= hurdle + friction / 100, where
+
+
+# --- T5: thesis-aware monitoring per setup_type -------------------------------
+#
+# The acceptance fixture: one position per setup_type, all three in the same tape.
+# TREND and DIP sit at the same place relative to their MA50 on purpose — the whole
+# point of the dispatch is that the same price action means different things.
+
+def thesis_portfolio() -> list[Holding]:
+    return [
+        Holding(
+            ticker="TREND", weight=0.05, score=0.60,
+            setup_type="trend_add", entry_price=80.0,
+        ),
+        Holding(
+            ticker="DIP", weight=0.05, score=0.20,
+            setup_type="value_dip", entry_price=100.0, invalidation_price=85.0,
+        ),
+        Holding(
+            ticker="ADD", weight=0.05, score=0.30,
+            setup_type="pullback_add", entry_price=50.0, invalidation_price=44.0,
+        ),
+    ]
+
+
+# every name below its MA50 — a "trend break" for all three, if MA distance were the axis
+BELOW_MA = {"TREND": 90.0, "DIP": 90.0, "ADD": 46.0}
+MA50 = {"TREND": 100.0, "DIP": 100.0, "ADD": 52.0}
+
+
+def thesis_alerts(cards) -> dict[str, ProposalCard]:
+    return {
+        c.details["ticker"]: c
+        for c in cards
+        if c.action == "ALERT" and "ticker" in c.details
+    }
+
+
+def test_trend_add_alerts_on_ma_break_and_the_dip_setups_do_not():
+    """Acceptance clauses 1 and 2: same tape, three positions under their MA50 — only
+    the trend_add is alerted, because only its thesis was the trend."""
+    cards = propose(
+        thesis_portfolio(), [], make_ips(), "us", prices=BELOW_MA, ma50=MA50
+    )
+    assert set(thesis_alerts(cards)) == {"TREND"}
+
+
+def test_value_dip_alerts_on_invalidation_breach():
+    """Acceptance clause 3: the value_dip's own invalidation price is what ends it —
+    and the pullback_add answers to the same rule."""
+    breach = {"TREND": 110.0, "DIP": 84.0, "ADD": 43.0}
+    cards = propose(
+        thesis_portfolio(), [], make_ips(), "us", prices=breach, ma50=MA50
+    )
+    alerts = thesis_alerts(cards)
+    assert set(alerts) == {"DIP", "ADD"}
+    assert "85.00" in alerts["DIP"].reason  # cites the level it breached
+
+
+def test_every_thesis_card_names_its_setup_type_and_entry_price():
+    """Acceptance clause 4, plus the spec's "cards must cite the setup_type and
+    entry_price" — checked over both trigger paths at once."""
+    for prices in (BELOW_MA, {"TREND": 110.0, "DIP": 84.0, "ADD": 43.0}):
+        cards = propose(
+            thesis_portfolio(), [], make_ips(), "us", prices=prices, ma50=MA50
+        )
+        alerts = thesis_alerts(cards)
+        assert alerts
+        for ticker, card in alerts.items():
+            holding = next(h for h in thesis_portfolio() if h.ticker == ticker)
+            assert holding.setup_type in card.reason
+            assert f"{holding.entry_price:.2f}" in card.reason
+            assert card.details["setup_type"] == holding.setup_type
+
+
+def test_a_value_dip_is_never_alerted_on_ma_distance_however_far_it_falls():
+    # The spec's "never on MA distance alone", pushed: DIP is 60% under its MA50 and
+    # still one cent above its invalidation price.
+    holdings = [h for h in thesis_portfolio() if h.ticker == "DIP"]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"DIP": 85.01}, ma50={"DIP": 220.0}
+    )
+    assert thesis_alerts(cards) == {}
+
+
+def test_missing_monitoring_fields_are_named_not_silently_unwatched():
+    holdings = thesis_portfolio() + [
+        Holding(ticker="NODIP", weight=0.05, score=0.5, setup_type="value_dip"),
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+        Holding(ticker="OPTOUT", weight=0.05, score=0.5, setup_type="other"),
+        Holding(ticker="NOPRICE", weight=0.05, score=0.5, setup_type="trend_add", entry_price=1.0),
+    ]
+    # NOPRICE is the only one the caller could not price this session
+    prices = BELOW_MA | {"NODIP": 10.0, "NOENTRY": 10.0, "LEGACY": 10.0, "OPTOUT": 10.0}
+    cards = propose(holdings, [], make_ips(), "us", prices=prices, ma50=MA50 | {"NOENTRY": 9.0})
+    gaps = [c for c in cards if c.action == "ALERT" and c.details.get("unmonitored")]
+    assert len(gaps) == 1
+    named = gaps[0].details["unmonitored"]
+    assert set(named) == {"NODIP", "NOENTRY", "LEGACY", "OPTOUT", "NOPRICE"}
+    for ticker in named:
+        assert ticker in gaps[0].reason
+    # the three fully-equipped positions are watched, so they are not in the gap list
+    assert not {"TREND", "DIP", "ADD"} & set(named)
+
+
+def test_pre_t3_portfolio_is_untouched_by_monitoring():
+    # No holding carries a setup_type -> thesis monitoring is not in use, nothing can
+    # look monitored, and propose() behaves exactly as it did before T5.
+    holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
+    assert propose(holdings, [], make_ips(), "us") == []
+
+
+def test_monitor_inputs_reads_the_last_session_and_skips_short_history():
+    import pandas as pd
+
+    from kuroshio.core.allocator.signals import monitor_inputs
+
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=60)]
+    close = pd.DataFrame(
+        {
+            "LONG": [float(i) for i in range(60)],   # 60 sessions -> MA50 exists
+            "SHORT": [float("nan")] * 20 + [100.0] * 40,  # only 40 -> no MA50
+        },
+        index=dates,
+    )
+    prices, ma50 = monitor_inputs(Panel(close=close, volume=close))
+
+    assert prices == {"LONG": 59.0, "SHORT": 100.0}
+    # mean of 10..59
+    assert ma50 == {"LONG": pytest.approx(34.5)}

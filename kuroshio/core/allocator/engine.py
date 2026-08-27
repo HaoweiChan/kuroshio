@@ -5,14 +5,19 @@ through `propose()` ends in a ProposalCard (SWAP / TRIM / ALERT) for a human
 to act on — that's both the product position ("proposals, not a bot") and the
 regulatory line (advice, not discretionary execution).
 
-v1 logic, in order: theme-budget alerts, hard-cap trims, then challenger vs
-weakest-same-or-any-theme incumbent swaps (gated by verdict floor + score
-hurdle, capped at max_swaps_per_week). See docs/ARCHITECTURE.md `core/allocator`.
+v1 logic, in order: theme-budget alerts, hard-cap trims, per-setup_type thesis
+monitoring, then challenger vs weakest-same-or-any-theme incumbent swaps (gated
+by verdict floor + score hurdle, capped at max_swaps_per_week). See
+docs/ARCHITECTURE.md `core/allocator`.
 """
 
 from __future__ import annotations
 
 from kuroshio.types import Candidate, Holding, ProposalCard
+
+# setup_types that carry a monitoring rule. "other" (and a missing setup_type) carry
+# none — see the dispatch in `propose` step 3 and `signals.monitor_inputs`.
+MONITORED_SETUPS = ("value_dip", "pullback_add", "trend_add")
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
@@ -38,6 +43,8 @@ def propose(
     swaps_this_week: int = 0,
     themes: dict[str, str] | None = None,
     auto_scored: dict[str, int] | None = None,
+    prices: dict[str, float] | None = None,
+    ma50: dict[str, float] | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -50,6 +57,10 @@ def propose(
     # a rank distance inside the user's own files, not a `kuroshio screen` difference —
     # the card says so rather than printing the number bare (see cli.py:_score_missing).
     auto_scored = auto_scored or {}
+    # last close and 50-day mean close per ticker, computed by the caller from a panel
+    # (allocator.signals.monitor_inputs) — core/allocator takes no panel and no provider.
+    prices = prices or {}
+    ma50 = ma50 or {}
     theme_cap = ips.caps.theme_pct / 100
     hard_cap = ips.caps.position_hard_pct / 100
     exempt = {(e.ticker, e.cap) for e in ips.caps.exemptions}
@@ -96,7 +107,86 @@ def propose(
             details={"weight": h.weight, "cap": hard_cap},
         ))
 
-    # 3. challenger vs incumbent.
+    # 3. thesis monitoring — dispatch on setup_type. A value_dip is *supposed* to look
+    # weak against its moving averages: that is the setup, not a broken thesis, so only
+    # the invalidation_price the user recorded ends it. A trend_add is the opposite —
+    # the trend is the thesis, so a close under the 50-day mean is the exit signal.
+    # ponytail: MA50 only. Panel carries close/volume, no high/low, so the spec's ATR
+    # trail needs a data-model change first (tasks/TODO.md T38). Drawdown from entry is
+    # reported on the card, not thresholded: the loss-from-entry threshold is T6's, with
+    # its own IPS key, and two thresholds would be one too many.
+    unmonitored: list[str] = []
+    for h in holdings:
+        if h.setup_type not in MONITORED_SETUPS:
+            why = f"setup_type '{h.setup_type}'" if h.setup_type else "no setup_type"
+            unmonitored.append(f"{h.ticker} ({why})")
+            continue
+        price = prices.get(h.ticker)
+        if price is None:
+            unmonitored.append(f"{h.ticker} ({h.setup_type}, no price for this session)")
+            continue
+        entry = (
+            f"entry price {h.entry_price:.2f}, now {price / h.entry_price - 1:+.1%} from entry"
+            if h.entry_price  # 0.0 is not a price: unrecorded beats dividing by it
+            else "entry price not recorded"
+        )
+        if h.setup_type == "trend_add":
+            ma = ma50.get(h.ticker)
+            if ma is None:
+                unmonitored.append(f"{h.ticker} (trend_add, no MA50 — too little price history)")
+                continue
+            if h.entry_price is None:
+                unmonitored.append(
+                    f"{h.ticker} (trend_add, no entry_price — the MA50 break is watched, "
+                    f"drawdown from entry is not)"
+                )
+            if price >= ma:
+                continue
+            reason = (
+                f"{h.ticker} was opened as a trend_add and the trend has broken: it closed "
+                f"at {price:.2f}, below its 50-day moving average of {ma:.2f} ({entry}). "
+                f"The setup that justified the position no longer holds."
+            )
+            details = {"ma50": ma}
+        else:  # value_dip | pullback_add — the recorded level, never MA distance
+            if h.invalidation_price is None:
+                unmonitored.append(
+                    f"{h.ticker} ({h.setup_type}, no invalidation_price — nothing to breach)"
+                )
+                continue
+            if price > h.invalidation_price:
+                continue
+            reason = (
+                f"{h.ticker} was opened as a {h.setup_type} and its invalidation price is "
+                f"breached: it closed at {price:.2f}, at or below the "
+                f"{h.invalidation_price:.2f} you recorded as the level that ends the thesis "
+                f"({entry})."
+            )
+            details = {"invalidation_price": h.invalidation_price}
+        alerts.append(ProposalCard(
+            action="ALERT",
+            reason=reason,
+            details={
+                "ticker": h.ticker, "setup_type": h.setup_type,
+                "entry_price": h.entry_price, "price": price, **details,
+            },
+        ))
+    # Only when the portfolio is actually using thesis monitoring: with no setup_type
+    # anywhere, no position can look watched, and a pre-T3 holdings file gets its cards
+    # unchanged. Mixed coverage is the dangerous case — that is what this names.
+    if unmonitored and any(h.setup_type in MONITORED_SETUPS for h in holdings):
+        alerts.append(ProposalCard(
+            action="ALERT",
+            reason=(
+                f"{len(unmonitored)} position(s) are not fully thesis-monitored: "
+                f"{', '.join(unmonitored)}. Monitoring dispatches on setup_type, so a "
+                f"position missing the fields its rule reads is not being watched for a "
+                f"thesis break — the rest of this run says nothing about it either way."
+            ),
+            details={"unmonitored": [u.split(" (")[0] for u in unmonitored]},
+        ))
+
+    # 4. challenger vs incumbent.
     held = {h.ticker for h in holdings}
     scored = [h for h in holdings if h.score is not None]
     swaps: list[ProposalCard] = []
@@ -172,7 +262,7 @@ def propose(
                 },
             ))
 
-    # 4. order + weekly turnover cap.
+    # 5. order + weekly turnover cap.
     swaps.sort(key=lambda card: card.score_gap, reverse=True)
     room = max(ips.turnover.max_swaps_per_week - swaps_this_week, 0)
     kept, suppressed = swaps[:room], swaps[room:]
