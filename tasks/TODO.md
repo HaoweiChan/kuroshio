@@ -14,7 +14,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T5 — Thesis-aware alert rules per setup_type [status: in-progress]
+### T5 — Thesis-aware alert rules per setup_type [status: pr]
 Depends: T3
 Spec: today the only ranking axis is MA distance, so value_dip and pullback_add
 positions are structurally the "weakest incumbent" and get proposed for sale.
@@ -555,9 +555,14 @@ and :175 still say "its 50-day moving average of {ma:.2f}", and README.md:69-71 
 ~115 calendar days, and the card calls it a 50-day moving average. signals.py's docstring
 and docs/ARCHITECTURE.md:167-169 already say "traded sessions"; the user-visible strings
 do not.
-Acceptance: the alert card and README wording match what the number is ("50-session" or
-"the last 50 traded closes"), consistent with the coverage card and ARCHITECTURE. T44
-still owns the staleness signal itself.
+Also fold in (PR #9 R14 note 3): docs/ARCHITECTURE.md:158-161 and README.md:69-71 still
+describe the rules as firing on "the close" ("ALERT when the close is under its 50-day
+mean", "when it closes at or below the invalidation price you recorded") while the card
+now deliberately refuses to call the print a close — the same claim one layer up, in the
+same two files.
+Acceptance: the alert card, README and ARCHITECTURE wording match what the number is
+("50-session" or "the last 50 traded closes") and stop calling the print a close,
+consistent with the coverage card. T44 still owns the staleness signal itself.
 
 
 ### T48 — Cards cannot say whether the session they read is open or closed [status: todo]
@@ -576,3 +581,24 @@ user actually wants the adjective; the session label alone is not wrong without 
 Acceptance: profiles carry a session calendar; `_price_phrase` takes the market and
 says open/closed from it; tests cover a US market read from a UTC+8 clock at 01:00 and
 a TW market read at 21:00, with the clock stubbed, not the local one.
+
+### T49 — _price_phrase's no-asof branch is unpinned [status: todo]
+Priority: P3
+Origin: PR #9 R14 (reviewer note 1)
+Spec: engine.py:33-34's `asof is None` branch is guarded by nothing — mutating it to
+`return f"it closed at {price:.2f} in the still-open session"` leaves the suite at 149
+passed. Not user-visible today: cli.py:357-365 leaves `prices={}` whenever `asof` stays
+None, so the branch is unreachable through the CLI. But PR #9's round-2 repair changed
+its text, and a library caller passing `prices=` without `asof=` would get it.
+Acceptance: one case asserts the no-asof wording; the mutation goes red.
+
+### T50 — The session-state guard rails are substring negatives [status: todo]
+Priority: P2
+Origin: PR #9 R14 (reviewer note 2)
+Spec: the tests that keep PR #9's R6/R9 fix honest assert `"closed at" not in ...` and
+`"still-open" not in ...`, so a differently-worded state claim slips straight through:
+`f"at {price:.2f} ({asof} session), a finished close"` leaves the suite at 149 passed.
+The guard is against two spellings, not against the class of claim.
+Acceptance: a positive full-phrase equality on the price clause of `card.reason`, so any
+added adjective goes red rather than only the two spellings that were shipped.
+

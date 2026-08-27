@@ -2,3 +2,4 @@
 {"task":"T2","date":"2026-08-27","rounds":3,"findings":{"HIGH":0,"MEDIUM":2,"LOW":4},"repaired":3,"rejected":0,"debt_logged":5,"gate_failures":0,"human_interventions":0}
 {"task":"T3","date":"2026-08-27","rounds":1,"findings":{"HIGH":0,"MEDIUM":1,"LOW":5},"repaired":0,"rejected":0,"debt_logged":5,"gate_failures":0,"human_interventions":0}
 {"task":"T4","date":"2026-08-27","rounds":6,"findings":{"HIGH":4,"MEDIUM":11,"LOW":5},"repaired":13,"rejected":0,"debt_logged":13,"gate_failures":0,"human_interventions":4}
+{"task":"T5","date":"2026-08-27","rounds":3,"findings":{"HIGH":0,"MEDIUM":9,"LOW":5},"repaired":7,"rejected":0,"debt_logged":13,"gate_failures":0,"human_interventions":0}
