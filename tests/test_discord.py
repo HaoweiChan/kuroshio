@@ -38,10 +38,14 @@ def test_payload_colors_by_action():
         ProposalCard(action="SWAP", reason="r", sell="A", buy="B"),
         ProposalCard(action="TRIM", reason="r", sell="A"),
         ProposalCard(action="ALERT", reason="r"),
+        ProposalCard(action="DECIDE", reason="r", details={"ticker": "A"}),
     ]
     payloads = _payload(cards, "T")
     colors = [e["color"] for e in payloads[0]["embeds"]]
-    assert colors == [0x2ECC71, 0xE67E22, 0xE74C3C]
+    assert colors == [0x2ECC71, 0xE67E22, 0xE74C3C, 0x9B59B6]
+    # every action a card can carry must render and colour — a DECIDE card that
+    # KeyErrors in the notifier is a proposal the user never sees.
+    assert [e["title"] for e in payloads[0]["embeds"]] == ["SWAP A → B", "TRIM A", "ALERT", "DECIDE A"]
 
 
 def test_payload_batches_at_eleven_cards():

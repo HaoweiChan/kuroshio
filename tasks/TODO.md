@@ -453,6 +453,9 @@ invalidation_price and entry_price=None.
 Acceptance: either the dip branch lists a missing entry_price on the coverage card the
 same way trend_add does, or the asymmetry is a stated rule in docs/ARCHITECTURE.md; a
 test pins whichever is intended.
+Update (T6 shipped): resolved the first way and for every setup at once — a missing
+entry_price is now the loss-from-entry rule's gap, listed on the coverage card whatever
+opened the position, pinned by test_positions_the_mae_rule_cannot_judge_are_named_not_dropped.
 
 ### T41 — Drawdown-from-entry, T5's second trend_add trigger, is not implemented [status: todo]
 Priority: P2
@@ -468,6 +471,10 @@ gap is a numbered deferral rather than a code comment.
 Acceptance: the drawdown trigger ships with a threshold owned by T6's IPS key; until then
 a trend_add at any loss above its MA50 is silent, and that is stated where the monitoring
 rules are documented.
+Update (T6 shipped): `caps.max_adverse_excursion_pct` exists and reads no setup_type, so
+that same trend_add now gets a DECIDE card — it is no longer silent, and T41 needs no
+second key. What is left is whether the *trend_add ALERT* should also fire on drawdown,
+i.e. whether one position deserves both cards at a threshold it already decided on.
 
 ### T42 — Both thesis comparison boundaries are unpinned [status: todo]
 Priority: P2
@@ -493,6 +500,9 @@ entry_price sign or zero.
 Acceptance: the two gates agree — either a non-positive entry_price is rejected at parse
 time with a message naming the key, or both places use the same test so the position
 lands on the coverage card.
+Update (T6 shipped): resolved the second way — `engine._entry_price(h)` is the one gate
+both rules read, and a 0.0 entry lands on the coverage card naming the value it found.
+The parser still accepts it (cli.py:51 validates setup_type only).
 
 ### T44 — MA50 now skips suspension holes and can average a stale window [status: todo]
 Priority: P3
@@ -520,6 +530,9 @@ Mutating it to `len(unmonitored)` alone leaves the suite at 145 passed:
 and one partial position and asserts both group lists and the split wording, but never
 the count — so the card would read "1 position(s)" while naming two.
 Acceptance: one assertion on the count in the mixed-group case; the mutation goes red.
+Update (T6 shipped): done while rewriting that line —
+test_a_position_watched_only_by_the_mae_rule_is_not_called_unwatched asserts the count,
+and the `len(unmonitored)` mutation goes red.
 
 ### T46 — monitor_inputs' history threshold has an unpinned boundary [status: todo]
 Priority: P3
@@ -590,3 +603,42 @@ The guard is against two spellings, not against the class of claim.
 Acceptance: a positive full-phrase equality on the price clause of `card.reason`, so any
 added adjective goes red rather than only the two spellings that were shipped.
 
+
+### T51 — A decided position gets the same DECIDE card on every run [status: todo]
+Priority: P2
+Origin: T6
+Spec: nothing records that the user actually decided. A position 20% under entry emits an
+identical DECIDE card every run until the holdings file changes, and the only edits that
+silence it are lies (raise `entry_price`) or amputations (delete it, which also stops the
+thesis rule). "No silent holding of losers" then decays into a card the user learns to
+scroll past — the exact failure the Freeman-Shor discipline is about. Needs somewhere to
+record the decision and when it was made (a field on `Holding`, or the ledger T10 wants
+anyway), after which the card returns only when the loss deepens materially.
+Acceptance: a position whose decision is recorded produces no DECIDE card at the same
+loss, and a fresh one once it is materially further under water; one test per half.
+
+### T52 — The MAE key measures this session's loss, not the worst one [status: todo]
+Priority: P2
+Origin: T6
+Spec: `caps.max_adverse_excursion_pct` is compared against the latest session price
+(`core/allocator/engine.py` step 3b), so a position that fell to -25% from entry and
+recovered to -5% is never decided on, though its max adverse excursion was -25%. Latest
+price vs entry equals MAE only for someone who runs `propose` on the day of the low; a
+weekly runner silently misses the decisions the discipline exists to force. The true
+number needs the minimum close since `entry_date` — panel history sliced per position,
+the same data-model shape T38/T44 already need. The card text says what it measured
+("is -20.0% from your entry price of ..."); it is the key's name that promises more.
+Acceptance: either the threshold is compared against the low since `entry_date`, or the
+key and docs stop calling it the max adverse excursion; a test with a recovered position
+pins whichever is intended.
+
+### T53 — DECIDE's "add" option carries no size [status: todo]
+Priority: P3
+Depends: T7
+Origin: T6
+Spec: the DECIDE card offers "add to it per the plan you opened it with" and names no
+number, because nothing in the repo computes a target weight yet. T7's acceptance covers
+TRIM and SWAP cards only, so the DECIDE card would be left as the one card that names an
+action with no size.
+Acceptance: T7's sizing also reaches the DECIDE card's add option, or the card says why
+it cannot size it; one test.

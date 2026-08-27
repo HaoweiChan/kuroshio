@@ -10,6 +10,7 @@ caps:
   position_pct: 5
   position_hard_pct: 15
   theme_pct: 15
+  max_adverse_excursion_pct: -10  # forced decision at 10% below entry
   exemptions: []
 turnover:
   hurdle: 0.25
@@ -27,7 +28,10 @@ trend. Position sizing is deliberately tight — 5% standard, 15% hard ceiling �
 because a single name, however strong the setup, should never be able to do
 lasting damage to the whole. Theme exposure is capped even tighter at 15%,
 because correlated bets are a bigger risk than any one ticker admits to being
-on its own.
+on its own. The forced decision comes early too: 10% below entry, a position has
+to be argued for again — killed, added to per the original plan, or given a
+written new thesis. Capital preservation is mostly the discipline of not letting
+a small loss become a story.
 
 Turnover is expensive and mostly wrong, so the bar for a swap is high: a
 challenger must beat the incumbent by 25 points of composite score AND already

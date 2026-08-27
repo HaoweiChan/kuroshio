@@ -15,6 +15,8 @@ _KNOWN_TOP_KEYS = {
     "version", "risk_profile", "style", "lang", "universe", "caps",
     "turnover", "friction", "notify",
 }
+# what a `caps.exemptions` entry may relax — see Caps.max_adverse_excursion_pct
+# for why the MAE threshold is not one of them.
 _CAP_FIELDS = {"position_pct", "position_hard_pct", "theme_pct"}
 _KNOWN_RISK_PROFILES = {"conservative", "balanced", "aggressive"}
 
@@ -73,6 +75,7 @@ def _parse_text(text: str) -> IPS:
             position_pct=caps_raw.get("position_pct", 10),
             position_hard_pct=caps_raw.get("position_hard_pct", 25),
             theme_pct=caps_raw.get("theme_pct", 20),
+            max_adverse_excursion_pct=caps_raw.get("max_adverse_excursion_pct", -15),
             exemptions=exemptions,
         ),
         turnover=Turnover(
@@ -110,6 +113,21 @@ def validate(ips: IPS) -> list[str]:
         )
     if not (0 < c.theme_pct <= 100):
         problems.append(f"caps.theme_pct ({c.theme_pct}) must be in (0, 100]")
+
+    # The allocator compares a price against entry x (1 + mae/100), so the sign is the
+    # whole meaning: written unsigned (15) every position is already "past" it, written
+    # at or beyond -100 no position ever can be. Type first, and separately, so a
+    # wrong-*type* value is not reported against a range its own printed value meets (T18).
+    mae = c.max_adverse_excursion_pct
+    if isinstance(mae, bool) or not isinstance(mae, (int, float)):
+        problems.append(
+            f"caps.max_adverse_excursion_pct ({mae!r}) must be a number, not {type(mae).__name__}"
+        )
+    elif not (-100 < mae < 0):
+        problems.append(
+            f"caps.max_adverse_excursion_pct ({mae}) must be a negative percent in (-100, 0) — "
+            f"it is a loss from entry, so e.g. -15 for 15% below entry"
+        )
 
     for exemption in c.exemptions:
         if exemption.cap not in _CAP_FIELDS:

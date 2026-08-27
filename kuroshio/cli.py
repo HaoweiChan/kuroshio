@@ -352,15 +352,17 @@ def cmd_propose(args: argparse.Namespace) -> int:
         return 2
 
     # The user is no longer the integration layer: anything without a hand-typed
-    # score gets one from the screener, and a holding with a monitored setup_type gets
-    # the prices its thesis rule reads. Neither needed -> no fetch, no network.
+    # score gets one from the screener, and a holding a monitoring rule can read gets
+    # this session's price — its thesis rule if it has a monitored setup_type, the
+    # loss-from-entry rule if it has an entry_price, which dispatches on no setup at
+    # all. Neither needed -> no fetch, no network.
     prices: dict[str, float] = {}
     ma50: dict[str, float] = {}
     asof = None
     need_scores = any(h.score is None for h in holdings) or any(
         c.final_score is None for c in challengers
     )
-    monitored = any(h.setup_type in MONITORED_SETUPS for h in holdings)
+    monitored = any(h.setup_type in MONITORED_SETUPS or h.entry_price for h in holdings)
     if need_scores or monitored:
         profile = get_profile(args.market)
         provider_name = args.provider or profile.default_provider

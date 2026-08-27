@@ -59,7 +59,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str  # "SWAP" | "TRIM" | "ALERT"
+    action: str  # "SWAP" | "TRIM" | "DECIDE" | "ALERT"
     reason: str
     sell: str | None = None
     buy: str | None = None
@@ -69,7 +69,14 @@ class ProposalCard:
     details: dict = field(default_factory=dict)
 
     def to_markdown(self) -> str:
-        heads = {"SWAP": f"SWAP {self.sell} → {self.buy}", "TRIM": f"TRIM {self.sell}", "ALERT": "ALERT"}
+        heads = {
+            "SWAP": f"SWAP {self.sell} → {self.buy}",
+            "TRIM": f"TRIM {self.sell}",
+            # DECIDE is about one position but proposes no side — kill / add / rewrite are
+            # the user's three — so its ticker comes from details, not from `sell`.
+            "DECIDE": f"DECIDE {self.details.get('ticker', '')}".strip(),
+            "ALERT": "ALERT",
+        }
         head = heads[self.action]
         lines = [f"### {head}", "", self.reason]
         if self.score_gap is not None:

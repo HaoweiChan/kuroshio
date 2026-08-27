@@ -10,6 +10,7 @@ caps:
   position_pct: 15
   position_hard_pct: 25
   theme_pct: 30
+  max_adverse_excursion_pct: -20  # forced decision at 20% below entry
   exemptions: []
 turnover:
   hurdle: 0.10
@@ -28,7 +29,9 @@ exchange for staying close to whatever is actually working right now. A 15%
 standard position size lets conviction ideas breathe; the hard ceiling still
 sits at 25%, because even an aggressive book refuses to let one name become
 an unhedged bet on itself. Theme budget is wide at 30% — this style expects
-to be concentrated in the trend of the moment, not evenly spread.
+to be concentrated in the trend of the moment, not evenly spread. The forced
+decision comes late, at 20% below entry — a fast-rotation book expects noise
+around a new position and would rather not be asked about every wobble.
 
 The turnover hurdle is intentionally low at 10 points, with up to four swaps
 a week: this IPS would rather pay the friction cost of being wrong quickly
