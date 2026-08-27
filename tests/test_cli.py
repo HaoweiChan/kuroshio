@@ -229,6 +229,17 @@ def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
 #
 # No network: a stub provider is injected by monkeypatching the lazily-imported
 # `kuroshio.providers.get_provider` that cmd_propose resolves at call time.
+# Claims the refusal notice must not make. Each was shipped in a previous round and each
+# was false in the configuration it was not derived on (R13 -> R17 -> R19): the floor is a
+# conservative heuristic off one factor weight, not a theorem about the score's step size.
+_STEP_GRID_CLAIMS = (
+    "clears it by construction",
+    "before two scores can differ",
+    "cannot differ by less than",
+    "can reject nothing",
+    "the hurdle cannot reject",
+)
+
 N_TW = 65  # TW profile needs MA60 -> 60 sessions of clean history
 # examples/ips-balanced.md turnover.hurdle + friction.tw_roundtrip_pct/100
 HURDLE = 0.15 + 0.585 / 100
@@ -376,12 +387,12 @@ def test_propose_refuses_when_the_hurdle_cannot_reject_anything(
     assert "cross-section" in cap.err
 
 
-def test_propose_refusal_notice_owns_up_to_being_the_worst_case(tmp_path, capsys, monkeypatch):
-    """R17: MIN_RANK_WEIGHT is the composite fully degraded. With the institution factor
-    present — what FinMind actually returns — the per-pctrank weights are finer (1/6, not
-    1/3) and a 3-name pool *could* have been rejected on. The guard still refuses, which
-    costs the user only a manual `kuroshio screen`; what it must not do is claim the
-    hurdle was arithmetically incapable of rejecting. It says worst case instead."""
+def test_propose_refusal_notice_claims_a_heuristic_not_a_theorem(tmp_path, capsys, monkeypatch):
+    """R17/R19: `need` is read off one factor weight, so it over-refuses — with TW
+    institutional flow present (what FinMind actually returns) the weights are finer than
+    MIN_RANK_WEIGHT assumes and a 3-name pool could well have been rankable. The guard
+    still refuses, which costs the user only a manual `kuroshio screen`. What it must not
+    do is dress that floor up as arithmetic about where the composite's steps land."""
     panel = _tw_panel(institutional=True)
     profile = get_profile("tw")
     scored = profile.score_names(panel, tickers=list(_SPECS))
@@ -404,9 +415,9 @@ def test_propose_refusal_notice_owns_up_to_being_the_worst_case(tmp_path, capsys
     cap = capsys.readouterr()
     assert code == 0
     assert "No current holding has a screener score" in cap.out
-    assert "coarsest weighting" in cap.err
-    assert "takes the worst case" in cap.err
-    assert "clears it by construction" not in cap.err  # the false universal (R17)
+    assert "deliberately conservative floor" in cap.err
+    assert "may well be refusing a pool your hurdle could have judged" in cap.err
+    assert not [c for c in _STEP_GRID_CLAIMS if c in cap.err]
 
 
 @pytest.mark.parametrize(
@@ -570,7 +581,10 @@ def test_propose_guards_the_us_pool_too(tmp_path, capsys, monkeypatch, tickers):
     if len(tickers) == 2:  # pool of 3 -> below the US floor of 4
         assert "SWAP" not in cap.out
         assert "No current holding has a screener score" in cap.out
-        assert "coarsest weighting" in cap.err
+        # R19: the step-grid claim is false for US — its degraded weights (0.625, 0.375)
+        # are not commensurate, so the composite does not move on a min_rank_weight grid.
+        assert "deliberately conservative floor" in cap.err
+        assert not [c for c in _STEP_GRID_CLAIMS if c in cap.err]
     else:                  # pool of 4 -> scores, and says what the number is
         assert "SWAP AAA → CCC" in cap.out
         assert "among the 4 names in your own files" in cap.out

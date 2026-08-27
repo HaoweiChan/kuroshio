@@ -287,9 +287,9 @@ Spec: PR #6 put incumbents and challengers on one cross-section, guarded by a mi
 pool size and a disclosure on the card. The guard was re-derived in round 3 (R13): it
 keys off the composite's *step* — `profile.min_rank_weight / (n - 1)`, read from each
 profile's factor weights — and refuses when that step is >= `turnover.hurdle +
-friction/100` (n <= 3 for both markets under the balanced IPS). `min_rank_weight` is the
-composite fully degraded, so the floor is worst-case: a run with every factor present has
-a finer grid and may have been rankable below it (R17). Above that size the number is still
+friction/100` (n <= 3 for both markets under the balanced IPS). That is a conservative
+heuristic, not an exact minimum step — it over-refuses both when the live composite is
+finer than the degraded one (R17) and when the surviving weights are unequal (R19). Above that size the number is still
 rank-within-your-portfolio, not strength within a market, and it moves when you add a
 ticker to the file; the card discloses that rather than fixing it. The real fix is a
 cross-section that is a universe: score against a `--universe` ticker file (or a cached
@@ -298,6 +298,16 @@ out of that, or give the screener an absolute score.
 Acceptance: an auto-filled score for a name is unchanged by adding an unrelated
 ticker to holdings.yml, and a 2-name portfolio gets a real universe distance instead
 of a refusal; the pool-size guard and the rank-distance disclosure can then go.
+
+### T35 — tw.MIN_RANK_WEIGHT's comment states a market-specific law as a general one [status: todo]
+Origin: PR #6 R19
+Spec: `kuroshio/core/screening/tw.py:35` says two names in a pool of n "cannot differ by
+less than MIN_RANK_WEIGHT / (n - 1) without tying". That is true for TW, whose degraded
+weights are equal (1/3, 1/3, 1/3), and false in general — US degraded is 0.625/0.375 and
+reaches smaller gaps (R19). Left as-is because it is correct where it is written, but it
+is the sentence someone will copy when adding a market, which is exactly how R19 got in.
+Acceptance: the comment scopes the claim to TW's equal degraded weights, or drops the
+arithmetic and points at `cli.py:_score_missing` like the US one now does.
 
 ### T31 — Drop notice misattributes a provider no-data miss as a gate failure [status: todo]
 Origin: PR #6 R12

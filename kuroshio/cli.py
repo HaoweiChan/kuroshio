@@ -260,22 +260,24 @@ def _score_missing(
     not a challenger, and is reported rather than dropped in silence.
 
     ``hurdle`` is the full swap bar (turnover hurdle + friction — ``swap_hurdle``), and
-    it can only reject a swap if ``final_score`` is capable of a smaller step than it.
-    The composite moves in steps of ``profile.min_rank_weight / (n - 1)``: one pctrank
-    step scaled by the largest share of the score a single pctrank controls. Below
-    ``floor(min_rank_weight / hurdle) + 2`` names nothing is auto-filled and the
-    allocator's "no holding has a screener score" ALERT stands, because a refusal beats
-    a fabricated number.
+    below ``floor(profile.min_rank_weight / hurdle) + 2`` names nothing is auto-filled:
+    the allocator's "no holding has a screener score" ALERT stands, because a refusal
+    beats a fabricated number.
 
-    ``min_rank_weight`` is each profile's composite **fully degraded** — every optional
-    factor dropped, the survivors renormalized — which is the coarsest grid that market
-    can produce. So the floor is worst-case, not exact: below it the hurdle cannot reject
-    anything under that weighting, while a run whose provider returned every factor has a
-    finer grid and might have been rankable (TW with institutional flow present carries
-    1/6 per momentum rank, not 1/3 — R17). The guard errs that way on purpose: making
-    ``need`` depend on which factors a provider happened to return that day would make the
-    refusal move around under the user, and the cost of over-refusing is one manual
-    ``kuroshio screen``.
+    That floor is a **heuristic, not a theorem**. It scales one pctrank step, ``1/(n-1)``,
+    by ``min_rank_weight`` — the largest share of the score any single pctrank carries in
+    the market's fully degraded composite — and asks whether the result is already as big
+    as the hurdle. In a pool that small the scores are spread thinly enough that the
+    hurdle may be doing no work at all, so ``propose`` declines to auto-fill rather than
+    decide case by case. It over-refuses on purpose, and in two directions: the real
+    composite is usually finer than the degraded one (TW with institutional flow present
+    carries 1/6 per momentum rank, not 1/3 — R17), and where the surviving weights are
+    unequal the score does not land on a ``min_rank_weight`` grid at all, so smaller gaps
+    than the formula suggests are reachable (US degraded is 0.625/0.375 — R19). Both make
+    the floor conservative, never permissive. Do not sharpen it into an exact minimum
+    step: three rounds of this PR tried, and each precise claim was false in the
+    configuration it was not derived on. The cost of over-refusing is one manual
+    ``kuroshio screen``; the cost of a wrong exact claim is a fabricated gap on a card.
 
     Above that size the score is still only a percentile **within this pool** — pctrank
     pins its extremes to 0.000/1.000 however tightly the factors cluster — so the second
@@ -288,14 +290,14 @@ def _score_missing(
     need = math.floor(profile.min_rank_weight / hurdle) + 2
     if len(ranked) < need:
         print(
-            f"notice: {len(ranked)} name(s) in your files is too small a cross-section "
-            f"to rank against a turnover hurdle of {hurdle:.3f} — on the coarsest "
-            f"weighting this market can produce (every optional factor degraded away) it "
-            f"takes {need} names before two scores can differ by less than the hurdle, so "
-            f"below that the hurdle can reject nothing. With more factors present the grid "
-            f"is finer and {len(ranked)} may have been enough; the guard takes the worst "
-            f"case rather than moving with whatever your provider returned today. No score "
-            f"was auto-filled — hand-type one, or list more names.",
+            f"notice: {len(ranked)} name(s) in your files is too small a cross-section to "
+            f"rank against a turnover hurdle of {hurdle:.3f}. propose auto-fills scores "
+            f"only at {need} names or more — a deliberately conservative floor, read off "
+            f"this market's single coarsest factor weight rather than worked out exactly: "
+            f"in a pool this small the scores may be spread too thinly for the hurdle to "
+            f"be telling you anything, and propose would rather refuse than decide that "
+            f"case by case. It may well be refusing a pool your hurdle could have judged "
+            f"fine. No score was auto-filled — hand-type one, or list more names.",
             file=sys.stderr,
         )
         ranked = {}

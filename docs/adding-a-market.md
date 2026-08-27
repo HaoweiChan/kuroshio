@@ -81,10 +81,11 @@ In `kuroshio/core/screening/__init__.py`, add one line to `PROFILES`:
 - `min_rank_weight` — the largest share of `final_score` a single `pctrank` can
   control, i.e. your composite at its coarsest (all optional factors degraded away,
   weights renormalized; divide by the number of ranks you average into one factor —
-  TW's momentum averages 3, so `1/3`). `propose` divides it by `n - 1` to get the
-  smallest non-zero gap a pool of n names can show, and refuses to auto-fill scores
-  when that is already >= the IPS turnover hurdle + friction. Get it wrong on the low
-  side and `propose` prints gaps the hurdle could never have rejected.
+  TW's momentum averages 3, so `1/3`). `propose` divides it by `n - 1` and refuses to
+  auto-fill scores when the result is already >= the IPS turnover hurdle + friction —
+  a conservative rule of thumb for "this pool is too thin for the hurdle to mean much",
+  not an exact minimum gap (with unequal surviving weights your composite will not move
+  on that grid). Set it too low and `propose` auto-fills pools it should have refused.
 - `min_history` — trading *sessions* before `backtest`'s first rebalance; normally
   your Stage-1 gate's `MIN_SESSIONS`/`MA_LONG`.
 - `benchmark` — reference ticker auto-added to fetches, used by `walkforward` for

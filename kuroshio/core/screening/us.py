@@ -32,8 +32,9 @@ DOLLAR_VOL_MIN = 25_000_000.0   # liquidity floor: close × avg20 volume ($/day)
 WEIGHTS = {"momentum": 0.333, "rs": 0.267, "volume": 0.20, "sector": 0.20}
 # Largest share of `final_score` a single pctrank can control — the composite at its
 # coarsest. `rs`/`sector` drop out when their data is missing, leaving momentum+volume
-# renormalized; the smaller of those two is then the finest step available. See
-# tw.MIN_RANK_WEIGHT and cli.py:_score_missing.
+# renormalized (0.625/0.375). Those two are unequal, so the composite does NOT move on a
+# grid of this number: it is the input to `propose`'s conservative auto-fill floor, not an
+# exact minimum gap. See tw.MIN_RANK_WEIGHT and cli.py:_score_missing.
 MIN_RANK_WEIGHT = min(WEIGHTS["momentum"], WEIGHTS["volume"]) / (
     WEIGHTS["momentum"] + WEIGHTS["volume"]
 )
