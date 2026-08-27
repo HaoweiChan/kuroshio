@@ -174,7 +174,7 @@ rejected; only the explanation misleads.
 Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
 
-### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: partial]
+### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: todo]
 Priority: P2
 Origin: T3
 Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
