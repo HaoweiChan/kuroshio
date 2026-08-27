@@ -698,3 +698,26 @@ onto the same basis as the panel, or the position is flagged when a corporate ac
 occurred since entry_date rather than silently mis-measured; a test with a split between
 entry_date and the panel's last session pins the chosen behaviour.
 
+### T58 — The floored trigger enforces a deeper cap than the IPS names for cheap names [status: todo]
+Priority: P2
+Origin: PR #10 R8 (reviewer note 2)
+Spec: flooring the trigger to the cent is a fixed absolute step, so for entries under about
+0.07 the enforced threshold is materially deeper than the configured one: entry 0.03 at a
+-15% cap enforces 0.02, i.e. -33.3%. The card prints the floored level honestly, but the
+cap actually enforced is not the one the IPS names. At the extreme, entry 1e-5, or any
+entry under a -99.99% cap, floors the trigger to 0.00 and the rule can never fire for any
+positive price. Dissolves entirely if the comparison moves to the exact Decimal level
+(branch (a) of R8's acceptance).
+Acceptance: the enforced threshold equals the configured one at every entry price, or the
+divergence is stated on the card and bounded; a case at entry 0.03 pins it.
+
+### T59 — _trigger_price crashes on an absurd entry price instead of refusing it [status: todo]
+Priority: P3
+Origin: PR #10 R8 (reviewer note 1)
+Spec: `_trigger_price` raises an uncaught `decimal.InvalidOperation` for an entry_price at
+or above about 1e27 (the 28-digit default context, quantized to 0.01) rather than routing
+through the loader's "not a price" path like a zero or negative entry does. Absurd input,
+but the outcome is a traceback, not a card or a named coverage entry.
+Acceptance: an out-of-range entry_price is refused the way a non-positive one is — named on
+the coverage card, or rejected at parse time with a message naming the ticker and key.
+
