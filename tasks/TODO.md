@@ -4,18 +4,15 @@ Two sections, one shared id sequence. `## Queue` is runnable work in priority
 order; `## Debt` is findings/overflow logged by pr-loop runs. Merged work moves
 to a one-liner in [DONE.md](DONE.md). Format and rules: groundwork pr-loop.
 
+Every `## Debt` block carries a mandatory `Priority: P1|P2|P3` line; `## Queue`
+blocks only carry one when the content justifies deviating from the default
+(P2, no line needed). Check the board with:
+`python3 ~/.claude/plugins/marketplaces/groundwork/plugin/skills/pr-loop/scripts/ready.py`
+(run from the repo root).
+
 Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLIO-PLAN.md).
 
 ## Queue
-
-### T4 — Wire the screener into propose [status: pr]
-Spec: `kuroshio propose` requires hand-typed `score:` in holdings.yml and
-`final_score:` in candidates.yml — the user is the integration layer. When scores
-are absent, propose should invoke the market's `score_names(gate=False)` on
-incumbents (per the scale-compatibility contract in screening/tw.py and us.py)
-and the gated screener for candidates, using the configured provider.
-Acceptance: `kuroshio propose` with a score-less holdings.yml produces scored
-cards end-to-end against a stub provider; hand-written scores still win if present.
 
 ### T5 — Thesis-aware alert rules per setup_type [status: todo]
 Depends: T3
@@ -83,6 +80,7 @@ per-setup_type expectancy table; ledger is plain files (no DB).
 ## Debt
 
 ### T11 — Decide whether `hold` is a legal IPS `verdict_floor` spelling [status: todo]
+Priority: P2
 Origin: PR #3 R1, R2
 Spec: T1 made `_rank` alias `hold` → `neutral` on *both* arguments of
 `verdict_at_least`, so `verdict_at_least("buy", "hold")` is True — but
@@ -100,6 +98,7 @@ line matches the decision.
 Out of scope: adding a sixth rung — `hold` stays an alias either way.
 
 ### T12 — Unrecognized challenger verdicts fail silently [status: todo]
+Priority: P1
 Origin: PR #3 R3
 Spec: `_rank` matches exactly after `.lower()` with no `.strip()`, so
 `verdict_at_least(" hold ", "neutral")` is False while `"hold"` is True — a
@@ -113,6 +112,7 @@ low-rated) surfaces a visible ALERT card rather than vanishing; whitespace-padde
 verdicts rank correctly, covered by a test case.
 
 ### T14 — Unknown market strings silently take the cheaper US friction [status: todo]
+Priority: P1
 Origin: PR #4 R3
 Spec: core/allocator/engine.py:94 picks friction with
 `"tw_roundtrip_pct" if market.lower() == "tw" else "us_roundtrip_pct"`. Since T2
@@ -127,6 +127,7 @@ defaulting to the cheapest friction, covered by a test using a market string tha
 is neither 'us' nor 'tw'.
 
 ### T15 — Gap exactly equal to the friction threshold is rejected [status: todo]
+Priority: P1
 Origin: PR #4 R4
 Spec: the gate is `if gap < hurdle` where `hurdle = ips.turnover.hurdle +
 friction_pct / 100`, so a gap exactly equal to the threshold should be proposed
@@ -138,6 +139,7 @@ precision) and pinned by a test asserting what happens when the gap equals
 hurdle + friction/100 exactly.
 
 ### T16 — Refresh the demo screenshot after the card-text change [status: todo]
+Priority: P3
 Origin: PR #4 R2
 Spec: PR #4 regenerated the README sample card and the five `demo-data` reason
 strings in docs/index.html from a live `propose()` run, but
@@ -149,6 +151,7 @@ Acceptance: docs/screenshot-proposals.png shows the current card text, and the
 README alt text and surrounding prose still describe what the image shows.
 
 ### T17 — Nothing pins README/docs samples to generated output [status: todo]
+Priority: P2
 Origin: PR #4 R2
 Spec: the drift PR #4 fixed can recur the next time card text changes — no test
 compares the README sample card or the docs/index.html `demo-data` reason strings
@@ -159,6 +162,7 @@ Acceptance: the demo inputs live somewhere a test can read, and a test fails whe
 the README sample or the docs demo reasons diverge from generated output.
 
 ### T18 — Friction validation message names a rule the value satisfies [status: todo]
+Priority: P2
 Origin: PR #4 R7
 Spec: core/ips/parser.py:131-132 uses one message for three distinct rejections
 (bool, non-numeric, out-of-range), so a wrong-*type* value is reported with a rule
@@ -171,6 +175,7 @@ Acceptance: the type failure and the range failure produce distinguishable
 messages, asserted by test_validate_catches_bad_friction for `"0.585"` vs `-10.0`.
 
 ### T19 — candidates.yml gets none of the holdings.yml input hygiene [status: partial]
+Priority: P2
 Origin: T3
 Spec: T3 gave `_holdings_from_yaml` (cli.py) unknown-key detection and a clear
 `error:`/exit-2 path in `cmd_propose`. PR #6 R4 gave `_candidates_from_yaml` the
@@ -185,6 +190,7 @@ line that raises `AttributeError` on a non-mapping entry (`- AAPL`); covered by
 tests alongside the T3 holdings cases.
 
 ### T20 — Missing required holdings key still escapes as a bare TypeError [status: todo]
+Priority: P2
 Origin: PR #5 R1
 Spec: T3 fixed the *unknown*-key TypeError out of `Holding(**item)` (cli.py:58) but
 not the *missing*-key one, and cli.py:249-251 catches only `ValueError`. Input
@@ -198,6 +204,7 @@ naming the file, the offending entry, and the missing key; covered by a test
 alongside test_propose_exits_2_on_unknown_holdings_key.
 
 ### T21 — entry_date is coerced but never validated, yet documented as ISO [status: todo]
+Priority: P1
 Origin: PR #5 R3
 Spec: cli.py:55-57 coerces `entry_date` with `str()` and never validates it, while
 types.py:49 (`entry_date: str | None = None  # ISO date`) and
@@ -210,6 +217,7 @@ Acceptance: either the comment/doc drop the ISO claim, or the loader rejects a v
 value; one test case.
 
 ### T22 — Quoted entry_price/invalidation_price stay strings in float fields [status: todo]
+Priority: P1
 Origin: PR #5 R4
 Spec: cli.py:55-57 coerces dates but not the two numeric entry fields. Input
 `- {ticker: A, weight: 0.1, entry_price: "180.5", invalidation_price: "150"}` yields
@@ -220,6 +228,7 @@ Acceptance: numeric-string `entry_price`/`invalidation_price` either coerce to f
 or raise a message naming the ticker and the key; one test case.
 
 ### T23 — Null ticker prints `None` instead of the `?` fallback [status: todo]
+Priority: P3
 Origin: PR #5 R5
 Spec: cli.py:46 `item.get('ticker', '?')` returns None (not `'?'`) when the key is
 present but null, so `- {ticker: null, weight: 0.1, bogus: 1}` produces
@@ -227,6 +236,7 @@ present but null, so `- {ticker: null, weight: 0.1, bogus: 1}` produces
 Acceptance: the message reads `?` (or `<no ticker>`) when the ticker is absent or null.
 
 ### T24 — Provider fetch + ImportError hint is now copy-pasted three times [status: todo]
+Priority: P2
 Origin: T4
 Spec: `cmd_screen` (cli.py:151-160), `cmd_backtest` and now `cmd_propose` each carry
 the same `get_provider(name)` / `fetch_panel(...)` / `except ImportError -> print
@@ -237,6 +247,7 @@ returning the panel or signalling the exit-2 path, used by all three commands, w
 the existing provider-missing tests still passing unchanged.
 
 ### T25 — propose drops the US `sector` factor because it has no --sector-map [status: todo]
+Priority: P1
 Origin: T4
 Spec: T4 calls `profile.screen(panel)` / `profile.score_names(panel, tickers=...)` with
 no `sector_map`, because `propose` has no `--sector-map` flag (`screen`/`backtest` both
@@ -249,6 +260,7 @@ into both screening calls, matching `cmd_screen`'s `screen_kwargs` handling; one
 proving the sector factor appears in an auto-filled US score.
 
 ### T27 — --provider and the us benchmark append have no test that can go red [status: todo]
+Priority: P2
 Origin: PR #6 R7
 Spec: cli.py:449 adds `--provider` to propose and cli.py:288 resolves it; cli.py:293-294
 appends `profile.benchmark` for `us`. Every new T4 test uses `--market tw` with
@@ -261,6 +273,7 @@ Acceptance: one test asserting `get_provider` is called with the value of `--pro
 ticker list.
 
 ### T28 — Candidate.final_score is annotated float but now holds None [status: todo]
+Priority: P2
 Origin: PR #6 R8
 Spec: types.py:29 declares `final_score: float`; cli.py:75 now stores
 `item.get("final_score")`, i.e. None, and `propose()` in core/allocator/engine.py sorts
@@ -272,6 +285,7 @@ Acceptance: `final_score: float | None` on the dataclass, or `_candidates_from_y
 returns only scored candidates.
 
 ### T29 — Unknown --provider value is a traceback, not exit 2 [status: todo]
+Priority: P2
 Origin: PR #6 R9
 Spec: `get_provider(provider_name)` is called inside `try: ... except ImportError` in all
 three commands (cmd_screen, cmd_backtest, and now cmd_propose at cli.py:296), but
@@ -282,6 +296,7 @@ Acceptance: `except (ImportError, ValueError)` (or `choices=sorted(_REGISTRY)`) 
 unknown provider exits 2 with the message on stderr, in all three commands.
 
 ### T30 — auto-filled scores are percentiles within the user's own files [status: todo]
+Priority: P2
 Origin: PR #6 R2
 Spec: PR #6 put incumbents and challengers on one cross-section, guarded by a minimum
 pool size and a disclosure on the card. The guard was re-derived in round 3 (R13): it
@@ -300,6 +315,7 @@ ticker to holdings.yml, and a 2-name portfolio gets a real universe distance ins
 of a refusal; the pool-size guard and the rank-distance disclosure can then go.
 
 ### T35 — tw.MIN_RANK_WEIGHT's comment states a market-specific law as a general one [status: todo]
+Priority: P3
 Origin: PR #6 R19
 Spec: `kuroshio/core/screening/tw.py:35` says two names in a pool of n "cannot differ by
 less than MIN_RANK_WEIGHT / (n - 1) without tying". That is true for TW, whose degraded
@@ -310,6 +326,7 @@ Acceptance: the comment scopes the claim to TW's equal degraded weights, or drop
 arithmetic and points at `cli.py:_score_missing` like the US one now does.
 
 ### T31 — Drop notice misattributes a provider no-data miss as a gate failure [status: todo]
+Priority: P1
 Origin: PR #6 R12
 Spec: cli.py:295 picks the reason with
 `why = "did not pass the Stage-1 gate" if ranked else "could not be auto-scored"` —
@@ -325,6 +342,7 @@ holdings are reported on stderr too, and a test asserts the no-data wording for 
 ticker the stub panel does not contain.
 
 ### T32 — details["auto_scored"] is written but nothing reads it [status: todo]
+Priority: P2
 Origin: PR #6 R15
 Spec: core/allocator/engine.py:150 records `"auto_scored": auto` on the card, but
 `details` is referenced nowhere in `to_markdown` (types.py:69) or in
@@ -336,6 +354,7 @@ asserts it, e.g. `cards[0].details["auto_scored"] == ["1102", "1101"]`, so the
 mutation goes red.
 
 ### T33 — Disclosed pool size is unpinned when the provider returns fewer names [status: todo]
+Priority: P2
 Origin: PR #6 R16
 Spec: cli.py:275,284 record `len(ranked)` and engine.py:129 prints
 `auto_scored[auto[0]]`. Mutating those cli lines to `len(names)` leaves 128 passed,
@@ -347,6 +366,7 @@ Acceptance: one case with a stub panel missing a listed ticker asserts the discl
 reports the number actually ranked, not the number listed.
 
 ### T34 — The US `need` value is pinned by a bucket, not a number [status: todo]
+Priority: P2
 Origin: PR #6 R19 (reviewer note)
 Spec: `test_propose_guards_the_us_pool_too` pins that a 3-name US pool refuses and a
 4-name pool scores, which constrains `us.MIN_RANK_WEIGHT` only to the interval
@@ -357,6 +377,8 @@ Acceptance: one case asserts the `need` value the notice prints for each market,
 change to `MIN_RANK_WEIGHT` that stays inside the bucket still goes red.
 
 ### T36 — Two step-grid sentences left standing in TW-only scope [status: todo]
+Priority: P3
+Depends: T35
 Origin: PR #6 R20 (reviewer note)
 Spec: a repo-wide grep after round 6 leaves exactly two step-grid claims: tw.py:33-38
 (already T35) and the name plus docstring of
@@ -368,6 +390,7 @@ Acceptance: folded into T35's fix — both sites either scope the claim to equal
 weights or stop asserting it.
 
 ### T37 — min_rank_weight is documented as the largest share, computed as the smallest [status: todo]
+Priority: P1
 Origin: PR #6 R20
 Spec: six sites define `min_rank_weight` as "the largest share of `final_score` a single
 pctrank can control" while the code takes the smallest surviving weight: us.py:33 says
