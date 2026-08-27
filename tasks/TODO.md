@@ -14,19 +14,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T5 — Thesis-aware alert rules per setup_type [status: pr]
-Depends: T3
-Spec: today the only ranking axis is MA distance, so value_dip and pullback_add
-positions are structurally the "weakest incumbent" and get proposed for sale.
-Dispatch monitoring on setup_type: trend_add alerts on trend break (close < MA50
-or ATR trail) and drawdown-from-entry; value_dip and pullback_add alert on
-breach of invalidation_price, never on MA distance alone. Cards must cite the
-setup_type and entry_price in the reason string.
-Acceptance: fixture portfolio with one position per setup_type: the trend_add
-alerts on an MA break, the value_dip does not, and the value_dip alerts on an
-invalidation breach; every card names its setup_type.
-
-### T6 — Forced decision card at max adverse excursion [status: todo]
+### T6 — Forced decision card at max adverse excursion [status: in-progress]
 Depends: T3
 Spec: Freeman-Shor discipline — at a configurable loss-from-entry threshold
 (IPS key, default -15%), emit a DECIDE card: kill / add-per-plan / rewrite
