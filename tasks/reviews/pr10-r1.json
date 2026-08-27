@@ -1,0 +1,69 @@
+{
+  "pr": 10,
+  "round": 1,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 161 passed",
+  "scope_check": "The reviewer was asked whether T40/T43/T45 were scope creep. It found no implementation work beyond the spec - those blocks were made moot by the in-scope coverage-card rewrite. Only their status/text inconsistency was flagged (R6).",
+  "findings": [
+    {
+      "id": "R1",
+      "severity": "HIGH",
+      "claim": "The documented \"at exactly the threshold the card fires\" boundary is false for 22% of exact-threshold prices at the default -15%: float error in `entry_price * (1 + mae_pct/100)` puts the trigger a hair below the exact level, so a position exactly at the IPS threshold is silently held.",
+      "evidence": "kuroshio/core/allocator/engine.py:233-236 (`trigger = entry_price * (1 + mae_pct / 100)`; `if price > trigger: continue`). Entry 6.60 / price 5.61 is exactly -15.00%, but trigger = 5.609999999999999 so 5.61 > trigger and no DECIDE is emitted; same for 9.00/7.65, 13.00/11.05, 18.00/15.30, 3.40/2.89. Scanning cent-grid entries 1.00-999.99 whose exact -15% price lands on a cent: 1095/4995 miss (-10%: 533/9990; -20%: 410/19980). The card also prints `{trigger:.2f}` — at entry 9.00 it prints \"the 7.65 level\" while the level actually enforced is 7.6499999999999995, so the printed level is not the number compared. docs/ARCHITECTURE.md 3b (\"touching the level counts as reaching it\"), README.md (\"at or past\"), the code comment citing T15, and tests/test_allocator.py::test_a_position_exactly_at_the_mae_threshold_decides all assert the opposite; that test passes only because entry=100.0 happens to round the other way.",
+      "repro": "python -c \"from kuroshio.types import Holding; from kuroshio.core.allocator.engine import propose; from kuroshio.core.ips.schema import IPS; print([c.action for c in propose([Holding(ticker='X',weight=.05,score=.5,entry_price=6.60)],[],IPS(),'us',prices={'X':5.61})])\" -> no DECIDE at exactly -15.00%. Orchestrator-verified alongside entry 100.0/85.0, which does fire.",
+      "acceptance": "The boundary is decided deliberately for non-round entries (e.g. compare on a cent-rounded trigger, or an epsilon in price precision) and pinned by a parametrised test over entries like 6.60/9.00/13.00/18.00 as well as 100.00; the trigger price the card prints is the level the comparison enforces.",
+      "route": "repair",
+      "route_reason": "Violates the acceptance (a position AT the documented threshold yields no DECIDE) and makes a published number dishonest (the card prints 'the 7.65 level' while enforcing 7.6499999999999995). The test that claims to pin the boundary passes only because its fixture entry rounds the other way. Orchestrator-verified."
+    },
+    {
+      "id": "R2",
+      "severity": "MEDIUM",
+      "claim": "The bool guard in the MAE validator — the design's \"validate() rejects wrong type\" claim for `True`/`False` — has no test; deleting it leaves the suite fully green.",
+      "evidence": "kuroshio/core/ips/parser.py:123 `if isinstance(mae, bool) or not isinstance(mae, (int, float)):`. tests/test_ips.py::test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type exercises only `None`, `\"-15\"`, `abc`, `.nan` — no boolean case. `max_adverse_excursion_pct: true` currently reports \"must be a number, not bool\"; with the guard removed it reports the range message instead (True == 1), which is the T18 shape the docstring says it is avoiding, and no test notices.",
+      "repro": "copy the worktree, replace that line with `if not isinstance(mae, (int, float)):`, run pytest tests/ -q -> 161 passed (mutation survives).",
+      "acceptance": "A case asserting `max_adverse_excursion_pct: true` (and `false`) produces the \"must be a number, not bool\" message and not the range message; the guard-removal mutation goes red.",
+      "route": "debt",
+      "route_reason": "MEDIUM but blocks nothing: the shipped behaviour is correct, only its guard is missing. No acceptance clause violated, gate green, no dishonest claim. -> T54."
+    },
+    {
+      "id": "R3",
+      "severity": "MEDIUM",
+      "claim": "The documented \"entry_price 0 or negative is treated as absent\" rule is only tested for 0.0; the positivity half of `_entry_price` is unpinned and its removal survives the suite.",
+      "evidence": "kuroshio/core/allocator/engine.py:44 `return h.entry_price if h.entry_price and h.entry_price > 0 else None`; docs/ARCHITECTURE.md 3b states \"entry_price 0 or negative is not an entry price and is treated as absent\". tests/test_allocator.py::test_positions_the_mae_rule_cannot_judge_are_named_not_dropped uses ZEROENTRY=0.0 only. Mutating the line to `return h.entry_price if h.entry_price else None` accepts entry_price=-5.0: no DECIDE, the position vanishes from the coverage card entirely (it looks fully watched), and the thesis ALERT prints \"entry price -5.00, now -1100.0% from entry\".",
+      "repro": "apply that one-line mutation in a copy and run pytest tests/ -q -> 161 passed.",
+      "acceptance": "A case with `entry_price=-5.0` asserting no DECIDE card, the coverage card naming it, and `details['entry_price'] is None` on the thesis card; the mutation goes red.",
+      "route": "debt",
+      "route_reason": "Same class as R2: docs/ARCHITECTURE.md's 'zero or negative is treated as absent' is true of the shipped code; only the guard against regressing it is missing. -> T55."
+    },
+    {
+      "id": "R4",
+      "severity": "MEDIUM",
+      "claim": "A position can get a DECIDE offering \"add to it per the plan\" and, in the same run, a SWAP card proposing it be sold to fund a challenger; neither card references the other and no test covers the combination.",
+      "evidence": "kuroshio/core/allocator/engine.py:240-262 (DECIDE) and 360-390 (the SWAP `bridge`, which exists precisely so \"both halves of the run\" do not go silent about one position — it quotes `thesis_note` but not the decision). Concrete run: holdings LOSER(score 0.2, entry 100, theme t) + OK(score 0.9), challenger NEW(0.9, verdict buy, theme t), prices={LOSER: 70.0} yields \"DECIDE ... kill it, add to it per the plan you opened it with, or rewrite the thesis\" followed by \"SWAP ... incumbent LOSER\" with no cross-reference. The new tests cover DECIDE x thesis-ALERT only; no test has a DECIDE and a SWAP on the same ticker.",
+      "repro": "propose([Holding('LOSER',.05,score=.2,entry_price=100.0,theme='t'),Holding('OK',.05,score=.9,theme='t')],[Candidate('NEW','2026-08-27',1,.9)],IPS(),'us',verdicts={'NEW':'buy'},themes={'NEW':'t'},prices={'LOSER':70.0})",
+      "acceptance": "The SWAP bridge (or the DECIDE) names the other card for the same ticker, or the interaction is a stated rule in docs/ARCHITECTURE.md; a test pins one run producing both cards on one ticker and asserts what each says about the other.",
+      "route": "repair",
+      "route_reason": "One run tells the user to consider adding to a position and, below it, to sell that same position, with neither card acknowledging the other. This is the contradiction class PR #9 spent two rounds on, and the SWAP bridge exists specifically to prevent it."
+    },
+    {
+      "id": "R5",
+      "severity": "LOW",
+      "claim": "The new `_entry_price` gate widens a crash surface: a holdings entry with a quoted `entry_price` now raises a bare TypeError for every position, where before only monitored setup_types crashed.",
+      "evidence": "kuroshio/core/allocator/engine.py:44 `h.entry_price > 0` on a str. `Holding(ticker='X', weight=0.05, score=0.5, entry_price=\"100.0\")` with no setup_type (previously skipped by step 3 entirely, no crash) now raises `TypeError: '>' not supported between instances of 'str' and 'int'`; `_holdings_from_yaml` (cli.py:44-64) validates key names and setup_type only, never field types.",
+      "repro": "propose([Holding('X',.05,score=.5,entry_price='100.0')],[],IPS(),'us',prices={'X':50.0})",
+      "acceptance": "Either the holdings loader rejects a non-numeric `entry_price` with a message naming the ticker and key, or `_entry_price` treats a non-number as absent; one test on the quoted-price file.",
+      "route": "debt",
+      "route_reason": "LOW - scope boundary requires HIGH/MEDIUM to block. -> T56."
+    },
+    {
+      "id": "R6",
+      "severity": "LOW",
+      "claim": "Debt blocks T40, T43 and T45 carry \"Update (T6 shipped): resolved ...\" text while still reading `[status: todo]`, so the ledger now lists resolved items as open.",
+      "evidence": "tasks/TODO.md:443 (T40 `[status: todo]` + \"resolved the first way\"), :491 (T43 `[status: todo]` + \"resolved the second way\"), :523 (T45 `[status: todo]` + \"done while rewriting that line\").",
+      "repro": "grep -n '^### T4[035]' -A 2 tasks/TODO.md",
+      "acceptance": "Each block's status reflects its Update line (done/closed, or the Update is reworded to say what remains), so a reader of the queue is not told an item is open and closed at once.",
+      "route": "debt",
+      "route_reason": "LOW, and it is orchestrator bookkeeping rather than implementation - the TODO working set is the orchestrator's to keep straight. Fixed in this round's housekeeping commit, no T-id created."
+    }
+  ]
+}

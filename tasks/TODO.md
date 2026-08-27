@@ -440,7 +440,7 @@ way, the reason string must say why that incumbent was picked, and the existing
 `test_theme_breach_alert_and_same_theme_swap_constraint` style coverage must
 still pass for holdings with no setup_type.
 
-### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: todo]
+### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: done]
 Priority: P2
 Origin: PR #9 R2
 Spec: engine.py:126-131 builds `entry` = "entry price not recorded"; the trend_add branch
@@ -488,7 +488,7 @@ the core dispatch itself is properly pinned.)
 Acceptance: one case with `price == invalidation_price` asserting the alert fires and one
 with `price == ma50` asserting whichever the docs say; both mutations go red.
 
-### T43 — entry_price 0.0 falls between two disagreeing gates [status: todo]
+### T43 — entry_price 0.0 falls between two disagreeing gates [status: done]
 Priority: P3
 Origin: PR #9 R8
 Spec: engine.py:126-131 gates the entry string on truthiness (`if h.entry_price`) while
@@ -520,7 +520,7 @@ calendar sessions is named on the coverage card with that reason, or the toleran
 is bounded (skip at most N holes) — pinned by a test with a long gap inside the
 window.
 
-### T45 — Coverage card's headline count is unpinned [status: todo]
+### T45 — Coverage card's headline count is unpinned [status: done]
 Priority: P3
 Origin: PR #9 R11
 Spec: engine.py:215 prints
@@ -642,3 +642,41 @@ TRIM and SWAP cards only, so the DECIDE card would be left as the one card that 
 action with no size.
 Acceptance: T7's sizing also reaches the DECIDE card's add option, or the card says why
 it cannot size it; one test.
+
+### T54 — The MAE validator's bool guard is unpinned [status: todo]
+Priority: P3
+Origin: PR #10 R2
+Spec: parser.py:123 `if isinstance(mae, bool) or not isinstance(mae, (int, float)):` is
+correct but guarded by no test — tests/test_ips.py::test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type
+exercises None, "-15", abc and .nan, never a boolean. Removing the bool clause leaves the
+suite at 161 passed, and `max_adverse_excursion_pct: true` then reports the *range*
+message instead of the type message (True == 1) — the exact T18 shape the validator's own
+docstring says it avoids.
+Acceptance: a case asserting `true` (and `false`) produces the "must be a number, not
+bool" message and not the range message; the guard-removal mutation goes red.
+
+### T55 — The positivity half of _entry_price is unpinned [status: todo]
+Priority: P3
+Origin: PR #10 R3
+Spec: engine.py:44 `return h.entry_price if h.entry_price and h.entry_price > 0 else None`
+and docs/ARCHITECTURE.md 3b state that a zero or negative entry_price is treated as
+absent, but only 0.0 is tested. Mutating the line to drop `and h.entry_price > 0` leaves
+the suite at 161 passed while `entry_price=-5.0` then produces no DECIDE, vanishes from
+the coverage card entirely (it reads as fully watched), and prints "entry price -5.00,
+now -1100.0% from entry" on the thesis card.
+Acceptance: a case with `entry_price=-5.0` asserts no DECIDE, the coverage card naming it,
+and `details['entry_price'] is None` on the thesis card; the mutation goes red.
+
+### T56 — A quoted entry_price now crashes propose for every position [status: todo]
+Priority: P2
+Origin: PR #10 R5
+Spec: T6's `_entry_price` gate evaluates `h.entry_price > 0` for every holding, so
+`entry_price: "100.0"` in holdings.yml raises a bare `TypeError: '>' not supported
+between instances of 'str' and 'int'`. Before T6 a position with no monitored setup_type
+was skipped by step 3 entirely and never reached the comparison, so this widens an
+existing crash surface. `_holdings_from_yaml` (cli.py:44-64) validates key names and
+setup_type but never field types — the same gap T22 records for the coercion side.
+Acceptance: either the holdings loader rejects a non-numeric entry_price with a message
+naming the ticker and key (folding in T22), or `_entry_price` treats a non-number as
+absent; one test on a quoted-price holdings file.
+
