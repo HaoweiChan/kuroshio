@@ -336,3 +336,13 @@ only the first auto-filled ticker's pool size.
 Acceptance: one case with a stub panel missing a listed ticker asserts the disclosure
 reports the number actually ranked, not the number listed.
 
+### T34 — The US `need` value is pinned by a bucket, not a number [status: todo]
+Origin: PR #6 R19 (reviewer note)
+Spec: `test_propose_guards_the_us_pool_too` pins that a 3-name US pool refuses and a
+4-name pool scores, which constrains `us.MIN_RANK_WEIGHT` only to the interval
+[0.3004, 0.4506) — any value in that range is a silent no-op, so a wrong derivation
+inside the bucket ships green. The TW side has the same shape. No test asserts the
+printed `need` itself.
+Acceptance: one case asserts the `need` value the notice prints for each market, so a
+change to `MIN_RANK_WEIGHT` that stays inside the bucket still goes red.
+
