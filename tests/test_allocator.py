@@ -701,3 +701,64 @@ def test_a_pre_t3_portfolio_still_gets_no_cards_at_all():
     card stays off exactly as it did before T6."""
     holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
     assert propose(holdings, [], make_ips(), "us", prices={"OK": 10.0}) == []
+
+
+# --- PR #10 round 1 repairs ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,level",
+    [(6.60, 5.61), (9.00, 7.65), (13.00, 11.05), (18.00, 15.30), (3.40, 2.89), (100.00, 85.00)],
+)
+def test_the_level_the_card_prints_is_the_level_it_enforces(entry, level):
+    """R1: `entry x 0.85` lands a hair under the exact -15% price for most entries —
+    6.60 gives 5.609999999999999 — so a position sitting exactly on the threshold the
+    card prints was silently held, and the card advertised a level it did not compare
+    against. Both numbers are now the cent the card speaks in."""
+    holdings, prices = loser(level, entry=entry)
+    cards = decides(propose(holdings, [], make_ips(), "us", prices=prices))
+    assert len(cards) == 1, f"{entry} -> {level} is exactly -15% and must decide"
+    assert f"the {level:.2f} level from that entry" in cards[0].reason
+    assert cards[0].details["trigger_price"] == level  # printed == enforced
+
+    # a provider close carries float noise too (adjusted closes land on 84.99999999999999),
+    # and a price that prints as the level is at the level on both sides of the comparison
+    holdings, prices = loser(level + 1e-9, entry=entry)
+    assert len(decides(propose(holdings, [], make_ips(), "us", prices=prices))) == 1
+
+    # and not by widening the rule: one cent above the printed level is not past it
+    holdings, prices = loser(round(level + 0.01, 2), entry=entry)
+    assert decides(propose(holdings, [], make_ips(), "us", prices=prices)) == []
+
+
+def test_a_decided_incumbent_is_not_told_to_add_and_sold_in_the_same_run():
+    """R4: the same position getting "add to it per the plan" and "sell it to fund NEW"
+    from one run, with neither card mentioning the other. Selling is one of the three
+    options, not a fourth — the SWAP card has to say which."""
+    holdings = [
+        Holding(ticker="LOSER", weight=0.05, theme="t", score=0.2, entry_price=100.0),
+        Holding(ticker="OK", weight=0.05, score=0.9),
+    ]
+    cards = propose(
+        holdings, [cand("NEW", 0.9)], make_ips(), "us",
+        verdicts={"NEW": "buy"}, themes={"NEW": "t"}, prices={"LOSER": 70.0},
+    )
+    decide = decides(cards)[0]
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "LOSER"
+    assert cards.index(decide) < cards.index(swap)  # "above" is true
+    assert swap.reason.endswith(
+        " LOSER is also -30.0% from its entry price and has a DECIDE card above: this "
+        "SWAP is the 'kill it' option on that card, not a fourth one."
+    )
+    assert swap.details["incumbent_decided"] is True
+    # and an incumbent nobody decided on says nothing of the sort
+    plain = propose(
+        [Holding(ticker="LOSER", weight=0.05, theme="t", score=0.2, entry_price=100.0),
+         Holding(ticker="OK", weight=0.05, score=0.9)],
+        [cand("NEW", 0.9)], make_ips(), "us",
+        verdicts={"NEW": "buy"}, themes={"NEW": "t"}, prices={"LOSER": 95.0},
+    )
+    plain_swap = next(c for c in plain if c.action == "SWAP")
+    assert "DECIDE" not in plain_swap.reason
+    assert plain_swap.details["incumbent_decided"] is False

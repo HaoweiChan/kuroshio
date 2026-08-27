@@ -177,8 +177,10 @@ Pure function. v1 logic:
    `entry_price × (1 + caps.max_adverse_excursion_pct / 100)` gets a DECIDE card — kill it, add to it per the
    plan, or rewrite the thesis; holding it unchanged is not one of the three (Freeman-Shor).
    This rule reads no `setup_type`: any position with an entry price can be far enough under
-   water. The comparison is against that trigger price, which the card prints, and touching
-   the level counts as reaching it. A position that also broke its thesis this run gets both
+   water. Both sides of the comparison are rounded to the cent the cards print, so the
+   trigger price the card names is the level it enforces and touching that level counts as
+   reaching it (`entry x (1 + pct/100)` alone lands a hair under the exact percentage for
+   most entries, which held a position sitting on the user's own threshold). A position that also broke its thesis this run gets both
    cards, and the DECIDE quotes what step 3 concluded so the two do not talk past each other.
    `entry_price` 0 or negative is not an entry price and is treated as absent. The
    comparison is against this session's price, not the low since entry, so a position that
@@ -199,7 +201,9 @@ Pure function. v1 logic:
    cites the friction it cleared). The ranking does not read `setup_type` (tasks/TODO.md T39),
    so a thesis-intact `value_dip` can still be the weakest incumbent; when the sell side is a
    monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
-   both halves of the run silent about the same position.
+   both halves of the run silent about the same position — and when step 3b already forced
+   a decision on that incumbent, the SWAP card says so and names itself the "kill it"
+   option on that card rather than a fourth one.
 5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).

@@ -219,6 +219,7 @@ def propose(
     # real excursion only for someone who runs propose the day of the low; the low itself
     # needs panel history sliced from entry_date (tasks/TODO.md T52).
     mae_gap: dict[str, str] = {}   # ticker -> why the loss-from-entry rule could not run
+    decided: dict[str, str] = {}   # ticker -> its loss, for the SWAP card in step 4 to quote
     mae_pct = ips.caps.max_adverse_excursion_pct
     decisions: list[ProposalCard] = []
     for h in holdings:
@@ -232,12 +233,17 @@ def propose(
                 else f"entry_price {h.entry_price} is not a price"
             ) + ", so the loss from entry is not watched"
             continue
-        # against the trigger price, not against a re-derived ratio: the level is what the
-        # card names, and it is the number the boundary case must be exact about (T15).
-        trigger = entry_price * (1 + mae_pct / 100)
-        if price > trigger:
+        # Both sides at the cent the cards print, so the level the card names is the level
+        # it enforces: `entry x (1 + pct/100)` lands a hair under the exact percentage for
+        # most entries (6.60 -> 5.609999999999999), which silently held a position sitting
+        # exactly on the user's own threshold and advertised a level nothing compared
+        # against. ponytail: cents, because US and TW both quote in them; a market quoted
+        # finer wants the profile's tick size here, not a smaller epsilon.
+        trigger = round(entry_price * (1 + mae_pct / 100), 2)
+        if round(price, 2) > trigger:
             continue
         note = thesis_note.get(h.ticker)
+        decided[h.ticker] = f"{price / entry_price - 1:+.1%}"
         decisions.append(ProposalCard(
             action="DECIDE",
             reason=(
@@ -366,6 +372,15 @@ def propose(
                 f"{incumbent.setup_type} and {note}."
                 if note else ""
             )
+            # Selling a position this run already forced a decision on is one of that
+            # card's three options, not a fourth: without this the same run told the user
+            # to add to it per plan and to sell it, with neither card naming the other.
+            if incumbent.ticker in decided:
+                bridge += (
+                    f" {incumbent.ticker} is also {decided[incumbent.ticker]} from its "
+                    f"entry price and has a DECIDE card above: this SWAP is the 'kill it' "
+                    f"option on that card, not a fourth one."
+                )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
@@ -387,6 +402,7 @@ def propose(
                     "auto_scored": auto,
                     "incumbent_setup_type": incumbent.setup_type,
                     "incumbent_thesis": note,
+                    "incumbent_decided": incumbent.ticker in decided,
                 },
             ))
 
