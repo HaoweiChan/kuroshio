@@ -8,7 +8,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T4 — Wire the screener into propose [status: in-progress]
+### T4 — Wire the screener into propose [status: pr]
 Spec: `kuroshio propose` requires hand-typed `score:` in holdings.yml and
 `final_score:` in candidates.yml — the user is the integration layer. When scores
 are absent, propose should invoke the market's `score_names(gate=False)` on
@@ -366,4 +366,23 @@ test is TW-only (`--market tw`, degraded 1/3 grid), so the claim is true in its 
 but it is the same sentence T35 is about and reads as a general law to the next reader.
 Acceptance: folded into T35's fix — both sites either scope the claim to equal surviving
 weights or stop asserting it.
+
+### T37 — min_rank_weight is documented as the largest share, computed as the smallest [status: todo]
+Origin: PR #6 R20
+Spec: six sites define `min_rank_weight` as "the largest share of `final_score` a single
+pctrank can control" while the code takes the smallest surviving weight: us.py:33 says
+"Largest share ... the composite at its coarsest" and us.py:38 computes
+`min(WEIGHTS["momentum"], WEIGHTS["volume"]) / (sum)` = 0.37523, the smaller of
+(0.62477, 0.37523). Also cli.py:268, the cli.py:296 notice ("this market's single
+coarsest factor weight"), docs/ARCHITECTURE.md:212-213, docs/adding-a-market.md:81 and
+core/screening/__init__.py:26. TW is unaffected — its degraded weights are equal, so
+largest == smallest. The consequence with teeth: adding-a-market.md instructs a new
+market's author to compute the max, which for a 0.625/0.375-shaped profile yields
+`need` = 6 where us.py's own rule yields 4. "Conservative, never permissive" is only
+derivable from the minimum per-pctrank weight, not from the definition given.
+Merged as named debt at the human's direction (option B at the round-6 circuit breaker);
+no behaviour is wrong, only the definition.
+Acceptance: the six sites describe `min_rank_weight` as the smallest per-pctrank share of
+the fully degraded composite, or drop the superlative and point at the code. No behaviour
+change; `need` stays 4 for both markets. Fold in T35 and T36 while there.
 
