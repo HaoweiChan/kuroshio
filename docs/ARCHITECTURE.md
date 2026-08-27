@@ -209,9 +209,13 @@ argparse, three subcommands (v1):
   `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). Two consequences, both handled:
   (1) `final_score` moves in steps of `profile.min_rank_weight / (n - 1)` — one pctrank step
   scaled by the largest share of the composite a single pctrank controls — so below
-  `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for TW under the
-  balanced IPS) every non-tie ordering clears the bar by construction, the hurdle can reject
-  nothing, and nothing is filled: the allocator's ALERT stands. (2) Above that size `pctrank`
+  `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for both markets
+  under the balanced IPS) nothing is filled and the allocator's ALERT stands. `min_rank_weight`
+  is the composite fully degraded (every optional factor dropped, survivors renormalized), so
+  that floor is worst-case, not exact: below it the hurdle can reject nothing under the
+  coarsest weighting, while a run with every factor present has a finer grid and might have
+  been rankable. Deliberate — a floor that moved with whichever factors the provider returned
+  today would move the refusal around under the user. (2) Above that size `pctrank`
   still pins its extremes to 0.000/1.000 however tightly the factors cluster — eight names
   0.007% apart yield a 0.857 gap — so the SWAP card discloses which names were auto-filled and
   how many they were ranked against. When only one side is auto-filled the card says so

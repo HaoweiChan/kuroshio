@@ -287,8 +287,9 @@ Spec: PR #6 put incumbents and challengers on one cross-section, guarded by a mi
 pool size and a disclosure on the card. The guard was re-derived in round 3 (R13): it
 keys off the composite's *step* — `profile.min_rank_weight / (n - 1)`, read from each
 profile's factor weights — and refuses when that step is >= `turnover.hurdle +
-friction/100`, i.e. when the hurdle is arithmetically incapable of rejecting anything
-(n <= 3 for TW under the balanced IPS). Above that size the number is still
+friction/100` (n <= 3 for both markets under the balanced IPS). `min_rank_weight` is the
+composite fully degraded, so the floor is worst-case: a run with every factor present has
+a finer grid and may have been rankable below it (R17). Above that size the number is still
 rank-within-your-portfolio, not strength within a market, and it moves when you add a
 ticker to the file; the card discloses that rather than fixing it. The real fix is a
 cross-section that is a universe: score against a `--universe` ticker file (or a cached

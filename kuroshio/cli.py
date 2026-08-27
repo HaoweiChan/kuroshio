@@ -263,10 +263,19 @@ def _score_missing(
     it can only reject a swap if ``final_score`` is capable of a smaller step than it.
     The composite moves in steps of ``profile.min_rank_weight / (n - 1)``: one pctrank
     step scaled by the largest share of the score a single pctrank controls. Below
-    ``floor(min_rank_weight / hurdle) + 2`` names every non-tie ordering clears the bar
-    by construction, so the gate is arithmetically incapable of rejecting anything and
-    the gap says nothing — nothing is auto-filled and the allocator's "no holding has a
-    screener score" ALERT stands, because a refusal beats a fabricated number.
+    ``floor(min_rank_weight / hurdle) + 2`` names nothing is auto-filled and the
+    allocator's "no holding has a screener score" ALERT stands, because a refusal beats
+    a fabricated number.
+
+    ``min_rank_weight`` is each profile's composite **fully degraded** — every optional
+    factor dropped, the survivors renormalized — which is the coarsest grid that market
+    can produce. So the floor is worst-case, not exact: below it the hurdle cannot reject
+    anything under that weighting, while a run whose provider returned every factor has a
+    finer grid and might have been rankable (TW with institutional flow present carries
+    1/6 per momentum rank, not 1/3 — R17). The guard errs that way on purpose: making
+    ``need`` depend on which factors a provider happened to return that day would make the
+    refusal move around under the user, and the cost of over-refusing is one manual
+    ``kuroshio screen``.
 
     Above that size the score is still only a percentile **within this pool** — pctrank
     pins its extremes to 0.000/1.000 however tightly the factors cluster — so the second
@@ -280,9 +289,13 @@ def _score_missing(
     if len(ranked) < need:
         print(
             f"notice: {len(ranked)} name(s) in your files is too small a cross-section "
-            f"for a turnover hurdle of {hurdle:.3f} to reject anything — every non-tie "
-            f"ordering of that many names clears it by construction (needs {need}); no "
-            f"score was auto-filled — hand-type one, or list more names.",
+            f"to rank against a turnover hurdle of {hurdle:.3f} — on the coarsest "
+            f"weighting this market can produce (every optional factor degraded away) it "
+            f"takes {need} names before two scores can differ by less than the hurdle, so "
+            f"below that the hurdle can reject nothing. With more factors present the grid "
+            f"is finer and {len(ranked)} may have been enough; the guard takes the worst "
+            f"case rather than moving with whatever your provider returned today. No score "
+            f"was auto-filled — hand-type one, or list more names.",
             file=sys.stderr,
         )
         ranked = {}
