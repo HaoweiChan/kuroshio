@@ -161,8 +161,10 @@ Pure function. v1 logic:
    `value_dip` / `pullback_add` → ALERT only when the close is at or below the
    `invalidation_price` the user recorded, never on MA distance. Cards name the setup_type,
    the level breached, the entry price with the move from it, and the session the price came
-   from — a run started mid-session reads a still-forming bar, so the card says "it is at X
-   in the still-open <date> session" rather than calling a live print a close. The inputs
+   from: `"at X (<date> session)"`. The card makes no open/closed claim about that session —
+   deciding that needs the market's close time in its own timezone, which no profile carries,
+   and the local machine clock is not a stand-in for it (01:00 Taipei with `--market us` is
+   mid-NYSE-session under yesterday's local date). The inputs
    (last close, MA50, session label) are computed by the caller —
    `allocator/signals.py:monitor_inputs(panel)` — and passed in as `prices` / `ma50` / `asof`,
    because `propose` takes no panel (rules 3, 5). MA50 averages each ticker's last 50 *traded*

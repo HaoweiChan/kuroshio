@@ -1,3 +1,4 @@
+import datetime
 from itertools import product
 
 import pytest
@@ -463,29 +464,53 @@ def test_swap_selling_a_monitored_incumbent_says_whether_its_thesis_is_intact():
     assert swap.details["incumbent_setup_type"] == "value_dip"
 
 
-def test_a_still_forming_bar_is_not_reported_as_a_close():
-    """R6: mid-session, the panel's last row is a live print. The card may not call it
-    a close, and must name the session it read."""
-    import datetime
-
-    today = datetime.date.today().isoformat()
+def test_swap_selling_an_intact_trend_add_says_the_trend_is_intact():
+    """R10: the trend_add-intact branch of the same bridge. Unpinned, it could be
+    flipped to say the trend has broken while no ALERT says any such thing."""
     holdings = [h for h in thesis_portfolio() if h.ticker == "TREND"]
     cards = propose(
-        holdings, [], make_ips(), "us", prices=BELOW_MA, ma50=MA50, asof=today
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0}, ma50=MA50,
     )
-    card = thesis_alerts(cards)["TREND"]
-    assert "closed at" not in card.reason
-    assert today in card.reason
-    assert card.details["asof"] == today
+    assert thesis_alerts(cards) == {}
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "TREND"
+    assert "its trend is intact" in swap.reason
+    assert "at or above its 50-day moving average of 100.00" in swap.reason
+    assert "broken" not in swap.reason
 
 
-def test_a_finished_session_is_named_on_the_card():
-    """R6, the other half: a past session is a real close and the card says which one."""
+def test_swap_selling_an_incumbent_whose_thesis_broke_agrees_with_the_alert():
+    """R10: the third branch. This is the R1 defect one card over — an ALERT saying the
+    thesis broke and a SWAP below it calling the same position intact — so the SWAP's
+    wording is pinned against the ALERT that ran in the same call."""
+    holdings = [h for h in thesis_portfolio() if h.ticker in ("TREND", "DIP")]
+    cards = propose(
+        holdings, [cand("NEW", 0.95)], make_ips(), "us", verdicts={"NEW": "buy"},
+        prices={"TREND": 110.0, "DIP": 84.0}, ma50=MA50,
+    )
+    assert set(thesis_alerts(cards)) == {"DIP"}
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "DIP"
+    assert "its thesis broke this run — see the ALERT above" in swap.reason
+    assert "intact" not in swap.reason
+
+
+@pytest.mark.parametrize("days_from_today", [-400, -1, 0, 1])
+def test_the_card_names_the_session_and_claims_nothing_about_its_state(days_from_today):
+    """R6/R9: nothing in the run knows whether the session it read is open or closed —
+    that needs the market's close time in the market's own timezone, and the local
+    machine clock is not it (Taipei 01:00 with --market us is mid-NYSE-session on
+    *yesterday's* label; Taipei 21:00 with --market tw is hours past the close on
+    today's). So the card names the label and stops. asof is varied against the local
+    date because a comparison between the two was exactly the bug."""
+    asof = (datetime.date.today() + datetime.timedelta(days=days_from_today)).isoformat()
     holdings = [h for h in thesis_portfolio() if h.ticker == "DIP"]
     cards = propose(
-        holdings, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50, asof="2026-01-05"
+        holdings, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50, asof=asof
     )
     card = thesis_alerts(cards)["DIP"]
-    assert "closed at 84.00" in card.reason
-    assert "2026-01-05" in card.reason
-    assert card.details["asof"] == "2026-01-05"
+    assert f"at 84.00 ({asof} session)" in card.reason
+    assert "closed at" not in card.reason
+    assert "still-open" not in card.reason
+    assert card.details["asof"] == asof

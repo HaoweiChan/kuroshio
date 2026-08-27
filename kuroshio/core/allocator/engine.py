@@ -13,8 +13,6 @@ docs/ARCHITECTURE.md `core/allocator`.
 
 from __future__ import annotations
 
-import datetime
-
 from kuroshio.core.allocator.signals import MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
 
@@ -24,15 +22,17 @@ MONITORED_SETUPS = ("value_dip", "pullback_add", "trend_add")
 
 
 def _price_phrase(price: float, asof: str | None) -> str:
-    """How the card names the last print. The panel's final row is a *close* only once
-    that session is over: run mid-session, the last bar carries a live intraday price
-    (providers/yf.py drops it only when the reference ticker has no print at all), so
-    "it closed at X" would be stating something the run cannot know."""
+    """How the card names the last print: the price and the session label it came from,
+    and no claim about whether that session is open or closed. The panel's final row is
+    a *close* only once the session is over, and nothing here knows that — it takes the
+    market's close time in the market's own timezone, which no profile encodes. The
+    local machine clock is not a substitute: 01:00 Taipei with `--market us` is
+    mid-NYSE-session under *yesterday's* local date, and 21:00 Taipei with `--market tw`
+    is 7.5h past the close under today's. So the card says neither, and the number is
+    reported against the session it was read from."""
     if asof is None:
-        return f"it last traded at {price:.2f}"
-    if asof >= datetime.date.today().isoformat():
-        return f"it is at {price:.2f} in the still-open {asof} session"
-    return f"it closed at {price:.2f} in the {asof} session"
+        return f"at {price:.2f}"
+    return f"at {price:.2f} ({asof} session)"
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
