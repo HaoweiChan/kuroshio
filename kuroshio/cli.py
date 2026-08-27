@@ -14,6 +14,7 @@ import argparse
 import dataclasses
 import datetime
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -246,7 +247,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 # --- propose -------------------------------------------------------------
 
 
-def _score_missing(holdings: list[Holding], challengers: list[Candidate], profile, panel):
+def _score_missing(
+    holdings: list[Holding], challengers: list[Candidate], profile, panel, hurdle: float
+):
     """Fill in the scores the user didn't hand-type; return (surviving challengers, auto-filled).
 
     ONE cross-section for everybody: every ticker in the input files is ranked once by
@@ -256,16 +259,33 @@ def _score_missing(holdings: list[Holding], challengers: list[Candidate], profil
     The gated ``screen`` decides challenger *eligibility* only: a name Stage-1 rejects is
     not a challenger, and is reported rather than dropped in silence.
 
-    An auto-filled score is a ``pctrank`` **within this pool**, and pctrank pins its
-    extremes to 0.000/1.000 no matter how tightly the factors cluster — eight names
-    0.007% apart still yield a 0.857 gap. That is true at every pool size, so no minimum
-    pool size can make the subtraction a factor comparison; only saying what the number
-    is can. The second return value maps each auto-filled ticker to the pool it was
-    ranked in, and ``propose`` prints that on the card itself (see
-    ``core/allocator/engine.py``). Hand-typed scores are untouched and undisclosed.
+    ``hurdle`` is the full swap bar (turnover hurdle + friction — ``swap_hurdle``), and
+    it can only reject a swap if ``final_score`` is capable of a smaller step than it.
+    The composite moves in steps of ``profile.min_rank_weight / (n - 1)``: one pctrank
+    step scaled by the largest share of the score a single pctrank controls. Below
+    ``floor(min_rank_weight / hurdle) + 2`` names every non-tie ordering clears the bar
+    by construction, so the gate is arithmetically incapable of rejecting anything and
+    the gap says nothing — nothing is auto-filled and the allocator's "no holding has a
+    screener score" ALERT stands, because a refusal beats a fabricated number.
+
+    Above that size the score is still only a percentile **within this pool** — pctrank
+    pins its extremes to 0.000/1.000 however tightly the factors cluster — so the second
+    return value maps each auto-filled ticker to the pool it was ranked in and ``propose``
+    discloses that on the card itself (see ``core/allocator/engine.py``). Hand-typed
+    scores are untouched and undisclosed.
     """
     names = list(dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers]))
     ranked = {c.ticker: c.final_score for c in profile.score_names(panel, tickers=names)}
+    need = math.floor(profile.min_rank_weight / hurdle) + 2
+    if len(ranked) < need:
+        print(
+            f"notice: {len(ranked)} name(s) in your files is too small a cross-section "
+            f"for a turnover hurdle of {hurdle:.3f} to reject anything — every non-tie "
+            f"ordering of that many names clears it by construction (needs {need}); no "
+            f"score was auto-filled — hand-type one, or list more names.",
+            file=sys.stderr,
+        )
+        ranked = {}
     eligible = {c.ticker for c in profile.screen(panel)}
     auto: dict[str, int] = {}
 
@@ -295,6 +315,7 @@ def _score_missing(holdings: list[Holding], challengers: list[Candidate], profil
 
 def cmd_propose(args: argparse.Namespace) -> int:
     from kuroshio.core.allocator import propose
+    from kuroshio.core.allocator.engine import swap_hurdle
     from kuroshio.core.ips import parse_ips, validate
     from kuroshio.providers import get_provider
 
@@ -337,7 +358,9 @@ def cmd_propose(args: argparse.Namespace) -> int:
         # ponytail: latest session only, and no sector_map for `us` (that factor
         # renormalizes away) — add --asof/--sector-map here when propose needs to
         # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
-        challengers, auto_scored = _score_missing(holdings, challengers, profile, panel)
+        challengers, auto_scored = _score_missing(
+            holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0]
+        )
 
     cards = propose(
         holdings, challengers, ips, args.market,

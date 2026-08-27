@@ -15,6 +15,20 @@ from __future__ import annotations
 from kuroshio.types import Candidate, Holding, ProposalCard
 
 
+def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
+    """The bar a swap's score gap must clear, in score space: the IPS turnover hurdle
+    plus round-trip friction. friction_pct is a percentage (0.585 == 0.585%) while the
+    hurdle and the gap live in score space (0..1), so /100 converts it to the
+    score-equivalent ARCHITECTURE.md asks for. Returns (bar, friction_pct, ips field).
+
+    cli.py's auto-fill guard keys off the same number — a percentile pool too coarse to
+    ever produce a gap under this bar cannot be ranked honestly — so the friction math
+    stays in one place."""
+    field = "tw_roundtrip_pct" if market.lower() == "tw" else "us_roundtrip_pct"
+    friction_pct = getattr(ips.friction, field)
+    return ips.turnover.hurdle + friction_pct / 100, friction_pct, field
+
+
 def propose(
     holdings: list[Holding],
     challengers: list[Candidate],
@@ -97,12 +111,7 @@ def propose(
     else:
         used: set[str] = set()
         floor = ips.turnover.verdict_floor
-        friction_field = "tw_roundtrip_pct" if market.lower() == "tw" else "us_roundtrip_pct"
-        friction_pct = getattr(ips.friction, friction_field)
-        # friction_pct is a percentage (0.585 == 0.585%) while hurdle and gap live in
-        # score space (0..1), so /100 converts it to the score-equivalent ARCHITECTURE.md
-        # asks for before it can be added to the hurdle.
-        hurdle = ips.turnover.hurdle + friction_pct / 100
+        hurdle, friction_pct, friction_field = swap_hurdle(ips, market)
         # strongest challenger picks first — caller order must not decide who
         # gets the weakest incumbent
         for c in sorted(challengers, key=lambda c: c.final_score, reverse=True):
@@ -123,11 +132,23 @@ def propose(
             used.add(incumbent.ticker)
             auto = [t for t in (c.ticker, incumbent.ticker) if t in auto_scored]
             disclosure = ""
-            if auto:
+            if len(auto) == 2:
                 disclosure = (
                     f" Auto-filled score(s): {', '.join(auto)} — a percentile rank among "
                     f"the {auto_scored[auto[0]]} names in your own files, so this gap is a "
                     f"rank distance within that pool, not a difference in screener scores."
+                )
+            elif auto:
+                # One operand is a percentile in that pool and the other is a hand-typed
+                # number that was never put on it, so the subtraction spans two scales and
+                # is not a rank distance in either (R14).
+                hand = c.ticker if auto[0] == incumbent.ticker else incumbent.ticker
+                disclosure = (
+                    f" Auto-filled score(s): {auto[0]} — a percentile rank among the "
+                    f"{auto_scored[auto[0]]} names in your own files. {hand}'s score is "
+                    f"hand-typed and not on that scale, so this gap subtracts two different "
+                    f"scales: it is not a rank distance, and {hand}'s own rank in that pool "
+                    f"would give a different number."
                 )
             swaps.append(ProposalCard(
                 action="SWAP",

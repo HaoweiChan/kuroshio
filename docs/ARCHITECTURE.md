@@ -206,12 +206,17 @@ argparse, three subcommands (v1):
   are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
   the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
   auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
-  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). `pctrank` pins its extremes to
-  0.000/1.000 however tightly the factors cluster — eight names 0.007% apart still yield a
-  0.857 gap — and that holds at every pool size, so no minimum pool size makes the swap gate's
-  subtraction a factor comparison. The SWAP card therefore discloses it: which names were
-  auto-filled and how many names they were ranked against, so the gap reads as a rank distance
-  inside your own files. Hand-written values always win, per name, and carry no disclosure.
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). Two consequences, both handled:
+  (1) `final_score` moves in steps of `profile.min_rank_weight / (n - 1)` — one pctrank step
+  scaled by the largest share of the composite a single pctrank controls — so below
+  `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for TW under the
+  balanced IPS) every non-tie ordering clears the bar by construction, the hurdle can reject
+  nothing, and nothing is filled: the allocator's ALERT stands. (2) Above that size `pctrank`
+  still pins its extremes to 0.000/1.000 however tightly the factors cluster — eight names
+  0.007% apart yield a 0.857 gap — so the SWAP card discloses which names were auto-filled and
+  how many they were ranked against. When only one side is auto-filled the card says so
+  differently: that gap subtracts a percentile from a hand-typed number and is a rank distance
+  in neither scale. Hand-written values always win, per name, and carry no disclosure.
   Every score hand-typed = no fetch.
 - `kuroshio ips-validate path.md`
 

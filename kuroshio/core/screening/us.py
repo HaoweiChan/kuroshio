@@ -30,6 +30,13 @@ DOLLAR_VOL_MIN = 25_000_000.0   # liquidity floor: close × avg20 volume ($/day)
 
 # US factor weights, renormalized over whichever factors are available (sum 1 when all present).
 WEIGHTS = {"momentum": 0.333, "rs": 0.267, "volume": 0.20, "sector": 0.20}
+# Largest share of `final_score` a single pctrank can control — the composite at its
+# coarsest. `rs`/`sector` drop out when their data is missing, leaving momentum+volume
+# renormalized; the smaller of those two is then the finest step available. See
+# tw.MIN_RANK_WEIGHT and cli.py:_score_missing.
+MIN_RANK_WEIGHT = min(WEIGHTS["momentum"], WEIGHTS["volume"]) / (
+    WEIGHTS["momentum"] + WEIGHTS["volume"]
+)
 
 _FACTOR_KEYS = ("close", "mom_raw", "vol_raw", "rs_raw", "sector_raw")
 

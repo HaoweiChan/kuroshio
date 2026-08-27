@@ -65,7 +65,7 @@ Use `tw.py` as the template:
 In `kuroshio/core/screening/__init__.py`, add one line to `PROFILES`:
 
 ```python
-"jp": MarketProfile("jp", jp.screen, jp.score_names, "yfinance", lookback_days, warmup_days, min_history, benchmark),
+"jp": MarketProfile("jp", jp.screen, jp.score_names, "yfinance", lookback_days, warmup_days, min_history, benchmark, min_rank_weight=jp.MIN_RANK_WEIGHT),
 ```
 
 - `name` — registry key; also what `--market` accepts on the CLI.
@@ -78,6 +78,13 @@ In `kuroshio/core/screening/__init__.py`, add one line to `PROFILES`:
   US's `MA_LONG=200` → `320`).
 - `warmup_days` — same idea, for `backtest`'s indicator warmup before its first
   rebalance, on top of the walk-forward horizon (TW → `200`, US → `420`).
+- `min_rank_weight` — the largest share of `final_score` a single `pctrank` can
+  control, i.e. your composite at its coarsest (all optional factors degraded away,
+  weights renormalized; divide by the number of ranks you average into one factor —
+  TW's momentum averages 3, so `1/3`). `propose` divides it by `n - 1` to get the
+  smallest non-zero gap a pool of n names can show, and refuses to auto-fill scores
+  when that is already >= the IPS turnover hurdle + friction. Get it wrong on the low
+  side and `propose` prints gaps the hurdle could never have rejected.
 - `min_history` — trading *sessions* before `backtest`'s first rebalance; normally
   your Stage-1 gate's `MIN_SESSIONS`/`MA_LONG`.
 - `benchmark` — reference ticker auto-added to fetches, used by `walkforward` for

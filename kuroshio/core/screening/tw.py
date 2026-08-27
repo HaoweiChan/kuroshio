@@ -28,6 +28,14 @@ CROWDED_THRESHOLD = 70.0   # price_pos_60d above this flags crowded
 MIN_SESSIONS = MA_LONG     # MA60 / 60d-high need 60 sessions of history
 
 WEIGHTS = {"momentum": 0.5, "institution": 0.5}
+MOMENTUM_RANKS = 3  # momentum is the mean of r_ma20, r_ma60, r_vol
+# Largest share of `final_score` a single pctrank can control, i.e. the composite at its
+# coarsest: with the institution factor degraded away, `weighted_score` renormalizes
+# momentum to 1.0 and each of its MOMENTUM_RANKS ranks carries 1/3. Two names in a pool
+# of n therefore cannot differ by less than MIN_RANK_WEIGHT / (n - 1) without tying —
+# which is what decides whether an IPS turnover hurdle can reject anything at all
+# (cli.py:_score_missing).
+MIN_RANK_WEIGHT = 1.0 / MOMENTUM_RANKS
 
 _UNIVERSE_RE = re.compile(r"^\d{4}$")
 

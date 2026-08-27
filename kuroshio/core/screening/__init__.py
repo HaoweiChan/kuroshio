@@ -23,6 +23,8 @@ class MarketProfile:
     warmup_days: int               # backtest indicator warmup headroom (calendar days)
     min_history: int               # backtest first-rebalance row (trading sessions)
     benchmark: str | None          # reference ticker auto-added to fetches (None = none)
+    # largest share of `final_score` one pctrank can control — see tw.MIN_RANK_WEIGHT
+    min_rank_weight: float
     accepts_sector_map: bool = False
 
 
@@ -31,12 +33,16 @@ PROFILES = {
     # + weeks*7 -> 420 calendar days of backtest warmup headroom; first rebalance
     # row after 210 trading sessions.
     "us": MarketProfile(
-        "us", us.screen, us.score_names, "yfinance", 320, 420, 210, "SPY", accepts_sector_map=True
+        "us", us.screen, us.score_names, "yfinance", 320, 420, 210, "SPY",
+        min_rank_weight=us.MIN_RANK_WEIGHT, accepts_sector_map=True,
     ),
     # TW MA60 needs ~60 trading sessions -> 120 calendar days single-screen lookback,
     # + weeks*7 -> 200 calendar days of backtest warmup headroom; first rebalance
     # row after 65 trading sessions. No institutional-flow benchmark ticker.
-    "tw": MarketProfile("tw", tw.screen, tw.score_names, "finmind", 120, 200, 65, None),
+    "tw": MarketProfile(
+        "tw", tw.screen, tw.score_names, "finmind", 120, 200, 65, None,
+        min_rank_weight=tw.MIN_RANK_WEIGHT,
+    ),
 }
 
 

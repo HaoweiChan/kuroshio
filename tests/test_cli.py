@@ -230,6 +230,8 @@ def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
 # No network: a stub provider is injected by monkeypatching the lazily-imported
 # `kuroshio.providers.get_provider` that cmd_propose resolves at call time.
 N_TW = 65  # TW profile needs MA60 -> 60 sessions of clean history
+# examples/ips-balanced.md turnover.hurdle + friction.tw_roundtrip_pct/100
+HURDLE = 0.15 + 0.585 / 100
 
 # 8 names, monotone ramps — a cross-section wide enough that every rank in the
 # 0..1 grid is occupied by a name with visibly different factors.
@@ -315,7 +317,7 @@ def test_score_missing_keeps_hand_written_scores_per_name():
     profile = get_profile("tw")
     holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
     holdings[0].score = 0.123  # hand-typed, must survive
-    challengers, auto = _score_missing(holdings, [], profile, _tw_panel())
+    challengers, auto = _score_missing(holdings, [], profile, _tw_panel(), HURDLE)
     assert challengers == []
     assert "1101" not in auto  # hand-typed -> not disclosed as auto-filled
     assert holdings[0].score == 0.123
@@ -328,23 +330,20 @@ def test_score_missing_scores_one_ticker_identically_in_both_roles():
     profile = get_profile("tw")
     holdings = [Holding(ticker=t, weight=0.05) for t in _SPECS]
     challenger = Candidate(ticker="1101", date="2024-01-01", rank=0, final_score=None)
-    kept, _ = _score_missing(holdings, [challenger], profile, _tw_panel())
+    kept, _ = _score_missing(holdings, [challenger], profile, _tw_panel(), HURDLE)
     incumbent = next(h.score for h in holdings if h.ticker == "1101")
     assert kept[0].final_score == incumbent
     assert 0.0 < incumbent < 1.0  # a real rank, not an artifact of a 2-name pool
 
 
-@pytest.mark.parametrize(
-    "tickers,pool_n",
-    [(["1103"], 2), (["1101", "1103"], 3), ([t for t in _SPECS if t != "1102"], 8)],
-)
-def test_propose_marks_an_auto_filled_gap_as_a_rank_distance(
-    tmp_path, capsys, monkeypatch, tickers, pool_n
+@pytest.mark.parametrize("tickers", [["1103"], ["1101", "1103"]])
+def test_propose_refuses_when_the_hurdle_cannot_reject_anything(
+    tmp_path, capsys, monkeypatch, tickers
 ):
-    """R2/R10: an auto-filled score is a percentile rank inside the user's own pool, so
-    the gap the swap gate subtracts is a rank distance, not a `kuroshio screen` score
-    difference — at EVERY pool size, because pctrank's extremes are 0.000/1.000 for
-    n=2 and n=800 alike. The card has to say so, and say how many names it ranked."""
+    """R2/R13: `final_score` moves in steps of `min_rank_weight / (n - 1)` — 0.333 at
+    n=2, 0.167 at n=3 — both at or above the 0.156 hurdle+friction, so every non-tie
+    ordering of that pool clears the hurdle by construction and the gate cannot reject
+    anything. Nothing is auto-filled; the allocator's honest ALERT stands."""
     _use_stub(monkeypatch)
     holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
     candidates = tmp_path / "candidates.yml"
@@ -361,9 +360,40 @@ def test_propose_marks_an_auto_filled_gap_as_a_rank_distance(
     )
     cap = capsys.readouterr()
     assert code == 0
+    assert "SWAP" not in cap.out
+    assert "No current holding has a screener score" in cap.out
+    assert "cross-section" in cap.err
+
+
+@pytest.mark.parametrize(
+    "tickers,pool_n",
+    [(["1101", "1103", "1104"], 4), ([t for t in _SPECS if t != "1102"], 8)],
+)
+def test_propose_scores_and_discloses_at_or_above_the_pool_floor(
+    tmp_path, capsys, monkeypatch, tickers, pool_n
+):
+    """R13 boundary: at n=4 the smallest achievable gap is 0.111, below the 0.156
+    hurdle+friction, so the gate can reject and auto-filling is allowed again — and the
+    card still discloses the pool the ranks came from (R10)."""
+    _use_stub(monkeypatch)
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "1102", verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "tw",
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
     assert "SWAP" in cap.out
-    assert "rank distance" in cap.out
     assert f"among the {pool_n} names in your own files" in cap.out
+    assert "so this gap is a rank distance within that pool" in cap.out
 
 
 def test_propose_marks_a_tight_dispersion_gap_as_a_rank_distance(tmp_path, capsys, monkeypatch):
@@ -392,6 +422,7 @@ def test_propose_marks_a_tight_dispersion_gap_as_a_rank_distance(tmp_path, capsy
     assert "a gap of 0.857" in cap.out
     assert "Auto-filled score(s): 1108, 1101" in cap.out
     assert "among the 8 names in your own files" in cap.out
+    assert "so this gap is a rank distance within that pool" in cap.out  # both auto-filled
 
 
 def test_propose_swaps_for_the_only_gate_passing_challenger(tmp_path, capsys, monkeypatch):
@@ -445,7 +476,11 @@ def test_propose_reports_candidates_the_gate_dropped(tmp_path, capsys, monkeypat
     assert code == 0
     assert "SWAP 1101 → 1102" in cap.out
     assert "incumbent 1101's 0.100" in cap.out  # the hand-typed score, untouched
+    # R14: one side hand-typed -> the gap is not a rank distance in any single scale.
     assert "Auto-filled score(s): 1102 —" in cap.out  # only the filled side is named
+    assert "1101's score is hand-typed and not on that scale" in cap.out
+    assert "subtracts two different scales" in cap.out
+    assert "so this gap is a rank distance within that pool" not in cap.out
     assert "1103" not in cap.out
     assert "1103" in cap.err and "Stage-1" in cap.err
 
