@@ -14,7 +14,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T5 — Thesis-aware alert rules per setup_type [status: todo]
+### T5 — Thesis-aware alert rules per setup_type [status: in-progress]
 Depends: T3
 Spec: today the only ranking axis is MA distance, so value_dip and pullback_add
 positions are structurally the "weakest incumbent" and get proposed for sale.
