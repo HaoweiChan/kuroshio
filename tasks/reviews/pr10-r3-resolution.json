@@ -1,0 +1,37 @@
+{
+  "pr": 10,
+  "round": 3,
+  "gate_after_repair": "pass - ruff clean, 184 passed",
+  "resolutions": [
+    {
+      "id": "R8",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_a_non_cent_price_is_judged_against_the_exact_level (8 cases); ::test_a_price_exactly_at_the_threshold_decides (R1 set); ::test_a_position_short_of_the_threshold_is_never_decided (R7 set)",
+      "note": "Took branch (a). The floored _trigger_price is deleted; `_past_threshold` compares `Decimal(str(price)) <= Decimal(str(entry_price)) * (1 + Decimal(str(mae_pct)) / 100)`. Decimal(str(x)) on all three operands deliberately: str gives the shortest decimal that round-trips the float - the number as written and printed - while Decimal(6.6) is 6.5999999999999996447 and reintroduces the artifact. The card now prints NO reconstructed level and details['trigger_price'] is gone: it states the loss, the entry price, the price it read, and the threshold it compared them against - every number the rule used and none it did not.",
+      "partial_rejection": "6.60 / 5.610000000000001 does not fire, contrary to the finding's example, and cannot under the prescribed comparison. Its exact loss is -14.99999999999998484%, i.e. the price is 1e-15 ABOVE the level, so it is short of the threshold; the '-15.000%' in the finding's table was display rounding. Making it fire would require a tolerance, which is a relocated grid. Pinned as a no-fire case beside 6.60/5.61 which fires. Orchestrator-verified against an independent Fraction oracle: the oracle agrees it must not fire."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [
+    "T60"
+  ],
+  "dissolved": [
+    "T58 - entry 0.03 under a -15% cap now enforces -15% (fires at 0.0255); block updated in place",
+    "T59 - the quantize that raised decimal.InvalidOperation is gone; entry 1e27/1e30/1e300 produce a card, not a traceback; block updated in place, noting the loader still does not validate magnitude"
+  ],
+  "sweeps": {
+    "implementer": "entries 0.01-999.99 every 10th cent, thresholds -15% and -33.3%, probing the exact level +/- {1e-4, 1e-6, 5e-9, 0.01}; oracle an independent Fraction implementation, not Decimal. 89999 probes per threshold, all off the cent grid: 0 early, 0 late.",
+    "orchestrator": "Independently re-run with a Fraction oracle over both thresholds, all probes off-cent (~160k): 0 fires-early, 0 fires-late. All 14 named cases (R1 set, R7 set, R8 set) match the oracle exactly, including the 6.60/5.610000000000001 no-fire."
+  },
+  "mutation_proofs": [
+    "floored trigger (round 2's rule): 3 failed - all 3 are the restored non-cent cases, the only thing that catches it",
+    "price snapped to the cent grid: 3 failed - likewise",
+    "nearest-cent trigger (round 1's rule): 9 failed (4 non-cent)",
+    "raw binary product (the original bug): 6 failed (1 non-cent)",
+    "Decimal(x) instead of Decimal(str(x)): 9 failed (1 non-cent)",
+    "boundary narrowed to strictly-past: 12 failed",
+    "boundary widened by a cent: 21 failed",
+    "threshold ignored, hard-coded -15: 2 failed",
+    "card states a threshold it did not use: 1 failed"
+  ]
+}
