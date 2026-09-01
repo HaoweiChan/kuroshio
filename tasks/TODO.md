@@ -698,7 +698,7 @@ onto the same basis as the panel, or the position is flagged when a corporate ac
 occurred since entry_date rather than silently mis-measured; a test with a split between
 entry_date and the panel's last session pins the chosen behaviour.
 
-### T58 — The floored trigger enforces a deeper cap than the IPS names for cheap names [status: todo]
+### T58 — The floored trigger enforces a deeper cap than the IPS names for cheap names [status: done]
 Priority: P2
 Origin: PR #10 R8 (reviewer note 2)
 Spec: flooring the trigger to the cent is a fixed absolute step, so for entries under about
@@ -714,7 +714,7 @@ Update (PR #10 R8 repair): dissolved. The floor is gone — `engine._past_thresh
 the exact Decimal level, so entry 0.03 at a -15% cap enforces -15% (fires at 0.0255, not at
 0.02), pinned by test_a_non_cent_price_is_judged_against_the_exact_level.
 
-### T59 — _trigger_price crashes on an absurd entry price instead of refusing it [status: todo]
+### T59 — _trigger_price crashes on an absurd entry price instead of refusing it [status: done]
 Priority: P3
 Origin: PR #10 R8 (reviewer note 1)
 Spec: `_trigger_price` raises an uncaught `decimal.InvalidOperation` for an entry_price at
@@ -741,3 +741,18 @@ cards, so widening it is a change to every card, not just this one.
 Acceptance: a price that does not survive two decimals is printed at a precision that does
 (or the card names the loss without restating the price), with the thesis cards unchanged
 or deliberately changed with them; a case at entry 0.03 / price 0.0255 pins it.
+
+### T61 — Two exotic decimal edges in _past_threshold [status: todo]
+Priority: P3
+Origin: PR #10 R9 (reviewer notes)
+Spec: two survivors of the round-3 rewrite, neither reachable from the shipped path today.
+(a) Setting the decimal context to `prec=6` inside `_past_threshold` leaves the suite at
+184 passed — the 28-digit default is the only thing holding the product exact for entries
+above ~1e4, and `getcontext().prec` is process-global and mutable by any other library in
+the process. (b) A NaN price now raises `decimal.InvalidOperation` from the `<=` (decimal
+ordering signals on NaN) where the old float compare silently emitted a card reading
+`nan%`; unreachable because `signals.monitor_inputs` filters with `pd.notna` and a NaN
+entry_price is caught by `_entry_price`'s `> 0`.
+Acceptance: the comparison runs in a `localcontext()` with an explicit precision, and a NaN
+price is refused the way a non-positive entry_price is; one case each.
+
