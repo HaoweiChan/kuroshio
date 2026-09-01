@@ -14,7 +14,7 @@ docs/ARCHITECTURE.md `core/allocator`.
 
 from __future__ import annotations
 
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 
 from kuroshio.core.allocator.signals import MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
@@ -47,26 +47,22 @@ def _entry_price(h) -> float | None:
     return h.entry_price if h.entry_price and h.entry_price > 0 else None
 
 
-def _trigger_price(entry_price: float, mae_pct: float) -> float:
-    """The price at or below which a position is past `caps.max_adverse_excursion_pct`:
-    the exact threshold level, rounded **down** to the cent.
+def _past_threshold(price: float, entry_price: float, mae_pct: float) -> bool:
+    """Is `price` at or past `mae_pct` from `entry_price`?
 
-    Exact, because binary floats are not: `6.60 * 0.85` is 5.609999999999999, so a plain
-    product silently holds a position sitting on the user's own threshold, and rounding
-    that product to the nearest cent trades the miss for the opposite error — half a cent
-    of slop is fixed in absolute terms and therefore unbounded in percentage terms as the
-    entry falls, which handed a 0.03 position at breakeven a card claiming it was past -15%.
+    Exact decimal arithmetic, and no rounding of any operand. The binary product is not
+    the level — `6.60 * 0.85` is 5.609999999999999, which holds a position sitting exactly
+    on the user's own threshold — and snapping that level to the cent grid trades the miss
+    for the opposite error: `propose` is handed the panel's float64 closes, not prices a
+    market printed (`allocator/signals.py`, and `providers/yf.py` fetches with
+    auto_adjust=True), so any price between two cents is misjudged in whichever direction
+    the level was snapped.
 
-    Down, because the trigger is a price and prices are quoted in cents: flooring can never
-    put the level above the exact threshold, and no cent-quoted price can land between the
-    two, so `price <= trigger` and `price <= exact level` are the same test on any price a
-    market can print. It is also the number the card prints, at the precision it prints it.
-
-    ponytail: cents, because US and TW both quote in them. A market quoted finer wants the
-    profile's tick size here — never an epsilon, which is the slop this docstring is about.
+    `Decimal(str(x))` on all three, never `Decimal(x)`: str gives the shortest decimal that
+    round-trips the float, i.e. the number as written and as printed, while the binary
+    expansion of 6.6 is 6.5999999999999996447... and reintroduces the artifact above.
     """
-    exact = Decimal(str(entry_price)) * (1 + Decimal(str(mae_pct)) / 100)
-    return float(exact.quantize(Decimal("0.01"), rounding=ROUND_FLOOR))
+    return Decimal(str(price)) <= Decimal(str(entry_price)) * (1 + Decimal(str(mae_pct)) / 100)
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
@@ -257,8 +253,7 @@ def propose(
                 else f"entry_price {h.entry_price} is not a price"
             ) + ", so the loss from entry is not watched"
             continue
-        trigger = _trigger_price(entry_price, mae_pct)
-        if price > trigger:
+        if not _past_threshold(price, entry_price, mae_pct):
             continue
         note = thesis_note.get(h.ticker)
         decided[h.ticker] = f"{price / entry_price - 1:+.1%}"
@@ -267,8 +262,8 @@ def propose(
             reason=(
                 f"{h.ticker} is {price / entry_price - 1:+.1%} from your entry price of "
                 f"{entry_price:.2f}, {_price_phrase(price, asof)} — at or past your IPS max "
-                f"adverse excursion of {mae_pct:.1f}%, the {trigger:.2f} level from that "
-                f"entry. Decide: kill it, add to it per the plan you opened it with, or "
+                f"adverse excursion of {mae_pct:.1f}%. "
+                f"Decide: kill it, add to it per the plan you opened it with, or "
                 f"rewrite the thesis and record the new one. Holding it unchanged is not "
                 f"one of the three."
                 + (
@@ -280,7 +275,6 @@ def propose(
             details={
                 "ticker": h.ticker, "entry_price": entry_price, "price": price, "asof": asof,
                 "drawdown": price / entry_price - 1, "threshold_pct": mae_pct,
-                "trigger_price": trigger,
             },
         ))
 

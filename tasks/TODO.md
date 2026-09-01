@@ -710,6 +710,9 @@ positive price. Dissolves entirely if the comparison moves to the exact Decimal 
 (branch (a) of R8's acceptance).
 Acceptance: the enforced threshold equals the configured one at every entry price, or the
 divergence is stated on the card and bounded; a case at entry 0.03 pins it.
+Update (PR #10 R8 repair): dissolved. The floor is gone — `engine._past_threshold` compares
+the exact Decimal level, so entry 0.03 at a -15% cap enforces -15% (fires at 0.0255, not at
+0.02), pinned by test_a_non_cent_price_is_judged_against_the_exact_level.
 
 ### T59 — _trigger_price crashes on an absurd entry price instead of refusing it [status: todo]
 Priority: P3
@@ -720,4 +723,21 @@ through the loader's "not a price" path like a zero or negative entry does. Absu
 but the outcome is a traceback, not a card or a named coverage entry.
 Acceptance: an out-of-range entry_price is refused the way a non-positive one is — named on
 the coverage card, or rejected at parse time with a message naming the ticker and key.
+Update (PR #10 R8 repair): dissolved. The `quantize` that raised it is gone with the floored
+trigger; entry_price 1e27, 1e30 and 1e300 now produce a card instead of a traceback. The
+loader still does not validate the magnitude, which is the half of this nobody needs yet.
 
+
+### T60 — A sub-cent price prints identically to its entry on the DECIDE card [status: todo]
+Priority: P3
+Origin: PR #10 R8 repair
+Spec: cards print prices at two decimals (`_price_phrase`, and the entry price beside it),
+which is right for every name a user is likely to hold and collapses for penny ones: a
+correct card for entry 0.03 at price 0.0255 reads "X is -15.0% from your entry price of
+0.03, at 0.03" — the same shape as the breakeven card R7 was about, though the numbers
+behind it are right and the stated -15.0% is exact. The rule itself is precision-clean
+since the R8 repair; only the display is coarse. `_price_phrase` is shared with T5's thesis
+cards, so widening it is a change to every card, not just this one.
+Acceptance: a price that does not survive two decimals is printed at a precision that does
+(or the card names the loss without restating the price), with the thesis cards unchanged
+or deliberately changed with them; a case at entry 0.03 / price 0.0255 pins it.

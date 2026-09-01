@@ -173,19 +173,20 @@ Pure function. v1 logic:
    sessions, not the last 50 rows: panel columns carry NaN holes wherever a ticker did not
    trade on a day another did, and `rolling().mean()` would void the average over one hole.
    No ATR trail: `Panel` has no high/low (tasks/TODO.md T38).
-3b. **Max adverse excursion**: a position whose *latest* price is at or below the trigger
-   price — the exact `entry_price × (1 + caps.max_adverse_excursion_pct / 100)` level,
-   rounded **down** to the cent (`engine._trigger_price`) — gets a DECIDE card: kill it, add
+3b. **Max adverse excursion**: a position whose *latest* price is at or past
+   `caps.max_adverse_excursion_pct` from its `entry_price` gets a DECIDE card — kill it, add
    to it per the plan, or rewrite the thesis; holding it unchanged is not one of the three
    (Freeman-Shor). This rule reads no `setup_type`: any position with an entry price can be
-   far enough under water. The level is computed in `Decimal`, because `6.60 * 0.85` is
-   5.609999999999999 in binary and a plain product holds a position sitting on the user's own
-   threshold; it is floored rather than rounded, because half a cent of slop is fixed in
-   absolute terms and therefore unbounded in percentage terms as the entry falls (rounding to
-   the nearest cent made a 0.03 position at breakeven "past -15%"). Flooring can never put
-   the level above the exact threshold and no cent-quoted price falls between the two, so on
-   any price a market can print, "at or below the trigger" and "at or past the threshold" are
-   the same test — and the trigger is the number the card prints, at the precision it prints. A position that also broke its thesis this run gets both
+   far enough under water. The comparison is `engine._past_threshold`: exact decimal
+   arithmetic on the three numbers as they print, `Decimal(str(price)) <=
+   Decimal(str(entry_price)) * (1 + Decimal(str(pct)) / 100)`, with no rounding of any
+   operand. The binary product is not the level (`6.60 * 0.85` is 5.609999999999999, which
+   holds a position sitting exactly on its own threshold), and a level snapped to the cent
+   grid misjudges every price between two cents — `propose` is handed the panel's float64
+   closes, not prices a market printed. The card states the loss, the entry price, the price
+   it read and the threshold it compared them against, and reconstructs no trigger price:
+   a printed level the comparison does not use is what three review rounds of this rule went
+   on. A position that also broke its thesis this run gets both
    cards, and the DECIDE quotes what step 3 concluded so the two do not talk past each other.
    `entry_price` 0 or negative is not an entry price and is treated as absent. The
    comparison is against this session's price, not the low since entry, so a position that

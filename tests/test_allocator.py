@@ -543,13 +543,15 @@ def test_a_position_past_the_mae_threshold_gets_exactly_one_decide_card():
     assert card.ips_clauses == ["caps.max_adverse_excursion_pct"]
     assert card.details == {
         "ticker": "LOSER", "entry_price": 100.0, "price": 80.0, "asof": "2026-08-27",
-        "drawdown": pytest.approx(-0.20), "threshold_pct": -15, "trigger_price": 85.0,
+        "drawdown": pytest.approx(-0.20), "threshold_pct": -15,
     }
+    # no reconstructed trigger price: the card states the loss, the entry, the price it
+    # read and the threshold it compared them against — every number the rule used.
     assert card.reason == (
         "LOSER is -20.0% from your entry price of 100.00, at 80.00 (2026-08-27 session) "
-        "— at or past your IPS max adverse excursion of -15.0%, the 85.00 level from that "
-        "entry. Decide: kill it, add to it per the plan you opened it with, or rewrite the "
-        "thesis and record the new one. Holding it unchanged is not one of the three."
+        "— at or past your IPS max adverse excursion of -15.0%. Decide: kill it, add to it "
+        "per the plan you opened it with, or rewrite the thesis and record the new one. "
+        "Holding it unchanged is not one of the three."
     )
     assert card.to_markdown().splitlines()[0] == "### DECIDE LOSER"
 
@@ -575,7 +577,7 @@ def test_the_mae_threshold_is_read_from_the_ips():
     )[0].reason
     tight_card = decides(propose(holdings, [], tight, "us", prices=prices))
     assert len(tight_card) == 1
-    assert "-5.0%, the 95.00 level" in tight_card[0].reason
+    assert "max adverse excursion of -5.0%." in tight_card[0].reason
 
 
 def test_a_position_exactly_at_the_mae_threshold_decides():
@@ -711,18 +713,15 @@ def test_a_pre_t3_portfolio_still_gets_no_cards_at_all():
     [(6.60, 5.61), (9.00, 7.65), (13.00, 11.05), (18.00, 15.30), (3.40, 2.89), (100.00, 85.00),
      (0.20, 0.17), (0.60, 0.51)],  # sub-dollar, where a half-cent of slop is percentage points
 )
-def test_the_level_the_card_prints_is_the_level_it_enforces(entry, level):
+def test_a_price_exactly_at_the_threshold_decides(entry, level):
     """R1: `entry x 0.85` lands a hair under the exact -15% price for most entries —
-    6.60 gives 5.609999999999999 — so a position sitting exactly on the threshold the
-    card prints was silently held, and the card advertised a level it did not compare
-    against. Both numbers are now the cent the card speaks in."""
+    6.60 gives 5.609999999999999 — so a position sitting exactly on its own threshold was
+    silently held. The comparison is exact decimal arithmetic, so these all decide."""
     holdings, prices = loser(level, entry=entry)
-    cards = decides(propose(holdings, [], make_ips(), "us", prices=prices))
-    assert len(cards) == 1, f"{entry} -> {level} is exactly -15% and must decide"
-    assert f"the {level:.2f} level from that entry" in cards[0].reason
-    assert cards[0].details["trigger_price"] == level  # printed == enforced
-
-    # and not by widening the rule: one cent above the printed level is not past it
+    assert len(decides(propose(holdings, [], make_ips(), "us", prices=prices))) == 1, (
+        f"{entry} -> {level} is exactly -15% from entry and must decide"
+    )
+    # and not by widening the rule: a cent above the level is short of it
     holdings, prices = loser(round(level + 0.01, 2), entry=entry)
     assert decides(propose(holdings, [], make_ips(), "us", prices=prices)) == []
 
@@ -784,10 +783,34 @@ def test_a_position_short_of_the_threshold_is_never_decided(entry, price, pct, l
     cards = decides(propose(holdings, [], ips, "us", prices=prices))
     assert cards == [], f"{loss} is short of {pct}% and must not be decided"
 
-    # the rule is still live at this entry: the next cent down is past the level, and the
-    # level it names there is the floored one it enforced, not the raw product rounded
+    # the rule is still live at this entry: the next cent down is past the level
     holdings, prices = loser(round(price - 0.01, 2), entry=entry)
-    fired = decides(propose(holdings, [], ips, "us", prices=prices))
-    assert len(fired) == 1
-    assert f"the {fired[0].details['trigger_price']:.2f} level from that entry" in fired[0].reason
-    assert prices["LOSER"] <= fired[0].details["trigger_price"]
+    assert len(decides(propose(holdings, [], ips, "us", prices=prices))) == 1
+
+
+# --- PR #10 round 3 repair -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,price,loss,fires",
+    [
+        # R8: the panel hands `propose` float64 closes, not prices a market printed —
+        # providers/yf.py fetches with auto_adjust=True. A level rounded to any grid
+        # cannot judge these, and every one of the first three is past the threshold.
+        (3.77, 3.2044, "-15.003%", True),   # exact level 3.2045
+        (1.10, 0.9349, "-15.009%", True),   # exact level 0.935
+        (0.03, 0.0255, "-15.000%", True),   # exact level 0.0255 — sub-cent, and exactly on it
+        (3.77, 3.2046, "-14.997%", False),
+        (1.10, 0.9351, "-14.991%", False),
+        (0.03, 0.0256, "-14.667%", False),
+        # a hair *above* the level, not on it: 5.61 * (1 + 1e-15). Its loss is
+        # -14.999999999999982%, so it is short of the threshold and must not fire —
+        # making it fire needs a tolerance, which is the slop rounds 1-3 were about.
+        (6.60, 5.610000000000001, "-15.000%", False),
+        (6.60, 5.61, "-15.000%", True),     # the same level, exactly
+    ],
+)
+def test_a_non_cent_price_is_judged_against_the_exact_level(entry, price, loss, fires):
+    holdings, prices = loser(price, entry=entry)
+    cards = decides(propose(holdings, [], make_ips(), "us", prices=prices))
+    assert bool(cards) is fires, f"entry {entry}, price {price} ({loss} from entry)"
