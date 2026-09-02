@@ -1,0 +1,10 @@
+#!/bin/sh
+# Commit subjects follow the PR title shape: <type>(<scope>)?: <lowercase summary>.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+[ -f .github/pr_check.py ] || exit 0
+python3 .github/pr_check.py --title-only --title "$(head -n1 "$1")" || {
+  echo ""
+  echo "COMMIT BLOCKED: subject must be '<type>(<scope>)?: <lowercase summary>' (feat, fix, docs, chore, refactor, test, perf, ci, build, revert)."
+  exit 1
+}
+exit 0
