@@ -16,7 +16,7 @@ ordinal: 2000
 <!-- SECTION:DESCRIPTION:BEGIN -->
 the screener is momentum-only; `MarketDataProvider.fetch_fundamentals` exists (providers/base.py) and is never called. Add value (composite percentile of e.g. earnings yield, FCF yield) and quality (e.g. ROE/ROIC, margin) factor groups to the US screener via fetch_fundamentals, combined as fixed-weight percentile composites per screening/score.py conventions. No factor timing. Missing fundamentals degrade gracefully (weight renormalization already does this).
 
-Probe: none — migrated from TODO.md
+Probe: none — library/CLI with no deployed surface; ruff + pytest are the whole truth
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

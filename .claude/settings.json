@@ -1,0 +1,20 @@
+{
+  "extraKnownMarketplaces": {
+    "groundwork": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/HaoweiChan/groundwork.git"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/DietrichGebert/ponytail.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "groundwork@groundwork": true,
+    "ponytail@ponytail": true
+  }
+}

@@ -18,7 +18,7 @@ replace the binary hard-cap TRIM with Daryanani-style relative bands: flag when 
 
 Depends (TODO.md ids): T7
 
-Probe: none — migrated from TODO.md
+Probe: none — library/CLI with no deployed surface; ruff + pytest are the whole truth
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
