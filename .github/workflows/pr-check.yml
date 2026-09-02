@@ -1,0 +1,10 @@
+name: pr-check
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+jobs:
+  shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/pr_check.py
