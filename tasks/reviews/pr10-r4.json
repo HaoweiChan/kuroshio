@@ -1,7 +1,7 @@
 {
   "pr": 10,
   "round": 4,
-  "result": "REQUEST_CHANGES",
+  "result": "REQUEST_CHANGES (merged on human direction with R9 as named debt T60)",
   "gate": "pass - ruff clean, 184 passed",
   "circuit_breaker": "tripped a second time - 4 review rounds without approval; escalated to the human",
   "round3_findings_resolved": [
@@ -29,8 +29,8 @@
       "evidence": "kuroshio/core/allocator/engine.py:264 interpolates `_price_phrase(price, asof)` (engine.py:27-38, `f\"at {price:.2f}\"`) while engine.py:257 now compares the unrounded `price`. Entry 1.10, price 0.935 (the exact -15% level) fires and the card reads: `LOSER is -15.0% from your entry price of 1.10, at 0.94 — at or past your IPS max adverse excursion of -15.0%.` 0.94 from 1.10 is -14.55%, i.e. the two numbers the card prints refute the verdict printed beside them. `details` says `{'price': 0.935, ...}` — it does not agree with the text. Same shape at entry 0.30 / price 0.255 -> `at 0.26` (-13.3%). Both were NO CARD at 048bfd8 (floored level 0.93 / 0.25), so this card shape is introduced by this repair, not pre-existing. Not T60: that is scoped to penny names printing identically to the entry and asserts the numbers behind it are right; here the entry is $1.10 and the printed price rounds the wrong way across the threshold. Same user-visible contradiction class R7 was escalated for, reintroduced through the display path. Nothing pins it: tests/test_allocator.py:816 asserts only `bool(cards) is fires` and never the reason or details of an off-cent card; every reason/details assertion in the suite uses cent-grid 100.00/80.00. Mutation proof of the gap: rewriting engine.py:264 so the off-cent card names the entry price as the price it read leaves all 184 tests green.",
       "repro": "propose([Holding(ticker='LOSER',weight=.05,score=.5,entry_price=1.10)],[],IPS(),'us',prices={'LOSER':0.935}) -> reason 'LOSER is -15.0% from your entry price of 1.10, at 0.94'. Orchestrator-verified for 1.10/0.935, 0.30/0.255 and 3.77/3.2044.",
       "acceptance": "An off-cent DECIDE card prints a price consistent with the comparison that fired it (either at a precision that survives the level, or the price is not restated), and at least one test asserts the full `reason` string and `details` for a non-cent case such as entry 1.10 / price 0.935 and entry 3.77 / price 3.2044 — so the mutant above goes red. `details['price']` and the number in the reason must denote the same value.",
-      "route": "repair",
-      "route_reason": "Makes a published number dishonest: the card's own two numbers refute each other, and details disagrees with the reason text. Introduced by this repair - those inputs emitted no card at 048bfd8. Blocked on the circuit breaker (4 rounds without approval) - escalated to the human."
+      "route": "debt",
+      "route_reason": "Merged as named debt at the human's direction (option B at the round-4 circuit breaker). Folded into T60 and raised to P1: R9 and T60 are the same defect - the shared _price_phrase precision - and T60 already owned the thesis-card coupling. The verdict is correct in every case; a restated number beside it is not."
     }
   ]
 }
