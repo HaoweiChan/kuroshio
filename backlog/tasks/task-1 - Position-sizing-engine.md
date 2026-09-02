@@ -18,7 +18,7 @@ ordinal: 1000
 
 Depends (TODO.md ids): T3
 
-Probe: none — migrated from TODO.md
+Probe: none — library/CLI with no deployed surface; ruff + pytest are the whole truth
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria

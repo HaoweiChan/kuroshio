@@ -18,7 +18,7 @@ log every screener run's scores (per ticker, per date) to a local ledger; a `kur
 
 Depends (TODO.md ids): T3, T4
 
-Probe: none — migrated from TODO.md
+Probe: none — library/CLI with no deployed surface; ruff + pytest are the whole truth
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
