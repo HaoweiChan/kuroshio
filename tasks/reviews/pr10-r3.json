@@ -1,0 +1,26 @@
+{
+  "pr": 10,
+  "round": 3,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 176 passed",
+  "circuit_breaker": "tripped - 3 review rounds without approval; escalated to the human",
+  "round2_findings_resolved": [
+    "R7 (for cent-quoted prices; see R8 for non-cent prices)"
+  ],
+  "reviewer_verifications": [
+    "Mutation spot-checks reproduce: nearest-cent rounding 4 failed, ceiling 5 failed, raw binary product 5 failed, floored binary product red, boundary widened 15 failed, boundary narrowed 15 failed, and the previously-equivalent print-divergence mutant now 5 failed - that claim is genuine.",
+    "Gate re-run clean: ruff passes, 176 passed."
+  ],
+  "findings": [
+    {
+      "id": "R8",
+      "severity": "MEDIUM",
+      "claim": "The invariant this repair asserts in docs/ARCHITECTURE.md 3b and in the `_trigger_price` docstring — that \"at or below the trigger\" and \"at or past the threshold\" are the same test \"on any price a market can print\" — is false for the prices `propose` actually receives, and this diff deleted the only test that exercised such a price.",
+      "evidence": "kuroshio/core/allocator/signals.py:40 passes the panel's float64 close straight into `propose` (cli.py:392) with no rounding, and providers/yf.py:52 fetches with `auto_adjust=True`, so the price side is not on the cent grid. The equivalence claim only holds for cent-quoted prices; the floored trigger can sit a full cent below the exact level, so a non-cent price in that gap is past the threshold and gets no card. Verified through `propose`: entry 3.77 / price 3.2044 -> exact level 3.2045, position is at -15.003%, trigger floored to 3.20, DECIDE count 0. Same shape at entry 1.10/0.9349, entry 12.34/10.4885, and entry 0.03/0.0255 (exact level exactly, trigger 0.02). The one previously-covered instance is a straight behaviour change: entry 6.60 / price 5.610000000000001 fired a DECIDE under round 1's `round(price, 2)` and fires nothing now — precisely the assertion deleted at tests/test_allocator.py:724-728 (\"adjusted closes land on 84.99999999999999\"). Nothing in the suite can go red on this: every price in every DECIDE boundary test is a multiple of 0.01, and both sweeps cited in pr10-r2-resolution.json probe \"four cent prices around each trigger\" — the same grid-only blind spot the round-2 orchestrator_note called out, re-applied to the price side. docs/ARCHITECTURE.md:184-187 and engine.py:60-63 state the equivalence unconditionally for \"any price a market can print\"; the code is not handed prices a market printed. (Not T57's percent-scale mismatch — this is the diff's own cent-grid precision claim against the diff's own inputs.)",
+      "repro": "propose([Holding(ticker='L',weight=.05,score=.5,entry_price=3.77)],[],IPS(),'us',prices={'L':3.2044}) -> no DECIDE though the loss is -15.003%. Orchestrator-verified for 3.77/3.2044, 6.60/5.610000000000001, 1.10/0.9349 and 0.03/0.0255.",
+      "acceptance": "Either (a) the code makes the claim true for the prices it receives — e.g. compare on the exact Decimal level, or round the price to the quote grid before comparing, so a non-cent price at or past the threshold fires — or (b) docs/ARCHITECTURE.md 3b and the `_trigger_price` docstring drop the \"any price a market can print\" equivalence and state the shipped rule: the trigger is the floored cent, so a price strictly between the floored cent and the exact level does not fire. Either way at least one test case uses a non-cent price (e.g. 6.60/5.610000000000001 and 3.77/3.2044) and pins whichever behaviour is chosen, so the deleted coverage is restored and a price-side mutant goes red.",
+      "route": "repair",
+      "route_reason": "False claim in a document of record and in the code's own docstring, and a position genuinely past the user's threshold is silently held. Orchestrator-verified. Blocked on the circuit breaker - escalated to the human, not relayed for a 4th round."
+    }
+  ]
+}

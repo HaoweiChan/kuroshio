@@ -73,7 +73,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str                  # "SWAP" | "TRIM" | "ALERT"
+    action: str                  # "SWAP" | "TRIM" | "DECIDE" | "ALERT"
     sell: str | None
     buy: str | None
     reason: str                  # one paragraph, human-readable
@@ -128,7 +128,9 @@ caps:
   position_pct: 10             # standard max position, % of NAV
   position_hard_pct: 25        # absolute per-name ceiling
   theme_pct: 20                # per-theme effective-exposure budget
+  max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
+                               # (not max_adverse_excursion_pct — that cap has no carve-out)
 turnover:
   hurdle: 0.15                 # challenger final_score must exceed incumbent by this
   verdict_floor: neutral       # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)
@@ -170,15 +172,32 @@ Pure function. v1 logic:
    because `propose` takes no panel (rules 3, 5). MA50 averages each ticker's last 50 *traded*
    sessions, not the last 50 rows: panel columns carry NaN holes wherever a ticker did not
    trade on a day another did, and `rolling().mean()` would void the average over one hole.
-   A position whose rule has no data to read (no `setup_type`, `setup_type: other`, a
-   `value_dip` with no `invalidation_price`, no price for the session) is named on a
-   "not fully thesis-monitored" ALERT rather than passed over in silence — emitted only when
-   at least one holding does carry a monitored setup_type, so a pre-T3 file is unaffected.
-   That card separates the positions nothing is watching from the partly-watched ones (a
-   `trend_add` with no `entry_price` still has its MA50 break checked), so it never claims
-   the run is silent about a ticker the run just alerted on.
-   No ATR trail: `Panel` has no high/low (tasks/TODO.md T38). No loss-from-entry threshold
-   either — the drawdown is reported, not judged; the threshold is T6's.
+   No ATR trail: `Panel` has no high/low (tasks/TODO.md T38).
+3b. **Max adverse excursion**: a position whose *latest* price is at or past
+   `caps.max_adverse_excursion_pct` from its `entry_price` gets a DECIDE card — kill it, add
+   to it per the plan, or rewrite the thesis; holding it unchanged is not one of the three
+   (Freeman-Shor). This rule reads no `setup_type`: any position with an entry price can be
+   far enough under water. The comparison is `engine._past_threshold`: exact decimal
+   arithmetic on the three numbers as they print, `Decimal(str(price)) <=
+   Decimal(str(entry_price)) * (1 + Decimal(str(pct)) / 100)`, with no rounding of any
+   operand. The binary product is not the level (`6.60 * 0.85` is 5.609999999999999, which
+   holds a position sitting exactly on its own threshold), and a level snapped to the cent
+   grid misjudges every price between two cents — `propose` is handed the panel's float64
+   closes, not prices a market printed. The card states the loss, the entry price, the price
+   it read and the threshold it compared them against, and reconstructs no trigger price:
+   a printed level the comparison does not use is what three review rounds of this rule went
+   on. A position that also broke its thesis this run gets both
+   cards, and the DECIDE quotes what step 3 concluded so the two do not talk past each other.
+   `entry_price` 0 or negative is not an entry price and is treated as absent. The
+   comparison is against this session's price, not the low since entry, so a position that
+   fell past the level and recovered is not decided on (tasks/TODO.md T52).
+3c. **Coverage**: two rules watch a position — its `setup_type`'s and the loss-from-entry
+   one — so a position is fully watched, partly watched, or watched by neither, and one
+   ALERT names the last two groups separately rather than passing them over in silence. A
+   partly-watched position (a `trend_add` with no `entry_price` still has its MA50 break
+   checked) is never claimed to be one the run says nothing about — the run may have just
+   alerted on it. Emitted only when something is actually being watched, so a holdings file
+   with no `setup_type` and no `entry_price` anywhere is unaffected.
 4. **Challenger vs incumbent**: for each challenger not already held and passing
    `verdict_floor`: weakest incumbent (lowest score; unscored incumbents are never
    auto-targeted — emit ALERT suggesting research instead). Propose SWAP when
@@ -188,7 +207,9 @@ Pure function. v1 logic:
    cites the friction it cleared). The ranking does not read `setup_type` (tasks/TODO.md T39),
    so a thesis-intact `value_dip` can still be the weakest incumbent; when the sell side is a
    monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
-   both halves of the run silent about the same position.
+   both halves of the run silent about the same position — and when step 3b already forced
+   a decision on that incumbent, the SWAP card says so and names itself the "kill it"
+   option on that card rather than a fourth one.
 5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
@@ -248,9 +269,9 @@ argparse, three subcommands (v1):
   how many they were ranked against. When only one side is auto-filled the card says so
   differently: that gap subtracts a percentile from a hand-typed number and is a rank distance
   in neither scale. Hand-written values always win, per name, and carry no disclosure.
-  The same fetch supplies thesis monitoring's prices, so it also happens when a holding
-  carries a monitored `setup_type`; every score hand-typed *and* no monitored setup_type =
-  no fetch.
+  The same fetch supplies the monitoring rules' prices, so it also happens when a holding
+  carries a monitored `setup_type` or an `entry_price`; every score hand-typed *and* nothing
+  for either rule to read = no fetch.
 - `kuroshio ips-validate path.md`
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.

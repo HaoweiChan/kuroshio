@@ -12,7 +12,7 @@ import logging
 
 from kuroshio.types import ProposalCard
 
-_COLORS = {"SWAP": 0x2ECC71, "TRIM": 0xE67E22, "ALERT": 0xE74C3C}
+_COLORS = {"SWAP": 0x2ECC71, "TRIM": 0xE67E22, "ALERT": 0xE74C3C, "DECIDE": 0x9B59B6}
 _MAX_EMBEDS = 10  # Discord webhook API limit per payload
 
 

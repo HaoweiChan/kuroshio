@@ -8,6 +8,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 def test_conservative_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-conservative.md")
+    assert ips.caps.max_adverse_excursion_pct == -10
     assert ips.risk_profile == "conservative"
     assert ips.caps.position_pct == 5
     assert ips.caps.position_hard_pct == 15
@@ -21,6 +22,7 @@ def test_conservative_example_parses_and_validates():
 
 def test_balanced_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-balanced.md")
+    assert ips.caps.max_adverse_excursion_pct == -15
     assert ips.caps.position_pct == 10
     assert ips.caps.position_hard_pct == 25
     assert ips.caps.theme_pct == 20
@@ -32,6 +34,7 @@ def test_balanced_example_parses_and_validates():
 
 def test_aggressive_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-aggressive.md")
+    assert ips.caps.max_adverse_excursion_pct == -20
     assert ips.caps.position_pct == 15
     assert ips.caps.position_hard_pct == 25
     assert ips.caps.theme_pct == 30
@@ -132,3 +135,41 @@ def test_validate_catches_bad_friction():
         ips = parse_ips(f"---\nfriction:\n  {friction}\n---\nbody\n")
         problems = validate(ips)
         assert any("friction" in p for p in problems), f"{friction!r} was accepted"
+
+
+def test_mae_threshold_parses_and_defaults():
+    assert IPS().caps.max_adverse_excursion_pct == -15
+    ips = parse_ips("---\ncaps:\n  max_adverse_excursion_pct: -22.5\n---\nbody\n")
+    assert ips.caps.max_adverse_excursion_pct == -22.5
+    assert validate(ips) == []
+    # it lives under caps but is not an exemptible one: a per-ticker carve-out from
+    # "no silent holding of losers" is the thing this card exists to refuse.
+    problems = validate(parse_ips(
+        "---\ncaps:\n  exemptions:\n    - {ticker: A, cap: max_adverse_excursion_pct}\n---\nbody\n"
+    ))
+    assert any("unknown cap field" in p for p in problems)
+
+
+def test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type():
+    """The sign carries the meaning — it is a loss from entry, so it is negative, and a
+    user who writes the percent unsigned must be told which is expected rather than
+    handed a threshold that fires on every position (>= 0) or on none (<= -100).
+    Type failures and range failures say different things (see T18 for why)."""
+    wrong_sign = ("caps:\n  max_adverse_excursion_pct: 15", "caps:\n  max_adverse_excursion_pct: 0")
+    for frontmatter in wrong_sign:
+        problems = validate(parse_ips(f"---\n{frontmatter}\n---\nbody\n"))
+        assert any(
+            "max_adverse_excursion_pct" in p and "negative percent" in p for p in problems
+        ), frontmatter
+
+    for frontmatter in ("max_adverse_excursion_pct: -100", "max_adverse_excursion_pct: -100.1"):
+        problems = validate(parse_ips(f"---\ncaps:\n  {frontmatter}\n---\nbody\n"))
+        assert any("negative percent" in p for p in problems), frontmatter
+
+    for frontmatter in ("max_adverse_excursion_pct:", 'max_adverse_excursion_pct: "-15"',
+                        "max_adverse_excursion_pct: abc", "max_adverse_excursion_pct: .nan"):
+        problems = validate(parse_ips(f"---\ncaps:\n  {frontmatter}\n---\nbody\n"))
+        assert any("max_adverse_excursion_pct" in p for p in problems), frontmatter
+    typed = validate(parse_ips('---\ncaps:\n  max_adverse_excursion_pct: "-15"\n---\nbody\n'))
+    ranged = validate(parse_ips("---\ncaps:\n  max_adverse_excursion_pct: 15\n---\nbody\n"))
+    assert typed != ranged  # the string case is not reported with a rule its value meets

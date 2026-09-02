@@ -1,0 +1,28 @@
+{
+  "pr": 10,
+  "round": 2,
+  "result": "REQUEST_CHANGES",
+  "gate": "pass - ruff clean, 168 passed",
+  "round1_findings_resolved": [
+    "R1 (partially - the false-negative half; see R7 for the false-positive half it introduced)",
+    "R4"
+  ],
+  "reviewer_verifications": [
+    "R4 holds structurally, not incidentally: engine.py:466 returns `alerts + decisions + trims + kept`, so DECIDE precedes SWAP under every combination tried (two decided positions, a decided non-incumbent, a TRIM in between). details['incumbent_decided'] is `incumbent.ticker in decided`, the identical expression gating the bridge sentence, so text and field cannot disagree.",
+    "Mutation spot-checks reproduce: price side left unrounded -> 6 failed; bridge suppressed -> 1 failed.",
+    "The {raw:.2f} equivalent-mutant claim is genuine - f'{raw:.2f}' and f'{round(raw,2):.2f}' round-half-even the same binary value, and the observable divergence lives in details['trigger_price'], covered by the first mutation."
+  ],
+  "orchestrator_note": "The round-1 boundary sweep run by both the implementer and the orchestrator covered only entries whose exact -15% lands on a cent. That shared blind spot is why the widened trigger survived a round; the sweep in R7's acceptance must cover entries where it does not.",
+  "findings": [
+    {
+      "id": "R7",
+      "severity": "HIGH",
+      "claim": "The R1 fix traded a false negative for a false positive: rounding the trigger up to the cent makes the DECIDE rule fire on positions that are not past the MAE threshold at all — at entry 0.03 a position sitting at breakeven emits a card reading \"+0.0% from your entry price of 0.03 ... at or past your IPS max adverse excursion of -15.0%\".",
+      "evidence": "kuroshio/core/allocator/engine.py:242-243 `trigger = round(entry_price * (1 + mae_pct / 100), 2)` / `if round(price, 2) > trigger: continue`. Rounding the trigger *up* widens the rule by up to half a cent, which is unbounded in percentage terms as entry_price falls. Both sides of these inputs are on the cent grid, so the diff's own \"US and TW both quote in cents\" premise does not rescue them. Confirmed end-to-end through the real loader with entry_price 0.03, prices={'PENNY': 0.03}: exact -15% level is 0.0255, trigger rounds to 0.03, and the card fires at zero loss. Same at entry 0.02 (breakeven fires), 0.03/0.029 (-3.3% fires), 0.03/0.028 (-6.7% fires), 0.10/0.09 (-10.0% fires at a -15% threshold). Non-default thresholds show the card contradicting itself in one sentence: entry 1.00 at -33.3% fires on price 0.67 and prints \"X is -33.0% ... at or past your IPS max adverse excursion of -33.3%\". Regression introduced by the repair: at 58a730c the same three penny inputs return ['ALERT'] with no DECIDE. Cent-grid sweep at -15%, loosest firing cent price per entry: 48/99 entries in 0.01-0.99 fire early (worst overshoot 15.00pp at entry 0.01), 419/900 in 1.00-9.99 (worst 0.455pp at entry 1.10, firing at -14.55%), 4216/9000 in 10.00-99.99 (worst 0.049pp), 42119/90000 in 100.00-999.99 (worst 0.005pp). The round-1 sweep the orchestrator re-ran covered only entries whose exact -15% lands on a cent, so it could not see this. tests/test_allocator.py:709-731 pins only the one-cent-above direction (`round(level + 0.01, 2)`), never a sub-dollar entry. README.md:72 and docs/ARCHITECTURE.md:177-183 are now false in the other direction.",
+      "repro": "propose([Holding(ticker='PENNY',weight=.05,score=.5,entry_price=0.03)],[],IPS(),'us',prices={'PENNY':0.03}) -> emits DECIDE '+0.0% ... at or past'. Same call at 58a730c -> ALERT only. Orchestrator-verified for 0.03/0.03, 0.03/0.029 and 0.10/0.09.",
+      "acceptance": "No DECIDE is emitted for a position whose loss from entry is short of `caps.max_adverse_excursion_pct` — in particular entry 0.03/price 0.03, 0.03/0.029, 0.10/0.09 at the default -15%, and 1.00/0.67 at -33.3% — while the exact-threshold cases R1 fixed (6.60/5.61, 9.00/7.65, 13.00/11.05, 18.00/15.30, 3.40/2.89, 100.00/85.00) still fire and the printed `{trigger:.2f}` still equals `details['trigger_price']` and equals the level compared against. The parametrised test gains sub-dollar entries in both directions so the widened-trigger mutant goes red. README.md:72 and docs/ARCHITECTURE.md 3b state the boundary that actually ships.",
+      "route": "repair",
+      "route_reason": "Regression introduced by the round-1 repair, and a false claim on a card the user acts on: a position at breakeven is told it is at or past a -15% threshold. Violates the acceptance (a position above the threshold must yield no DECIDE) and makes README.md and docs/ARCHITECTURE.md false in the opposite direction. Orchestrator-verified."
+    }
+  ]
+}

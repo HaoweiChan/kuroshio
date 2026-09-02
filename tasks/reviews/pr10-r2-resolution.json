@@ -1,0 +1,29 @@
+{
+  "pr": 10,
+  "round": 2,
+  "gate_after_repair": "pass - ruff clean, 176 passed",
+  "resolutions": [
+    {
+      "id": "R7",
+      "status": "fixed",
+      "test": "tests/test_allocator.py::test_a_position_short_of_the_threshold_is_never_decided (0.03/0.03, 0.03/0.029, 0.10/0.09, 0.20/0.18, 1.10/0.94 at -15%; 1.00/0.67 at -33.3%); ::test_the_level_the_card_prints_is_the_level_it_enforces extended with sub-dollar entries 0.20/0.17 and 0.60/0.51",
+      "note": "Rule: _trigger_price() computes the level in Decimal and FLOORS it to the cent. Decimal because 6.60 * 0.85 is 5.609999999999999 in binary; floor because half a cent of slop is fixed in absolute terms and therefore unbounded in percentage terms as the entry falls. Why it cannot slip either way: flooring can never put the trigger above the exact threshold (no early fire), and no cent-quoted price can land strictly between the floored cent and the exact level (no late fire), so on any price a market can print `price <= trigger` and `price <= exact level` are the same test. Round 1's `round(price, 2)` and its `level + 1e-9` case were dropped: an epsilon on the price is the same unbounded-percentage slop R7 is about, and price-precision mismatch is now T57's problem (adjusted vs unadjusted closes), which is percent-scale."
+    }
+  ],
+  "rejected": [],
+  "debt_logged": [],
+  "sweeps": {
+    "implementer": "entries 0.01-999.99, four cent prices probed around each trigger (~400k probes). -15%: 4999 on-grid / 95000 off-grid, 0 early, 0 late. -33.3%: 99 on-grid / 99900 off-grid, 0 early, 0 late. `trigger <= exact decimal level` asserted for every entry in both sweeps.",
+    "orchestrator": "Independently re-run over both grids and both directions at -15% and -33.3% (~800k probes total): 0 fires-early, 0 fires-late. This sweep covered the off-cent-level entries that round 1's verification - by the implementer and by the orchestrator alike - excluded, which is why the widened trigger survived that round."
+  },
+  "mutation_proofs": [
+    "nearest-cent rounding (the shipped regression): 4 failed",
+    "ceiling instead of floor: 5 failed",
+    "raw binary product, no Decimal (the R1 bug): 5 failed",
+    "floored binary product, no Decimal: 5 failed",
+    "boundary widened by a cent: 15 failed",
+    "boundary narrowed to strictly-past: 15 failed",
+    "printed level diverges from enforced ({raw product:.2f}): 5 failed - this was an equivalent mutant last round; the new assertion that the fired card's printed level equals details['trigger_price'] kills it at off-cent entries like 1.10 (0.93 vs 0.94)",
+    "R4 guards re-run unchanged: SWAP silent about DECIDE 1, every SWAP claims a decision 19, incumbent_decided hard-coded 1"
+  ]
+}

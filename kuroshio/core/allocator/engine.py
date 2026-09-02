@@ -1,17 +1,20 @@
 """core/allocator — challenger-vs-incumbent swap PROPOSALS.
 
 ARCHITECTURE.md design rule #1: the engine never executes trades. Every path
-through `propose()` ends in a ProposalCard (SWAP / TRIM / ALERT) for a human
+through `propose()` ends in a ProposalCard (SWAP / TRIM / DECIDE / ALERT) for a human
 to act on — that's both the product position ("proposals, not a bot") and the
 regulatory line (advice, not discretionary execution).
 
 v1 logic, in order: theme-budget alerts, hard-cap trims, per-setup_type thesis
-monitoring, then challenger vs weakest-same-or-any-theme incumbent swaps (gated
-by verdict floor + score hurdle, capped at max_swaps_per_week). See
+monitoring, the forced decision at max adverse excursion, then challenger vs
+weakest-same-or-any-theme incumbent swaps (gated by verdict floor + score
+hurdle, capped at max_swaps_per_week). See
 docs/ARCHITECTURE.md `core/allocator`.
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 from kuroshio.core.allocator.signals import MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
@@ -33,6 +36,33 @@ def _price_phrase(price: float, asof: str | None) -> str:
     if asof is None:
         return f"at {price:.2f}"
     return f"at {price:.2f} ({asof} session)"
+
+
+def _entry_price(h) -> float | None:
+    """The holding's entry price, or None when there isn't a usable one.
+
+    One gate for both rules that read it: 0.0 and negatives are not prices — the
+    loss-from-entry rule would divide by one and the reason string would report a move
+    from a number the user never paid (tasks/TODO.md T43)."""
+    return h.entry_price if h.entry_price and h.entry_price > 0 else None
+
+
+def _past_threshold(price: float, entry_price: float, mae_pct: float) -> bool:
+    """Is `price` at or past `mae_pct` from `entry_price`?
+
+    Exact decimal arithmetic, and no rounding of any operand. The binary product is not
+    the level — `6.60 * 0.85` is 5.609999999999999, which holds a position sitting exactly
+    on the user's own threshold — and snapping that level to the cent grid trades the miss
+    for the opposite error: `propose` is handed the panel's float64 closes, not prices a
+    market printed (`allocator/signals.py`, and `providers/yf.py` fetches with
+    auto_adjust=True), so any price between two cents is misjudged in whichever direction
+    the level was snapped.
+
+    `Decimal(str(x))` on all three, never `Decimal(x)`: str gives the shortest decimal that
+    round-trips the float, i.e. the number as written and as printed, while the binary
+    expansion of 6.6 is 6.5999999999999996447... and reintroduces the artifact above.
+    """
+    return Decimal(str(price)) <= Decimal(str(entry_price)) * (1 + Decimal(str(mae_pct)) / 100)
 
 
 def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
@@ -130,40 +160,35 @@ def propose(
     # the invalidation_price the user recorded ends it. A trend_add is the opposite —
     # the trend is the thesis, so a close under the 50-day mean is the exit signal.
     # ponytail: MA50 only. Panel carries close/volume, no high/low, so the spec's ATR
-    # trail needs a data-model change first (tasks/TODO.md T38). Drawdown from entry is
-    # reported on the card, not thresholded: the loss-from-entry threshold is T6's, with
-    # its own IPS key, and two thresholds would be one too many.
-    unmonitored: list[str] = []   # nothing at all is watching these
-    partial: list[str] = []       # watched, but not on every axis their setup has
+    # trail needs a data-model change first (tasks/TODO.md T38).
+    thesis_gap: dict[str, str] = {}   # ticker -> why its setup_type's rule could not run
     # ticker -> what monitoring concluded, for the SWAP card in step 4 to quote.
     thesis_note: dict[str, str] = {}
     for h in holdings:
         if h.setup_type not in MONITORED_SETUPS:
-            why = f"setup_type '{h.setup_type}'" if h.setup_type else "no setup_type"
-            unmonitored.append(f"{h.ticker} ({why})")
+            thesis_gap[h.ticker] = (
+                f"setup_type '{h.setup_type}'" if h.setup_type else "no setup_type"
+            )
             continue
         price = prices.get(h.ticker)
         if price is None:
-            unmonitored.append(f"{h.ticker} ({h.setup_type}, no price for this session)")
+            # the one gap the loss-from-entry rule below shares, so it is worded the same
+            thesis_gap[h.ticker] = "no price for this session"
             continue
+        entry_price = _entry_price(h)
         entry = (
-            f"entry price {h.entry_price:.2f}, now {price / h.entry_price - 1:+.1%} from entry"
-            if h.entry_price  # 0.0 is not a price: unrecorded beats dividing by it
+            f"entry price {entry_price:.2f}, now {price / entry_price - 1:+.1%} from entry"
+            if entry_price
             else "entry price not recorded"
         )
         at = _price_phrase(price, asof)
         if h.setup_type == "trend_add":
             ma = ma50.get(h.ticker)
             if ma is None:
-                unmonitored.append(
-                    f"{h.ticker} (trend_add, no MA50 — fewer than {MA_TREND} traded sessions)"
+                thesis_gap[h.ticker] = (
+                    f"no MA50 for its trend_add — fewer than {MA_TREND} traded sessions"
                 )
                 continue
-            if h.entry_price is None:
-                partial.append(
-                    f"{h.ticker} (trend_add, no entry_price — the MA50 break is watched, "
-                    f"drawdown from entry is not)"
-                )
             if price >= ma:
                 thesis_note[h.ticker] = (
                     f"its trend is intact — {at}, at or above its 50-day moving "
@@ -178,8 +203,8 @@ def propose(
             details = {"ma50": ma}
         else:  # value_dip | pullback_add — the recorded level, never MA distance
             if h.invalidation_price is None:
-                unmonitored.append(
-                    f"{h.ticker} ({h.setup_type}, no invalidation_price — nothing to breach)"
+                thesis_gap[h.ticker] = (
+                    f"no invalidation_price for its {h.setup_type} — nothing to breach"
                 )
                 continue
             if price > h.invalidation_price:
@@ -201,26 +226,91 @@ def propose(
             reason=reason,
             details={
                 "ticker": h.ticker, "setup_type": h.setup_type,
-                "entry_price": h.entry_price, "price": price, "asof": asof, **details,
+                "entry_price": entry_price, "price": price, "asof": asof, **details,
             },
         ))
-    # Only when the portfolio is actually using thesis monitoring: with no setup_type
-    # anywhere, no position can look watched, and a pre-T3 holdings file gets its cards
-    # unchanged. Mixed coverage is the dangerous case — that is what this names.
-    # A partially-monitored position is not an unwatched one: its rule did run, on the
-    # axes it had data for, and the same run may well have alerted on it. Claiming "this
-    # run says nothing about it either way" over both groups made two cards contradict
-    # each other about one ticker, so each group now states its own claim.
-    if (unmonitored or partial) and any(h.setup_type in MONITORED_SETUPS for h in holdings):
-        said = [f"{len(unmonitored) + len(partial)} position(s) are not fully thesis-monitored."]
+
+    # 3b. max adverse excursion (Freeman-Shor): a loss this size forces a decision, and
+    # dispatches on nothing — any position with an entry price can be far enough under
+    # water, whatever setup opened it, or none. Built after the loop above so it can quote
+    # what that loop concluded about the same ticker instead of talking past it.
+    # ponytail: this session's price against entry, not the worst price since entry — a
+    # position that fell past the threshold and recovered is not decided on. Equal to the
+    # real excursion only for someone who runs propose the day of the low; the low itself
+    # needs panel history sliced from entry_date (tasks/TODO.md T52).
+    mae_gap: dict[str, str] = {}   # ticker -> why the loss-from-entry rule could not run
+    decided: dict[str, str] = {}   # ticker -> its loss, for the SWAP card in step 4 to quote
+    mae_pct = ips.caps.max_adverse_excursion_pct
+    decisions: list[ProposalCard] = []
+    for h in holdings:
+        price, entry_price = prices.get(h.ticker), _entry_price(h)
+        if price is None:
+            mae_gap[h.ticker] = "no price for this session"
+            continue
+        if entry_price is None:
+            mae_gap[h.ticker] = (
+                "no entry_price" if h.entry_price is None
+                else f"entry_price {h.entry_price} is not a price"
+            ) + ", so the loss from entry is not watched"
+            continue
+        if not _past_threshold(price, entry_price, mae_pct):
+            continue
+        note = thesis_note.get(h.ticker)
+        decided[h.ticker] = f"{price / entry_price - 1:+.1%}"
+        decisions.append(ProposalCard(
+            action="DECIDE",
+            reason=(
+                f"{h.ticker} is {price / entry_price - 1:+.1%} from your entry price of "
+                f"{entry_price:.2f}, {_price_phrase(price, asof)} — at or past your IPS max "
+                f"adverse excursion of {mae_pct:.1f}%. "
+                f"Decide: kill it, add to it per the plan you opened it with, or "
+                f"rewrite the thesis and record the new one. Holding it unchanged is not "
+                f"one of the three."
+                + (
+                    f" Monitoring checked {h.ticker} this run: it is a {h.setup_type} "
+                    f"and {note}." if note else ""
+                )
+            ),
+            ips_clauses=["caps.max_adverse_excursion_pct"],
+            details={
+                "ticker": h.ticker, "entry_price": entry_price, "price": price, "asof": asof,
+                "drawdown": price / entry_price - 1, "threshold_pct": mae_pct,
+            },
+        ))
+
+    # 3c. coverage. Two rules watch a position — its setup_type's and the loss-from-entry
+    # one — so a position is fully watched, partly watched, or watched by neither, and the
+    # three say different things. A partially-monitored position is not an unwatched one:
+    # the same run may well have alerted on it, and claiming "this run says nothing about
+    # it either way" over both groups made two cards contradict each other about one
+    # ticker. Emitted only when something is actually being watched, so a holdings file
+    # with no setup_type and no entry_price anywhere gets its cards unchanged.
+    unmonitored: list[str] = []   # nothing at all is watching these
+    partial: list[str] = []       # watched, but not on every axis they have
+    watching_anything = False
+    for h in holdings:
+        why = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
+        watching_anything |= len(why) < 2
+        if not why:
+            continue
+        # dict.fromkeys: both rules read the session price, so a position without one
+        # states that reason once.
+        item = f"{h.ticker} ({'; '.join(dict.fromkeys(why))})"
+        (partial if len(why) == 1 else unmonitored).append(item)
+    if (unmonitored or partial) and watching_anything:
+        said = [f"{len(unmonitored) + len(partial)} position(s) are not fully monitored."]
         if unmonitored:
             said.append(
-                f"Nothing is watching {', '.join(unmonitored)}: monitoring dispatches on "
-                f"setup_type, and a position missing the fields its rule reads gets no "
-                f"thesis check — this run says nothing about those either way."
+                f"Nothing is watching {', '.join(unmonitored)}: the thesis rule dispatches "
+                f"on setup_type and the loss-from-entry rule needs an entry price, and a "
+                f"position missing what a rule reads gets no check from it — this run says "
+                f"nothing about those either way."
             )
         if partial:
-            said.append(f"Partly watched: {', '.join(partial)}.")
+            said.append(
+                f"Partly watched: one of the two rules ran on each of these this session "
+                f"and the other could not — {', '.join(partial)}."
+            )
         alerts.append(ProposalCard(
             action="ALERT",
             reason=" ".join(said),
@@ -294,6 +384,15 @@ def propose(
                 f"{incumbent.setup_type} and {note}."
                 if note else ""
             )
+            # Selling a position this run already forced a decision on is one of that
+            # card's three options, not a fourth: without this the same run told the user
+            # to add to it per plan and to sell it, with neither card naming the other.
+            if incumbent.ticker in decided:
+                bridge += (
+                    f" {incumbent.ticker} is also {decided[incumbent.ticker]} from its "
+                    f"entry price and has a DECIDE card above: this SWAP is the 'kill it' "
+                    f"option on that card, not a fourth one."
+                )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
@@ -315,6 +414,7 @@ def propose(
                     "auto_scored": auto,
                     "incumbent_setup_type": incumbent.setup_type,
                     "incumbent_thesis": note,
+                    "incumbent_decided": incumbent.ticker in decided,
                 },
             ))
 
@@ -334,4 +434,6 @@ def propose(
             details={"suppressed_count": len(suppressed)},
         ))
 
-    return alerts + trims + kept
+    # decisions after alerts: a DECIDE quotes the thesis ALERT above it ("see the ALERT
+    # above") when the same run broke that position's thesis.
+    return alerts + decisions + trims + kept

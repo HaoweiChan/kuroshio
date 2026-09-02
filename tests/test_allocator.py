@@ -514,3 +514,303 @@ def test_the_card_names_the_session_and_claims_nothing_about_its_state(days_from
     assert "closed at" not in card.reason
     assert "still-open" not in card.reason
     assert card.details["asof"] == asof
+
+
+# --- T6: forced decision card at max adverse excursion -------------------------
+#
+# The rule dispatches on nothing: any position with an entry price can be far enough
+# underwater to force a decision, whatever setup opened it.
+
+
+def decides(cards) -> list[ProposalCard]:
+    return [c for c in cards if c.action == "DECIDE"]
+
+
+def loser(price: float, entry: float = 100.0, **kw) -> tuple[list[Holding], dict[str, float]]:
+    kw.setdefault("score", 0.5)
+    return [Holding(ticker="LOSER", weight=0.05, entry_price=entry, **kw)], {"LOSER": price}
+
+
+def test_a_position_past_the_mae_threshold_gets_exactly_one_decide_card():
+    """Acceptance clause 1: below the threshold -> exactly one DECIDE card citing the
+    IPS clause. Its whole text is pinned, not a substring: the card's job is to refuse
+    the fourth option, so any re-wording that softens that must go red."""
+    holdings, prices = loser(80.0)  # -20% from entry, past the default -15%
+    cards = propose(holdings, [], make_ips(), "us", prices=prices, asof="2026-08-27")
+
+    assert len(decides(cards)) == 1
+    card = decides(cards)[0]
+    assert card.ips_clauses == ["caps.max_adverse_excursion_pct"]
+    assert card.details == {
+        "ticker": "LOSER", "entry_price": 100.0, "price": 80.0, "asof": "2026-08-27",
+        "drawdown": pytest.approx(-0.20), "threshold_pct": -15,
+    }
+    # no reconstructed trigger price: the card states the loss, the entry, the price it
+    # read and the threshold it compared them against — every number the rule used.
+    assert card.reason == (
+        "LOSER is -20.0% from your entry price of 100.00, at 80.00 (2026-08-27 session) "
+        "— at or past your IPS max adverse excursion of -15.0%. Decide: kill it, add to it "
+        "per the plan you opened it with, or rewrite the thesis and record the new one. "
+        "Holding it unchanged is not one of the three."
+    )
+    assert card.to_markdown().splitlines()[0] == "### DECIDE LOSER"
+
+
+def test_a_position_above_the_mae_threshold_gets_no_decide_card():
+    """Acceptance clause 2 — and a winner is not a loser: both sides of zero."""
+    for price in (86.0, 100.0, 140.0):
+        holdings, prices = loser(price)
+        assert decides(propose(holdings, [], make_ips(), "us", prices=prices)) == []
+
+
+def test_the_mae_threshold_is_read_from_the_ips():
+    """Acceptance clause 3: the same position at the same price decides or does not,
+    purely on the IPS number."""
+    holdings, prices = loser(80.0)
+    wide = make_ips(**{"caps.max_adverse_excursion_pct": -30})
+    tight = make_ips(**{"caps.max_adverse_excursion_pct": -5})
+
+    assert decides(propose(holdings, [], wide, "us", prices=prices)) == []
+    # no asof: the card names the price and no session (T49's branch, on this card)
+    assert "of 100.00, at 80.00 — at or past" in decides(
+        propose(holdings, [], make_ips(), "us", prices=prices)
+    )[0].reason
+    tight_card = decides(propose(holdings, [], tight, "us", prices=prices))
+    assert len(tight_card) == 1
+    assert "max adverse excursion of -5.0%." in tight_card[0].reason
+
+
+def test_a_position_exactly_at_the_mae_threshold_decides():
+    """The boundary, pinned: the threshold is a level the position may not close past,
+    so touching it is past it. The comparison is against the trigger price the card
+    prints (entry x (1 + pct/100)), never a re-derived ratio — see T15 for what the
+    round trip through a ratio does to an exact boundary."""
+    holdings, prices = loser(85.0)  # exactly -15% of a 100.00 entry
+    assert len(decides(propose(holdings, [], make_ips(), "us", prices=prices))) == 1
+    holdings, prices = loser(85.01)
+    assert decides(propose(holdings, [], make_ips(), "us", prices=prices)) == []
+
+
+def test_the_mae_rule_reads_no_setup_type():
+    """A loss is a loss: the same drawdown decides under every setup_type and under
+    none. The trend_add case is T41's shape — deep underwater, still above its MA50,
+    silent until this card."""
+    for setup in ("value_dip", "pullback_add", "trend_add", "other", None):
+        holdings, prices = loser(60.0, setup_type=setup, invalidation_price=1.0)
+        cards = propose(
+            holdings, [], make_ips(), "us", prices=prices, ma50={"LOSER": 50.0}
+        )
+        assert len(decides(cards)) == 1, setup
+        assert thesis_alerts(cards) == {}, setup  # no thesis rule fired: this is the MAE card alone
+
+
+def test_positions_the_mae_rule_cannot_judge_are_named_not_dropped():
+    """No entry_price, a non-positive one, or no price this session — none of the three
+    can be judged, so none of the three gets a DECIDE, and all three are named on the
+    same coverage card T5 already emits rather than on a second one."""
+    holdings = [
+        Holding(ticker="WATCHED", weight=0.05, score=0.5, entry_price=100.0),
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5),
+        Holding(ticker="ZEROENTRY", weight=0.05, score=0.5, entry_price=0.0),
+        # a trend_add so that *both* rules are stopped by the one missing price
+        Holding(ticker="NOPRICE", weight=0.05, score=0.5, entry_price=100.0, setup_type="trend_add"),
+    ]
+    prices = {"WATCHED": 50.0, "NOENTRY": 50.0, "ZEROENTRY": 50.0}
+    cards = propose(holdings, [], make_ips(), "us", prices=prices)
+
+    assert [c.details["ticker"] for c in decides(cards)] == ["WATCHED"]
+    gaps = [c for c in cards if c.details.get("unmonitored")]
+    assert len(gaps) == 1
+    assert set(gaps[0].details["unmonitored"]) == {"NOENTRY", "ZEROENTRY", "NOPRICE"}
+    assert gaps[0].details["partially_monitored"] == ["WATCHED"]  # judged on its loss only
+    assert (
+        "NOENTRY (no setup_type; no entry_price, so the loss from entry is not watched)"
+        in gaps[0].reason
+    )
+    # 0.0 is not "unrecorded": the card says what it found rather than what it wishes for
+    assert "ZEROENTRY (no setup_type; entry_price 0.0 is not a price," in gaps[0].reason
+    # both rules read the session price, and a position without one states that once
+    assert "NOPRICE (no price for this session)" in gaps[0].reason
+
+    # one gate, both rules: a 0.0 entry reads as "not recorded" on the thesis card too,
+    # and reaches details as None rather than as a price the run divided by (T43).
+    zero = propose(
+        [Holding(ticker="Z", weight=0.05, score=0.5, setup_type="trend_add", entry_price=0.0)],
+        [], make_ips(), "us", prices={"Z": 90.0}, ma50={"Z": 100.0},
+    )
+    assert "entry price not recorded" in thesis_alerts(zero)["Z"].reason
+    assert thesis_alerts(zero)["Z"].details["entry_price"] is None
+
+
+def test_a_position_watched_only_by_the_mae_rule_is_not_called_unwatched():
+    """The contradiction guard. Before T6 nothing watched a `setup_type: other`, and the
+    coverage card said so. It is watched now, so it moves to the partly-watched group —
+    one run must not claim both that a position is unwatched and that it must be decided
+    on today."""
+    holdings = [
+        Holding(ticker="OPTOUT", weight=0.05, score=0.5, setup_type="other", entry_price=100.0),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+    ]
+    cards = propose(holdings, [], make_ips(), "us", prices={"OPTOUT": 50.0, "LEGACY": 50.0})
+
+    assert [c.details["ticker"] for c in decides(cards)] == ["OPTOUT"]
+    gap = next(c for c in cards if c.details.get("unmonitored") or c.details.get("partially_monitored"))
+    assert gap.details["unmonitored"] == ["LEGACY"]
+    assert gap.details["partially_monitored"] == ["OPTOUT"]
+    assert gap.reason.startswith("2 position(s) are not fully monitored.")  # both groups counted
+    blanket, partly = gap.reason.split("Partly watched")
+    assert "OPTOUT" not in blanket
+
+    # and with nothing unwatched, the card is the partly-watched sentence alone
+    only_partial = next(
+        c for c in propose(holdings[:1], [], make_ips(), "us", prices={"OPTOUT": 50.0})
+        if c.details.get("partially_monitored")
+    )
+    assert only_partial.reason == (
+        "1 position(s) are not fully monitored. Partly watched: one of the two rules ran "
+        "on each of these this session and the other could not — OPTOUT (setup_type 'other')."
+    )
+
+
+def test_the_decide_card_quotes_what_thesis_monitoring_concluded():
+    """A position can be past the threshold and in breach of its invalidation price at
+    once. Both cards ship — they answer different questions — so the DECIDE quotes step
+    3's conclusion instead of the two cards talking past each other about one ticker."""
+    breached = [h for h in thesis_portfolio() if h.ticker == "DIP"]  # entry 100, invalidation 85
+    cards = propose(breached, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50)
+    assert set(thesis_alerts(cards)) == {"DIP"}
+    card = decides(cards)[0]
+    assert card.reason.endswith(
+        " Monitoring checked DIP this run: it is a value_dip and its thesis broke this "
+        "run — see the ALERT above."
+    )
+    assert cards.index(thesis_alerts(cards)["DIP"]) < cards.index(card)  # "above" is true
+
+    intact = [Holding(
+        ticker="DIP", weight=0.05, score=0.2, setup_type="value_dip",
+        entry_price=100.0, invalidation_price=70.0,
+    )]
+    cards = propose(intact, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50)
+    assert thesis_alerts(cards) == {}
+    assert decides(cards)[0].reason.endswith(
+        " Monitoring checked DIP this run: it is a value_dip and its invalidation price "
+        "of 70.00 is not breached — at 84.00."
+    )
+
+
+def test_a_pre_t3_portfolio_still_gets_no_cards_at_all():
+    """No entry_price anywhere -> the MAE rule is not in use either, so the coverage
+    card stays off exactly as it did before T6."""
+    holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
+    assert propose(holdings, [], make_ips(), "us", prices={"OK": 10.0}) == []
+
+
+# --- PR #10 round 1 repairs ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,level",
+    [(6.60, 5.61), (9.00, 7.65), (13.00, 11.05), (18.00, 15.30), (3.40, 2.89), (100.00, 85.00),
+     (0.20, 0.17), (0.60, 0.51)],  # sub-dollar, where a half-cent of slop is percentage points
+)
+def test_a_price_exactly_at_the_threshold_decides(entry, level):
+    """R1: `entry x 0.85` lands a hair under the exact -15% price for most entries —
+    6.60 gives 5.609999999999999 — so a position sitting exactly on its own threshold was
+    silently held. The comparison is exact decimal arithmetic, so these all decide."""
+    holdings, prices = loser(level, entry=entry)
+    assert len(decides(propose(holdings, [], make_ips(), "us", prices=prices))) == 1, (
+        f"{entry} -> {level} is exactly -15% from entry and must decide"
+    )
+    # and not by widening the rule: a cent above the level is short of it
+    holdings, prices = loser(round(level + 0.01, 2), entry=entry)
+    assert decides(propose(holdings, [], make_ips(), "us", prices=prices)) == []
+
+
+def test_a_decided_incumbent_is_not_told_to_add_and_sold_in_the_same_run():
+    """R4: the same position getting "add to it per the plan" and "sell it to fund NEW"
+    from one run, with neither card mentioning the other. Selling is one of the three
+    options, not a fourth — the SWAP card has to say which."""
+    holdings = [
+        Holding(ticker="LOSER", weight=0.05, theme="t", score=0.2, entry_price=100.0),
+        Holding(ticker="OK", weight=0.05, score=0.9),
+    ]
+    cards = propose(
+        holdings, [cand("NEW", 0.9)], make_ips(), "us",
+        verdicts={"NEW": "buy"}, themes={"NEW": "t"}, prices={"LOSER": 70.0},
+    )
+    decide = decides(cards)[0]
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "LOSER"
+    assert cards.index(decide) < cards.index(swap)  # "above" is true
+    assert swap.reason.endswith(
+        " LOSER is also -30.0% from its entry price and has a DECIDE card above: this "
+        "SWAP is the 'kill it' option on that card, not a fourth one."
+    )
+    assert swap.details["incumbent_decided"] is True
+    # and an incumbent nobody decided on says nothing of the sort
+    plain = propose(
+        [Holding(ticker="LOSER", weight=0.05, theme="t", score=0.2, entry_price=100.0),
+         Holding(ticker="OK", weight=0.05, score=0.9)],
+        [cand("NEW", 0.9)], make_ips(), "us",
+        verdicts={"NEW": "buy"}, themes={"NEW": "t"}, prices={"LOSER": 95.0},
+    )
+    plain_swap = next(c for c in plain if c.action == "SWAP")
+    assert "DECIDE" not in plain_swap.reason
+    assert plain_swap.details["incumbent_decided"] is False
+
+
+# --- PR #10 round 2 repair -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,price,pct,loss",
+    [
+        (0.03, 0.030, -15, "+0.0%"),    # breakeven: the exact level is 0.0255
+        (0.03, 0.029, -15, "-3.3%"),
+        (0.10, 0.090, -15, "-10.0%"),
+        (0.20, 0.180, -15, "-10.0%"),
+        (1.10, 0.940, -15, "-14.5%"),   # exact level 0.935 — the cent above it is not past it
+        (1.00, 0.670, -33.3, "-33.0%"),
+    ],
+)
+def test_a_position_short_of_the_threshold_is_never_decided(entry, price, pct, loss):
+    """R7: rounding the trigger *up* to the cent widened the rule by half a cent, which is
+    a fixed absolute slop and therefore unbounded in percentage terms as the entry price
+    falls — a position at breakeven was handed a card reading "+0.0% ... at or past your
+    IPS max adverse excursion of -15.0%". The trigger may never be above the exact level."""
+    ips = make_ips(**{"caps.max_adverse_excursion_pct": pct})
+    holdings, prices = loser(price, entry=entry)
+    cards = decides(propose(holdings, [], ips, "us", prices=prices))
+    assert cards == [], f"{loss} is short of {pct}% and must not be decided"
+
+    # the rule is still live at this entry: the next cent down is past the level
+    holdings, prices = loser(round(price - 0.01, 2), entry=entry)
+    assert len(decides(propose(holdings, [], ips, "us", prices=prices))) == 1
+
+
+# --- PR #10 round 3 repair -----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "entry,price,loss,fires",
+    [
+        # R8: the panel hands `propose` float64 closes, not prices a market printed —
+        # providers/yf.py fetches with auto_adjust=True. A level rounded to any grid
+        # cannot judge these, and every one of the first three is past the threshold.
+        (3.77, 3.2044, "-15.003%", True),   # exact level 3.2045
+        (1.10, 0.9349, "-15.009%", True),   # exact level 0.935
+        (0.03, 0.0255, "-15.000%", True),   # exact level 0.0255 — sub-cent, and exactly on it
+        (3.77, 3.2046, "-14.997%", False),
+        (1.10, 0.9351, "-14.991%", False),
+        (0.03, 0.0256, "-14.667%", False),
+        # a hair *above* the level, not on it: 5.61 * (1 + 1e-15). Its loss is
+        # -14.999999999999982%, so it is short of the threshold and must not fire —
+        # making it fire needs a tolerance, which is the slop rounds 1-3 were about.
+        (6.60, 5.610000000000001, "-15.000%", False),
+        (6.60, 5.61, "-15.000%", True),     # the same level, exactly
+    ],
+)
+def test_a_non_cent_price_is_judged_against_the_exact_level(entry, price, loss, fires):
+    holdings, prices = loser(price, entry=entry)
+    cards = decides(propose(holdings, [], make_ips(), "us", prices=prices))
+    assert bool(cards) is fires, f"entry {entry}, price {price} ({loss} from entry)"

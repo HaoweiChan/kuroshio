@@ -14,19 +14,7 @@ Background and rationale for T1–T10: [docs/PORTFOLIO-PLAN.md](../docs/PORTFOLI
 
 ## Queue
 
-### T5 — Thesis-aware alert rules per setup_type [status: pr]
-Depends: T3
-Spec: today the only ranking axis is MA distance, so value_dip and pullback_add
-positions are structurally the "weakest incumbent" and get proposed for sale.
-Dispatch monitoring on setup_type: trend_add alerts on trend break (close < MA50
-or ATR trail) and drawdown-from-entry; value_dip and pullback_add alert on
-breach of invalidation_price, never on MA distance alone. Cards must cite the
-setup_type and entry_price in the reason string.
-Acceptance: fixture portfolio with one position per setup_type: the trend_add
-alerts on an MA break, the value_dip does not, and the value_dip alerts on an
-invalidation breach; every card names its setup_type.
-
-### T6 — Forced decision card at max adverse excursion [status: todo]
+### T6 — Forced decision card at max adverse excursion [status: pr]
 Depends: T3
 Spec: Freeman-Shor discipline — at a configurable loss-from-entry threshold
 (IPS key, default -15%), emit a DECIDE card: kill / add-per-plan / rewrite
@@ -452,7 +440,7 @@ way, the reason string must say why that incumbent was picked, and the existing
 `test_theme_breach_alert_and_same_theme_swap_constraint` style coverage must
 still pass for holdings with no setup_type.
 
-### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: todo]
+### T40 — Dip setups do not report a missing entry_price the way trend_add does [status: done]
 Priority: P2
 Origin: PR #9 R2
 Spec: engine.py:126-131 builds `entry` = "entry price not recorded"; the trend_add branch
@@ -465,6 +453,9 @@ invalidation_price and entry_price=None.
 Acceptance: either the dip branch lists a missing entry_price on the coverage card the
 same way trend_add does, or the asymmetry is a stated rule in docs/ARCHITECTURE.md; a
 test pins whichever is intended.
+Update (T6 shipped): resolved the first way and for every setup at once — a missing
+entry_price is now the loss-from-entry rule's gap, listed on the coverage card whatever
+opened the position, pinned by test_positions_the_mae_rule_cannot_judge_are_named_not_dropped.
 
 ### T41 — Drawdown-from-entry, T5's second trend_add trigger, is not implemented [status: todo]
 Priority: P2
@@ -480,6 +471,10 @@ gap is a numbered deferral rather than a code comment.
 Acceptance: the drawdown trigger ships with a threshold owned by T6's IPS key; until then
 a trend_add at any loss above its MA50 is silent, and that is stated where the monitoring
 rules are documented.
+Update (T6 shipped): `caps.max_adverse_excursion_pct` exists and reads no setup_type, so
+that same trend_add now gets a DECIDE card — it is no longer silent, and T41 needs no
+second key. What is left is whether the *trend_add ALERT* should also fire on drawdown,
+i.e. whether one position deserves both cards at a threshold it already decided on.
 
 ### T42 — Both thesis comparison boundaries are unpinned [status: todo]
 Priority: P2
@@ -493,7 +488,7 @@ the core dispatch itself is properly pinned.)
 Acceptance: one case with `price == invalidation_price` asserting the alert fires and one
 with `price == ma50` asserting whichever the docs say; both mutations go red.
 
-### T43 — entry_price 0.0 falls between two disagreeing gates [status: todo]
+### T43 — entry_price 0.0 falls between two disagreeing gates [status: done]
 Priority: P3
 Origin: PR #9 R8
 Spec: engine.py:126-131 gates the entry string on truthiness (`if h.entry_price`) while
@@ -505,6 +500,9 @@ entry_price sign or zero.
 Acceptance: the two gates agree — either a non-positive entry_price is rejected at parse
 time with a message naming the key, or both places use the same test so the position
 lands on the coverage card.
+Update (T6 shipped): resolved the second way — `engine._entry_price(h)` is the one gate
+both rules read, and a 0.0 entry lands on the coverage card naming the value it found.
+The parser still accepts it (cli.py:51 validates setup_type only).
 
 ### T44 — MA50 now skips suspension holes and can average a stale window [status: todo]
 Priority: P3
@@ -522,7 +520,7 @@ calendar sessions is named on the coverage card with that reason, or the toleran
 is bounded (skip at most N holes) — pinned by a test with a long gap inside the
 window.
 
-### T45 — Coverage card's headline count is unpinned [status: todo]
+### T45 — Coverage card's headline count is unpinned [status: done]
 Priority: P3
 Origin: PR #9 R11
 Spec: engine.py:215 prints
@@ -532,6 +530,9 @@ Mutating it to `len(unmonitored)` alone leaves the suite at 145 passed:
 and one partial position and asserts both group lists and the split wording, but never
 the count — so the card would read "1 position(s)" while naming two.
 Acceptance: one assertion on the count in the mixed-group case; the mutation goes red.
+Update (T6 shipped): done while rewriting that line —
+test_a_position_watched_only_by_the_mae_rule_is_not_called_unwatched asserts the count,
+and the `len(unmonitored)` mutation goes red.
 
 ### T46 — monitor_inputs' history threshold has an unpinned boundary [status: todo]
 Priority: P3
@@ -601,4 +602,175 @@ Spec: the tests that keep PR #9's R6/R9 fix honest assert `"closed at" not in ..
 The guard is against two spellings, not against the class of claim.
 Acceptance: a positive full-phrase equality on the price clause of `card.reason`, so any
 added adjective goes red rather than only the two spellings that were shipped.
+
+
+### T51 — A decided position gets the same DECIDE card on every run [status: todo]
+Priority: P2
+Origin: T6
+Spec: nothing records that the user actually decided. A position 20% under entry emits an
+identical DECIDE card every run until the holdings file changes, and the only edits that
+silence it are lies (raise `entry_price`) or amputations (delete it, which also stops the
+thesis rule). "No silent holding of losers" then decays into a card the user learns to
+scroll past — the exact failure the Freeman-Shor discipline is about. Needs somewhere to
+record the decision and when it was made (a field on `Holding`, or the ledger T10 wants
+anyway), after which the card returns only when the loss deepens materially.
+Acceptance: a position whose decision is recorded produces no DECIDE card at the same
+loss, and a fresh one once it is materially further under water; one test per half.
+
+### T52 — The MAE key measures this session's loss, not the worst one [status: todo]
+Priority: P2
+Origin: T6
+Spec: `caps.max_adverse_excursion_pct` is compared against the latest session price
+(`core/allocator/engine.py` step 3b), so a position that fell to -25% from entry and
+recovered to -5% is never decided on, though its max adverse excursion was -25%. Latest
+price vs entry equals MAE only for someone who runs `propose` on the day of the low; a
+weekly runner silently misses the decisions the discipline exists to force. The true
+number needs the minimum close since `entry_date` — panel history sliced per position,
+the same data-model shape T38/T44 already need. The card text says what it measured
+("is -20.0% from your entry price of ..."); it is the key's name that promises more.
+Acceptance: either the threshold is compared against the low since `entry_date`, or the
+key and docs stop calling it the max adverse excursion; a test with a recovered position
+pins whichever is intended.
+
+### T53 — DECIDE's "add" option carries no size [status: todo]
+Priority: P3
+Depends: T7
+Origin: T6
+Spec: the DECIDE card offers "add to it per the plan you opened it with" and names no
+number, because nothing in the repo computes a target weight yet. T7's acceptance covers
+TRIM and SWAP cards only, so the DECIDE card would be left as the one card that names an
+action with no size.
+Acceptance: T7's sizing also reaches the DECIDE card's add option, or the card says why
+it cannot size it; one test.
+
+### T54 — The MAE validator's bool guard is unpinned [status: todo]
+Priority: P3
+Origin: PR #10 R2
+Spec: parser.py:123 `if isinstance(mae, bool) or not isinstance(mae, (int, float)):` is
+correct but guarded by no test — tests/test_ips.py::test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type
+exercises None, "-15", abc and .nan, never a boolean. Removing the bool clause leaves the
+suite at 161 passed, and `max_adverse_excursion_pct: true` then reports the *range*
+message instead of the type message (True == 1) — the exact T18 shape the validator's own
+docstring says it avoids.
+Acceptance: a case asserting `true` (and `false`) produces the "must be a number, not
+bool" message and not the range message; the guard-removal mutation goes red.
+
+### T55 — The positivity half of _entry_price is unpinned [status: todo]
+Priority: P3
+Origin: PR #10 R3
+Spec: engine.py:44 `return h.entry_price if h.entry_price and h.entry_price > 0 else None`
+and docs/ARCHITECTURE.md 3b state that a zero or negative entry_price is treated as
+absent, but only 0.0 is tested. Mutating the line to drop `and h.entry_price > 0` leaves
+the suite at 161 passed while `entry_price=-5.0` then produces no DECIDE, vanishes from
+the coverage card entirely (it reads as fully watched), and prints "entry price -5.00,
+now -1100.0% from entry" on the thesis card.
+Acceptance: a case with `entry_price=-5.0` asserts no DECIDE, the coverage card naming it,
+and `details['entry_price'] is None` on the thesis card; the mutation goes red.
+
+### T56 — A quoted entry_price now crashes propose for every position [status: todo]
+Priority: P2
+Origin: PR #10 R5
+Spec: T6's `_entry_price` gate evaluates `h.entry_price > 0` for every holding, so
+`entry_price: "100.0"` in holdings.yml raises a bare `TypeError: '>' not supported
+between instances of 'str' and 'int'`. Before T6 a position with no monitored setup_type
+was skipped by step 3 entirely and never reached the comparison, so this widens an
+existing crash surface. `_holdings_from_yaml` (cli.py:44-64) validates key names and
+setup_type but never field types — the same gap T22 records for the coercion side.
+Acceptance: either the holdings loader rejects a non-numeric entry_price with a message
+naming the ticker and key (folding in T22), or `_entry_price` treats a non-number as
+absent; one test on a quoted-price holdings file.
+
+### T57 — Entry prices are unadjusted, provider closes are not [status: todo]
+Priority: P1
+Origin: PR #10 R7 (reviewer note)
+Spec: providers/yf.py:52 fetches with `auto_adjust=True`, so every US price reaching
+`propose` is a split/dividend-adjusted close, while `entry_price` is hand-typed into
+holdings.yml and is not adjusted. Every rule that compares the two — T5's MA50 break and
+invalidation breach, T6's MAE trigger and its printed drawdown — is skewed across any
+split or dividend since entry, silently and in a direction nobody is told about. A 2:1
+split alone puts a healthy position at -50% from entry. Adjusted closes are also not on
+the cent grid, so the `ponytail:` comment at the MAE comparison ("US and TW both quote in
+cents") is not true of what this code actually receives; TW is safe on the cent question
+specifically (TWSE tick sizes are all multiples of 0.01), so the tick-size upgrade path
+that comment names does not address the adjusted-close half.
+Acceptance: entry-relative rules compare like with like — either entry prices are adjusted
+onto the same basis as the panel, or the position is flagged when a corporate action has
+occurred since entry_date rather than silently mis-measured; a test with a split between
+entry_date and the panel's last session pins the chosen behaviour.
+
+### T58 — The floored trigger enforces a deeper cap than the IPS names for cheap names [status: done]
+Priority: P2
+Origin: PR #10 R8 (reviewer note 2)
+Spec: flooring the trigger to the cent is a fixed absolute step, so for entries under about
+0.07 the enforced threshold is materially deeper than the configured one: entry 0.03 at a
+-15% cap enforces 0.02, i.e. -33.3%. The card prints the floored level honestly, but the
+cap actually enforced is not the one the IPS names. At the extreme, entry 1e-5, or any
+entry under a -99.99% cap, floors the trigger to 0.00 and the rule can never fire for any
+positive price. Dissolves entirely if the comparison moves to the exact Decimal level
+(branch (a) of R8's acceptance).
+Acceptance: the enforced threshold equals the configured one at every entry price, or the
+divergence is stated on the card and bounded; a case at entry 0.03 pins it.
+Update (PR #10 R8 repair): dissolved. The floor is gone — `engine._past_threshold` compares
+the exact Decimal level, so entry 0.03 at a -15% cap enforces -15% (fires at 0.0255, not at
+0.02), pinned by test_a_non_cent_price_is_judged_against_the_exact_level.
+
+### T59 — _trigger_price crashes on an absurd entry price instead of refusing it [status: done]
+Priority: P3
+Origin: PR #10 R8 (reviewer note 1)
+Spec: `_trigger_price` raises an uncaught `decimal.InvalidOperation` for an entry_price at
+or above about 1e27 (the 28-digit default context, quantized to 0.01) rather than routing
+through the loader's "not a price" path like a zero or negative entry does. Absurd input,
+but the outcome is a traceback, not a card or a named coverage entry.
+Acceptance: an out-of-range entry_price is refused the way a non-positive one is — named on
+the coverage card, or rejected at parse time with a message naming the ticker and key.
+Update (PR #10 R8 repair): dissolved. The `quantize` that raised it is gone with the floored
+trigger; entry_price 1e27, 1e30 and 1e300 now produce a card instead of a traceback. The
+loader still does not validate the magnitude, which is the half of this nobody needs yet.
+
+
+### T60 — Card price precision does not survive the comparison that fired the card [status: todo]
+Priority: P1
+Origin: PR #10 R8 repair, PR #10 R9 (merged as named debt at the round-4 circuit breaker)
+Spec: cards print prices at two decimals (`_price_phrase`, and the entry price beside it),
+which is right for every name a user is likely to hold and collapses for penny ones: a
+correct card for entry 0.03 at price 0.0255 reads "X is -15.0% from your entry price of
+0.03, at 0.03" — the same shape as the breakeven card R7 was about, though the numbers
+behind it are right and the stated -15.0% is exact. The rule itself is precision-clean
+since the R8 repair; only the display is coarse. `_price_phrase` is shared with T5's thesis
+cards, so widening it is a change to every card, not just this one.
+R9 is the sharper half of the same defect and the reason this is P1, not P3. Once the R8
+repair made off-cent prices fire, the two-decimal display began contradicting the verdict
+printed beside it: entry 1.10 / price 0.935 emits `LOSER is -15.0% from your entry price
+of 1.10, at 0.94 - at or past your IPS max adverse excursion of -15.0%`, and 0.94 from
+1.10 is -14.55%. `details['price']` is 0.935, so the structured field and the reason text
+denote different numbers. Same at entry 0.30 / price 0.255 (`at 0.26`, -13.3%). Both were
+NO CARD before that repair, so the card shape is new. The verdict is correct in every
+case; what is wrong is a restated number beside it.
+Two stale test comments belong to this fix, found in the round-4 review:
+tests/test_allocator.py:806-808 describes 5.610000000000001 as `5.61 * (1 + 1e-15)` when it
+is `math.nextafter(5.61, 10)`, one ULP up (~7 ULP for the stated form), and gives the loss
+as -14.999999999999982% instead of -14.99999999999998485%; tests/test_allocator.py:585 still
+says "the comparison is against the trigger price the card prints", and the card prints no
+trigger price since the R8 repair.
+Acceptance: a price that does not survive two decimals is printed at a precision that does
+(or the card names the loss without restating the price), so no card prints a price
+inconsistent with the comparison that fired it and `details['price']` denotes the same
+value as the reason text; the thesis cards are unchanged or deliberately changed with them.
+Cases at entry 0.03 / price 0.0255, entry 1.10 / price 0.935 and entry 3.77 / price 3.2044
+assert the full reason string and details, so a display mutant goes red. The two comments
+above are corrected while there.
+
+### T61 — Two exotic decimal edges in _past_threshold [status: todo]
+Priority: P3
+Origin: PR #10 R9 (reviewer notes)
+Spec: two survivors of the round-3 rewrite, neither reachable from the shipped path today.
+(a) Setting the decimal context to `prec=6` inside `_past_threshold` leaves the suite at
+184 passed — the 28-digit default is the only thing holding the product exact for entries
+above ~1e4, and `getcontext().prec` is process-global and mutable by any other library in
+the process. (b) A NaN price now raises `decimal.InvalidOperation` from the `<=` (decimal
+ordering signals on NaN) where the old float compare silently emitted a card reading
+`nan%`; unreachable because `signals.monitor_inputs` filters with `pd.notna` and a NaN
+entry_price is caught by `_entry_price`'s `> 0`.
+Acceptance: the comparison runs in a `localcontext()` with an explicit precision, and a NaN
+price is refused the way a non-positive entry_price is; one case each.
 

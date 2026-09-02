@@ -694,3 +694,32 @@ def test_propose_fetches_for_monitoring_and_dispatches_on_setup_type(
     last_session = _tw_panel().close.index[-1]
     assert f"at 60.00 ({last_session} session)" in out
     assert "closed at" not in out and "still-open" not in out
+
+
+# --- propose: max adverse excursion wiring (T6) --------------------------------
+
+
+def test_propose_fetches_prices_for_an_entry_price_with_no_setup_type(
+    tmp_path, capsys, monkeypatch
+):
+    """The MAE rule reads no setup_type, so the fetch gate cannot key off one either: a
+    holdings file whose scores are all hand-typed and whose positions carry only an
+    entry_price still needs this session's price, or the card can never fire."""
+    stub = _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1103", weight: 0.05, score: 0.5, entry_price: 100.0}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert stub.calls, "the loss-from-entry rule needs prices — propose must fetch for entry_price"
+    assert "### DECIDE 1103" in out
+    assert "-40.0% from your entry price of 100.00" in out
+    assert "per your IPS: caps.max_adverse_excursion_pct" in out

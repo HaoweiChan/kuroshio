@@ -68,8 +68,11 @@ Record *why* you own a position — `setup_type:` (value_dip | pullback_add | tr
 other) plus `entry_price:` and, for the dip setups, `invalidation_price:` — and `propose`
 watches each one on its own terms: a `trend_add` is alerted when it closes under its 50-day
 mean, a `value_dip` never is (looking weak against its MAs is the setup) and is alerted only
-when it closes at or below the invalidation price you recorded. Positions missing the fields
-their rule reads are named on a card instead of quietly going unwatched.
+when it closes at or below the invalidation price you recorded. On top of that, one rule
+reads no setup at all: a position at or past `caps.max_adverse_excursion_pct` from its entry
+(default -15%) gets a DECIDE card — kill it, add to it per the plan, or rewrite the thesis.
+Holding it unchanged is not one of the three. Positions missing the fields a rule reads are
+named on a card instead of quietly going unwatched.
 
 `screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
 IPS clause that triggered it:
@@ -104,7 +107,7 @@ flowchart LR
     I["your IPS.md<br/><small>caps · hurdle</small>"] --> AL
     S --> AL["core/allocator/<br/><small>challenger vs<br/>incumbent</small>"]
     V --> AL
-    AL --> C["ProposalCard<br/><small>SWAP · TRIM<br/>ALERT</small>"]
+    AL --> C["ProposalCard<br/><small>SWAP · TRIM<br/>DECIDE · ALERT</small>"]
     C --> O["CLI · Discord"]
 ```
 

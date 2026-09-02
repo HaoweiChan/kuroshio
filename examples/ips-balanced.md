@@ -10,6 +10,7 @@ caps:
   position_pct: 10
   position_hard_pct: 25
   theme_pct: 20
+  max_adverse_excursion_pct: -15  # forced decision at 15% below entry
   exemptions: []
 turnover:
   hurdle: 0.15
@@ -27,7 +28,9 @@ capping the damage any single mistake can do. A 10% standard position lets
 winners matter; a 25% hard ceiling stops a winner from quietly becoming the
 whole portfolio's risk. Themes are budgeted at 20% effective exposure so a
 crowded trade (three names riding the same catalyst) gets flagged before it
-turns into concentration risk in disguise.
+turns into concentration risk in disguise. A position 15% below its entry stops
+being a background holding: it gets a card asking for kill, add, or a rewritten
+thesis, because the mistake that compounds is the one nobody looked at again.
 
 The turnover hurdle sits at a moderate 15 points, and the verdict floor is
 `neutral` rather than `overweight` — this IPS trusts the quant score gap to do

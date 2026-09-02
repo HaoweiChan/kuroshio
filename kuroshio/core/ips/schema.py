@@ -41,6 +41,12 @@ class Caps:
     position_pct: float = 10
     position_hard_pct: float = 25
     theme_pct: float = 20
+    # How far a position may go against its entry before the allocator forces a decision
+    # (kill / add / rewrite). A cap like its neighbours — a limit on one position — and a
+    # percent like them too, but signed, because it is a loss and not a ceiling: -15 is
+    # 15% below entry. Deliberately not in `_CAP_FIELDS`: a per-ticker exemption from it
+    # is exactly the silent hold the card exists to refuse.
+    max_adverse_excursion_pct: float = -15
     exemptions: list[CapExemption] = field(default_factory=list)
 
 
