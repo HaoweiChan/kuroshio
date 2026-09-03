@@ -79,6 +79,47 @@ def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
     return ips.turnover.hurdle + friction_pct / 100, friction_pct, field
 
 
+def target_weight(ips, h) -> tuple[float, str, str]:
+    """The size policy allows one position: the weight as a fraction of NAV, the IPS
+    clause that set it, and why in words for the card to quote.
+
+    Two caps, and the smaller binds. (a) `caps.position_pct`, the flat base every
+    position starts from. (b) percent-risk: `caps.risk_budget_pct` of NAV risked over the
+    distance from the entry price to the invalidation price the user recorded. Shares are
+    risk x NAV / (entry - invalidation), so the weight is risk x entry / (entry -
+    invalidation) — NAV cancels, which is why `propose` needs no portfolio value to size
+    anything. (c), inverse-vol parity, is not here: it needs a vol estimate and `propose`
+    takes no panel (docs/PORTFOLIO-PLAN.md phase 3).
+
+    An invalidation at or above the entry price is not a stop, and is treated as absent
+    rather than sized on: its distance is zero or negative, which would divide by zero or
+    cap the position at a negative weight.
+
+    `position_hard_pct` is deliberately not in the min. `validate` holds `position_pct` at
+    or under it, so it could only bind on an IPS that was never validated — and the hard
+    cap is the ceiling the TRIM card is already about, not a sizing input.
+    """
+    base = ips.caps.position_pct / 100
+    entry, invalidation = _entry_price(h), h.invalidation_price
+    if entry is None or invalidation is None or invalidation >= entry:
+        return base, "caps.position_pct", (
+            f"your IPS base position cap of {ips.caps.position_pct:.1f}% of NAV — without "
+            f"an entry price and an invalidation price below it, the percent-risk cap has "
+            f"no distance to size against"
+        )
+    risk = ips.caps.risk_budget_pct / 100 * entry / (entry - invalidation)
+    if risk < base:
+        return risk, "caps.risk_budget_pct", (
+            f"the percent-risk cap binds: {ips.caps.risk_budget_pct:.2f}% of NAV risked "
+            f"over the {entry:.2f} entry to {invalidation:.2f} invalidation distance is "
+            f"tighter than your {ips.caps.position_pct:.1f}% base position cap"
+        )
+    return base, "caps.position_pct", (
+        f"your IPS base position cap of {ips.caps.position_pct:.1f}% of NAV, tighter than "
+        f"the {risk:.1%} the percent-risk cap allows"
+    )
+
+
 def propose(
     holdings: list[Holding],
     challengers: list[Candidate],
@@ -144,15 +185,22 @@ def propose(
     for h in holdings:
         if h.weight <= hard_cap or (h.ticker, "position_hard_pct") in exempt:
             continue
+        # "back under the ceiling" is not a number: the hard cap says where the position
+        # stops being allowed, and target_weight says where policy wanted it in the first
+        # place, which is the one the user can act on.
+        target, cap_clause, why = target_weight(ips, h)
         trims.append(ProposalCard(
             action="TRIM",
             sell=h.ticker,
             reason=(
                 f"{h.ticker} is {h.weight:.1%} of NAV, above your IPS hard cap of "
-                f"{hard_cap:.1%} per name. Trim it back under the ceiling."
+                f"{hard_cap:.1%} per name. Trim it to {target:.1%} of NAV — {why}."
             ),
-            ips_clauses=["caps.position_hard_pct"],
-            details={"weight": h.weight, "cap": hard_cap},
+            ips_clauses=["caps.position_hard_pct", cap_clause],
+            details={
+                "weight": h.weight, "cap": hard_cap,
+                "target_weight": target, "binding_cap": cap_clause,
+            },
         ))
 
     # 3. thesis monitoring — dispatch on setup_type. A value_dip is *supposed* to look
@@ -393,6 +441,17 @@ def propose(
                     f"entry price and has a DECIDE card above: this SWAP is the 'kill it' "
                     f"option on that card, not a fourth one."
                 )
+            # Sizing on a SWAP is the incumbent's, and the card says whose it is. The buy
+            # is a name the user has not opened: a Candidate carries no entry or
+            # invalidation price (cli.py builds it from a screen, not from a plan), so the
+            # percent-risk cap has nothing to read on that side. What can be sized is the
+            # slot being freed.
+            target, cap_clause, why = target_weight(ips, incumbent)
+            sizing = (
+                f" Sizing is {incumbent.ticker}'s: its target weight is {target:.1%} of "
+                f"NAV — {why}. {c.ticker} has no entry or invalidation price on file, so "
+                f"nothing here sizes the buy — record them and it gets the same caps."
+            )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
@@ -402,9 +461,13 @@ def propose(
                     f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
                     f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
                     f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
-                    f"'{verdict}', at or above your floor of '{floor}'.{bridge}{disclosure}"
+                    f"'{verdict}', at or above your floor of '{floor}'."
+                    f"{sizing}{bridge}{disclosure}"
                 ),
-                ips_clauses=["turnover.hurdle", "turnover.verdict_floor", f"friction.{friction_field}"],
+                ips_clauses=[
+                    "turnover.hurdle", "turnover.verdict_floor",
+                    f"friction.{friction_field}", cap_clause,
+                ],
                 score_gap=gap,
                 friction_pct=friction_pct,
                 details={
@@ -415,6 +478,8 @@ def propose(
                     "incumbent_setup_type": incumbent.setup_type,
                     "incumbent_thesis": note,
                     "incumbent_decided": incumbent.ticker in decided,
+                    "target_weight": target,
+                    "binding_cap": cap_clause,
                 },
             ))
 
