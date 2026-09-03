@@ -66,6 +66,8 @@ def check_body(body):
     if order != list(SECTIONS):
         errors.append("sections out of order; expected: " + ", ".join(SECTIONS))
         return errors
+    for extra in (h for h in found if h not in SECTIONS):
+        errors.append(f"unexpected section '## {extra}' — a pasted task's headings go inside <details>, each line prefixed with '> '")
 
     parts = {}
     matches = list(HEADING_RE.finditer(text))

@@ -7,8 +7,11 @@
      issue, postmortem section. A reader must be able to restate what was wrong
      without opening the diff. -->
 
-<details><summary>Task (verbatim)</summary>
-<!-- Paste the task once at PR creation; never edit afterwards. Delete this block for untracked work. -->
+<details><summary>Task (verbatim): <id> — <title></summary>
+<!-- Paste `backlog task view <id> --plain` once at PR creation, from "## Description"
+     down, every line prefixed with "> " (blockquote): GitHub renders it, and its
+     headings do not become PR sections. Never edit afterwards. Delete this block
+     for untracked work. -->
 </details>
 
 ## What changed
