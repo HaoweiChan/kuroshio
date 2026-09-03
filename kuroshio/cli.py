@@ -1,11 +1,11 @@
-"""kuroshio CLI — screen | backtest | propose | ips-validate | research.
+"""kuroshio CLI — screen | backtest | simulate | propose | ips-validate | research.
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
 touches the network. Network calls happen only in the ``screen``, ``backtest``,
-``research`` and — when a score is missing from the input files — ``propose``.
-``research`` additionally requires the optional ``agents`` extra (LLM engine)
-and exits 2 with an install hint if it's missing.
+``simulate``, ``research`` and — when a score is missing from the input files —
+``propose``. ``research`` additionally requires the optional ``agents`` extra
+(LLM engine) and exits 2 with an install hint if it's missing.
 """
 
 from __future__ import annotations
@@ -234,6 +234,70 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     result = walkforward(
         panel, profile.screen, horizon=args.horizon, top_k=args.top,
         benchmark=profile.benchmark, min_history=profile.min_history, **screen_kwargs,
+    )
+
+    print(result.to_markdown())
+    print(
+        "\ncaveat: the supplied tickers ARE the universe — passing only today's "
+        "survivors introduces survivorship bias; point-in-time membership is on you."
+    )
+    return 0
+
+
+# --- simulate --------------------------------------------------------------
+
+
+def cmd_simulate(args: argparse.Namespace) -> int:
+    import yaml
+
+    from kuroshio.core.ips import parse_ips, validate
+    from kuroshio.core.simulate import simulate
+    from kuroshio.providers import get_provider
+
+    ips = parse_ips(args.ips)
+    problems = validate(ips)
+    if problems:
+        for p in problems:
+            print(p)
+        return 2
+
+    market = args.market
+    profile = get_profile(market)
+    provider_name = args.provider or profile.default_provider
+    tickers = _parse_tickers(args.tickers, args.tickers_file)
+    if not tickers:
+        print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
+        return 2
+
+    sector_map = None
+    if args.sector_map:
+        sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
+
+    fetch_tickers = list(tickers)
+    extra = {profile.benchmark} if profile.benchmark else set()
+    if profile.accepts_sector_map and sector_map:
+        extra |= set(sector_map.values())
+    fetch_tickers += [t for t in extra if t not in fetch_tickers]
+
+    # same warmup headroom as backtest — see MarketProfile.warmup_days.
+    lookback_days = args.weeks * 7 + profile.warmup_days
+
+    try:
+        provider = get_provider(provider_name)
+        panel = provider.fetch_panel(fetch_tickers, lookback_days)
+    except ImportError:
+        print(
+            f'error: the {provider_name!r} provider is not installed. '
+            f'Run: pip install "kuroshio[{provider_name}]"',
+            file=sys.stderr,
+        )
+        return 2
+
+    screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
+    result = simulate(
+        panel, profile.screen, profile.score_names, ips, market,
+        step=args.step, top_k=args.top, benchmark=profile.benchmark,
+        min_history=profile.min_history, **screen_kwargs,
     )
 
     print(result.to_markdown())
@@ -526,6 +590,22 @@ def main(argv: list[str] | None = None) -> int:
     p_backtest.add_argument("--top", type=int, default=10)
     p_backtest.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
     p_backtest.set_defaults(func=cmd_backtest)
+
+    p_simulate = sub.add_parser(
+        "simulate",
+        help="walk-forward simulation: run the allocator (sizing/swap/trim/MAE), not just the score",
+    )
+    p_simulate.add_argument("--market", choices=sorted(PROFILES), required=True)
+    p_simulate.add_argument("--ips", required=True)
+    p_simulate.add_argument("--provider")
+    sim_tickers_group = p_simulate.add_mutually_exclusive_group(required=True)
+    sim_tickers_group.add_argument("--tickers", help="comma-separated ticker list")
+    sim_tickers_group.add_argument("--tickers-file", help="newline-separated file, '#' comments allowed")
+    p_simulate.add_argument("--weeks", type=int, default=52)
+    p_simulate.add_argument("--top", type=int, default=10)
+    p_simulate.add_argument("--step", type=int, default=5)
+    p_simulate.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_simulate.set_defaults(func=cmd_simulate)
 
     p_propose = sub.add_parser("propose", help="propose portfolio swaps against an IPS")
     p_propose.add_argument("--ips", required=True)

@@ -27,12 +27,13 @@ kuroshio/
 │   ├── screening/        # Stage-1 gates + cross-sectional pctrank scoring, per-market profiles
 │   ├── ips/              # IPS schema, parser, presets
 │   ├── allocator/        # swap proposals + per-setup_type thesis monitoring
-│   └── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
+│   ├── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
+│   └── simulate.py       # walk-forward sim that runs propose() (sizing/swap/trim/MAE), vs. EW + benchmark
 ├── agents/
 │   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
 ├── providers/            # data-source plugins: base ABC, yfinance (default), finmind (TW)
 ├── integrations/         # edge adapters: discord webhook notifier
-└── cli.py                # `kuroshio screen|backtest|propose|ips-validate|research`
+└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research`
 ```
 
 ## Shared types (`kuroshio/types.py`)
