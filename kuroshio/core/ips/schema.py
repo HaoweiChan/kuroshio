@@ -41,6 +41,12 @@ class Caps:
     position_pct: float = 10
     position_hard_pct: float = 25
     theme_pct: float = 20
+    # What one position may lose before its invalidation price stops it, as a percent of
+    # NAV. Not a ceiling on weight like its neighbours — it is the input the allocator's
+    # percent-risk cap turns *into* one, over the entry-to-invalidation distance
+    # (allocator/engine.py:target_weight). 1% of NAV per position is the classic default.
+    # Not in `_CAP_FIELDS` either: an exemption would relax a risk budget, not a cap.
+    risk_budget_pct: float = 1
     # How far a position may go against its entry before the allocator forces a decision
     # (kill / add / rewrite). A cap like its neighbours — a limit on one position — and a
     # percent like them too, but signed, because it is a loss and not a ceiling: -15 is
