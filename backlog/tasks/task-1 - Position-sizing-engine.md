@@ -1,7 +1,7 @@
 ---
 id: TASK-1
 title: Position sizing engine
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-02 22:15'
 labels: []
@@ -23,5 +23,5 @@ Probe: none — library/CLI with no deployed surface; ruff + pytest are the whol
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 TRIM cards state a numeric target weight; a swap proposal for a position with entry/invalidation prices shows the percent-risk cap binding when it is the min; unit tests cover each cap being the binding one.
+- [x] #1 TRIM cards state a numeric target weight; a swap proposal for a position with entry/invalidation prices shows the percent-risk cap binding when it is the min; unit tests cover each cap being the binding one.
 <!-- AC:END -->
