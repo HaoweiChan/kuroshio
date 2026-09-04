@@ -798,17 +798,24 @@ def _volatile_panel(ticker: str = "VOL", n: int = 65) -> Panel:
 
 
 def test_propose_emits_a_scale_card_when_the_book_is_volatile(tmp_path, capsys, monkeypatch):
-    """caps.book_vol_target_pct (15 in ips-balanced.md) needs a panel even when every
-    score is hand-typed and no position is monitored — the fetch-gate case T5/T6 above
-    don't cover, since neither `need_scores` nor `monitored` is true here."""
+    """A set caps.book_vol_target_pct needs a panel even when every score is hand-typed
+    and no position is monitored — the fetch-gate case T5/T6 above don't cover, since
+    neither `need_scores` nor `monitored` is true here. No example IPS sets the field
+    (it is opt-in), so the test writes one."""
     stub = _use_stub(monkeypatch, _volatile_panel())
     holdings = tmp_path / "holdings.yml"
     holdings.write_text('- {ticker: "VOL", weight: 0.05, score: 0.5}\n')
+    ips = tmp_path / "ips.md"
+    ips.write_text(
+        (EXAMPLES / "ips-balanced.md").read_text().replace(
+            "  exemptions: []", "  book_vol_target_pct: 15\n  exemptions: []", 1
+        )
+    )
 
     code = main(
         [
             "propose",
-            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--ips", str(ips),
             "--holdings", str(holdings),
             "--market", "us",
         ]

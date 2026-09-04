@@ -159,6 +159,23 @@ inverse-vol weighting is a wash; the 15% vol target is the one drawdown tool tha
 (−14% in the blowoff window) and it pays for that with 30 points of out-of-sample return.
 Volatility is a risk control here, not a source of edge.
 
+Through the allocator the picture is worse. `caps.book_vol_target_pct` (TASK-9) applies
+the same rule to the `propose()`-managed 12-1 top-20 book, restoring full exposure and
+re-scaling every rebalance:
+
+| balanced IPS, monthly top-20 | through 2025 (SPY +65%) | max dd | 2014–2021 (SPY +156%) | max dd |
+|---|---|---|---|---|
+| no target | +111% | −29% | +108% | −34% |
+| target 20% | +72% | −19% | +41% | −35% |
+| target 15% | +57% | −16% | +35% | −33% |
+
+In sample it buys 13 points of drawdown for 54 points of return; out of sample it buys
+nothing — the March 2020 crash was faster than a 20-session window — for 74 points. The
+lab's −14% came from re-picking a fresh equal-weight book every month; a managed book
+that holds through swaps and decides does not get it. The field ships as an opt-in and
+no example IPS sets it. A one-sided version (cut, never restore) was tried first and was
+a ratchet: 33 cuts in five years, exposure never recovered, same drawdown, less return.
+
 ## What this means for the design
 
 1. **There is no price-only quant base to build on.** Two windows, five rankers, ~30

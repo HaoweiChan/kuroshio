@@ -137,9 +137,10 @@ caps:
   position_hard_pct: 25        # absolute per-name ceiling
   theme_pct: 20                # per-theme effective-exposure budget
   max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
-  book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off.
-                               # docs/backtest-2026-09.md §E: 15% cut 12-1 top-20's 2021-2026
-                               # max drawdown from -33% to -14%, at ~30pts of out-of-sample cost.
+  book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off (opt-in).
+                               # docs/backtest-2026-09.md §E: through propose() on 12-1 top-20, 15%
+                               # bought 13pts of 2021-2026 drawdown for 54pts of return and nothing
+                               # out of sample for 74pts; no example IPS sets it.
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
                                # (not max_adverse_excursion_pct or book_vol_target_pct — neither
                                # cap has a per-ticker carve-out)

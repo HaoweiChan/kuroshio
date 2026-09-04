@@ -11,7 +11,9 @@ caps:
   position_hard_pct: 15
   theme_pct: 15
   max_adverse_excursion_pct: -10  # forced decision at 10% below entry
-  book_vol_target_pct: 12  # trailing-20-session book vol target, annualized — tighter than balanced
+  # book_vol_target_pct: 15  # opt-in. Through the allocator on 12-1 top-20 (docs/backtest-2026-09.md
+  #   §E): 2021-2026 drawdown -29% -> -16% for -54 pts of return through 2025; 2014-2021 no drawdown
+  #   change for -74 pts. Set it only if the drawdown is the number you are managing.
   exemptions: []
 turnover:
   hurdle: 0.25

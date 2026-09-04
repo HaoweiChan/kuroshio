@@ -9,7 +9,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 def test_conservative_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-conservative.md")
     assert ips.caps.max_adverse_excursion_pct == -10
-    assert ips.caps.book_vol_target_pct == 12
+    assert ips.caps.book_vol_target_pct is None  # opt-in: every example leaves it unset
     assert ips.risk_profile == "conservative"
     assert ips.caps.position_pct == 5
     assert ips.caps.position_hard_pct == 15
@@ -24,7 +24,7 @@ def test_conservative_example_parses_and_validates():
 def test_balanced_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-balanced.md")
     assert ips.caps.max_adverse_excursion_pct == -15
-    assert ips.caps.book_vol_target_pct == 15
+    assert ips.caps.book_vol_target_pct is None  # opt-in: every example leaves it unset
     assert ips.caps.position_pct == 10
     assert ips.caps.position_hard_pct == 25
     assert ips.caps.theme_pct == 20

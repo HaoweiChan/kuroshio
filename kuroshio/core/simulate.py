@@ -318,33 +318,36 @@ def simulate(
                 ew_cash = 1.0 - sum(new_ew.values())
                 ew_nav *= (1.0 - ew_cost)
 
-            # book vol target — the same arithmetic as scripts/funnel_lab.py:Lab.walk's
-            # vol_target: trailing BOOK_VOL_WINDOW-session weighted book return at the
-            # *current* (post-redeploy) weights, annualized std, scale = min(1, target/vol)
-            # applied pro rata with cash absorbing the cut — never a lever-up, since this
-            # branch only runs when vol is already above target. Friction is charged on the
-            # sold fraction per leg, like a TRIM.
+            # book vol target — two-sided, like scripts/funnel_lab.py:Lab.walk, which
+            # rebuilds the book at full exposure every rebalance and then scales it: the
+            # target is a gross exposure for the *full* book, so the holdings are first
+            # restored pro rata to full exposure (cash flows back in), then the trailing
+            # BOOK_VOL_WINDOW-session vol of that full book is measured and gross =
+            # min(1, target/vol). One-sided cutting (never restoring) turned 33 cuts over
+            # five years into a ratchet that gave up 75 points of return for no
+            # out-of-sample drawdown benefit (PR #19 review run). Friction is charged on
+            # the absolute weight change per leg, like a TRIM either way.
             book_vol_target = ips.caps.book_vol_target_pct
             if book_vol_target is not None and holdings and j >= BOOK_VOL_WINDOW:
-                w = {h.ticker: h.weight for h in holdings}
-                tickers = list(w)
+                held_w = sum(h.weight for h in holdings)
+                full = {h.ticker: h.weight / held_w for h in holdings}  # full exposure, pro rata
+                tickers = list(full)
                 window_rets = close.iloc[j - BOOK_VOL_WINDOW : j + 1][tickers].pct_change().iloc[1:]
-                book = (window_rets.fillna(0.0) * pd.Series(w)).sum(axis=1)
+                book = (window_rets.fillna(0.0) * pd.Series(full)).sum(axis=1)
                 vol = float(book.std() * (252**0.5)) * 100
-                if vol > book_vol_target:
-                    scale = book_vol_target / vol
-                    sold = 0.0
-                    scale_cost = 0.0
-                    for h in holdings:
-                        cut = h.weight * (1.0 - scale)
-                        h.weight -= cut
-                        sold += cut
-                        scale_cost += cut * (roundtrip_pct / 100) / 2
-                    cash += sold
+                gross = min(1.0, book_vol_target / vol) if vol > 0 else 1.0
+                traded_w = 0.0
+                for h in holdings:
+                    target_w = full[h.ticker] * gross
+                    traded_w += abs(target_w - h.weight)
+                    h.weight = target_w
+                if traded_w > 1e-12:
+                    cash = 1.0 - sum(h.weight for h in holdings)
+                    scale_cost = traded_w * (roundtrip_pct / 100) / 2
                     total_cost += scale_cost
                     trades.append({
                         "date": asof, "action": "SCALE", "sell": None, "buy": None,
-                        "weight": sold, "cost": scale_cost,
+                        "weight": traded_w, "cost": scale_cost,
                     })
 
             nav *= (1.0 - total_cost)
