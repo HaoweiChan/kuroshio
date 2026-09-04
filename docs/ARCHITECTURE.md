@@ -98,6 +98,9 @@ Two market profiles ported from production code, sharing scoring utilities:
 - `us.py` — US leadership profile: Stage-1 gates (stacked MAs close > MA20 > MA50 > MA200,
   close ≥ 90% of 60d high, 5d return < +25%, price ≥ $5, dollar-volume ≥ $25M), factors:
   momentum .333 / relative-strength-vs-benchmark .267 / volume .20 / sector-rotation .20.
+- `us_mom.py` — US 12-1 momentum profile: single factor (return from 252 sessions ago
+  to 21 sessions ago, skipping the most recent month), gated only on price ≥ $5 and
+  dollar-volume ≥ $25M — no trend/breakout gate by design.
 
 Entry point per profile: `screen(panel: Panel, asof: str | None = None, **profile_kwargs) -> list[Candidate]`.
 Pure — no network, no DB. The US sector map is passed in as `sector_map: dict[str, str] | None`

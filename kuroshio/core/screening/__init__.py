@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import tw, us
+from . import tw, us, us_mom
 from .score import pctrank
 
-__all__ = ["tw", "us", "pctrank", "MarketProfile", "PROFILES", "get_profile"]
+__all__ = ["tw", "us", "us_mom", "pctrank", "MarketProfile", "PROFILES", "get_profile"]
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,12 @@ PROFILES = {
     "tw": MarketProfile(
         "tw", tw.screen, tw.score_names, "finmind", 120, 200, 65, None,
         min_rank_weight=tw.MIN_RANK_WEIGHT,
+    ),
+    # 252 sessions of momentum history needs ~365 calendar days -> 400 single-screen
+    # lookback; 420 warmup as US; first rebalance after 260 sessions.
+    "us-mom12": MarketProfile(
+        "us-mom12", us_mom.screen, us_mom.score_names, "yfinance", 400, 420, 260, "SPY",
+        min_rank_weight=1.0, accepts_sector_map=False,
     ),
 }
 

@@ -19,7 +19,13 @@ content and portfolio data stay on their own machine and never enter it.
   (A parallel standalone `FacetStore` was built, then deleted: one cache, not two.)
 - **`kuroshio research TICKER`** — CLI subcommand driving `TradingAgentsGraph`
 - **`integrations/discord`** — proposal cards → webhook (`propose --discord-webhook`)
-- **CLI** — `screen` / `backtest` / `propose` / `ips-validate` / `research`, stdlib argparse only
+- **`core/simulate`** — walk-forward portfolio simulator that runs `propose()` (sizing, swaps, trims,
+  MAE) against an equal-weight baseline and the benchmark; `--members-file` gives `backtest` and
+  `simulate` a point-in-time universe (`scripts/sp500_members.py`)
+- **Backtest 2026-09** — [docs/backtest-2026-09.md](backtest-2026-09.md): the leadership screen has
+  no cross-sectional edge and the allocator rules subtract from it; plain 12-1 momentum is the
+  quant base and ships as the `us-mom12` profile
+- **CLI** — `screen` / `backtest` / `simulate` / `propose` / `ips-validate` / `research`, stdlib argparse only
 - **Genericization** — `MarketProfile` registry: adding a market is one module + one registry entry
   ([docs/adding-a-market.md](adding-a-market.md))
 - **Project hygiene** — CI (ruff + pytest on 3.11/3.12/3.13), `py.typed`, CONTRIBUTING, SECURITY
