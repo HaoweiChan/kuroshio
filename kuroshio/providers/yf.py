@@ -57,3 +57,22 @@ class YFinanceProvider(MarketDataProvider):
         if isinstance(close, pd.Series):  # single ticker: no ticker level in the columns
             close, volume = close.to_frame(tickers[0]), volume.to_frame(tickers[0])
         return _shape_panel(close, volume, tickers)
+
+    def fetch_fundamentals(self, ticker: str) -> dict | None:
+        import yfinance as yf
+
+        try:
+            info = yf.Ticker(ticker).info
+        except Exception:
+            return None
+        if not info:
+            return None
+        return {
+            "forward_pe": info.get("forwardPE"),
+            "forward_eps": info.get("forwardEps"),
+            "trailing_eps": info.get("trailingEps"),
+            "trailing_pe": info.get("trailingPE"),
+            "market_cap": info.get("marketCap"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+        }

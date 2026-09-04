@@ -1,11 +1,15 @@
-"""kuroshio CLI — screen | backtest | simulate | propose | ips-validate | research.
+"""kuroshio CLI — screen | backtest | simulate | propose | ips-validate | research | evaluate.
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
 touches the network. Network calls happen only in the ``screen``, ``backtest``,
-``simulate``, ``research`` and — when a score is missing from the input files —
-``propose``. ``research`` additionally requires the optional ``agents`` extra
-(LLM engine) and exits 2 with an install hint if it's missing.
+``simulate``, ``research``, ``evaluate`` and — when a score is missing from the
+input files — ``propose``. ``research`` additionally requires the optional
+``agents`` extra (LLM engine) and exits 2 with an install hint if it's missing.
+
+``screen`` and ``research`` append to a plain-file ledger (``kuroshio.core.ledger``)
+by default — ``--no-ledger`` opts out; ``evaluate`` reads that ledger back and
+prints realized forward performance.
 """
 
 from __future__ import annotations
@@ -211,6 +215,38 @@ def _candidate_to_dict(c: Candidate) -> dict:
     }
 
 
+def _append_score_rows(
+    market: str, provider, panel, candidates: list[Candidate], snapshot_top: int
+) -> None:
+    from kuroshio.core import ledger
+
+    rows = []
+    for i, c in enumerate(candidates):
+        close = None
+        if c.ticker in panel.close.columns and c.date in panel.close.index:
+            val = panel.close.loc[c.date, c.ticker]
+            close = float(val) if val == val else None  # val == val is False for NaN
+
+        fundamentals = None
+        if i < snapshot_top:
+            try:
+                snap = provider.fetch_fundamentals(c.ticker)
+            except Exception:
+                snap = None
+            if snap:
+                fundamentals = {**snap, "asof": c.date}
+
+        rows.append({
+            "date": c.date, "market": market, "profile": market, "ticker": c.ticker,
+            "rank": c.rank, "final_score": c.final_score, "scores": c.scores,
+            "factors": c.factors, "close": close, "fundamentals": fundamentals,
+        })
+
+    path = ledger.ledger_dir() / ledger.SCORES
+    ledger.append(path, rows)
+    print(f"ledger: {len(rows)} rows -> {path}", file=sys.stderr)
+
+
 def cmd_screen(args: argparse.Namespace) -> int:
     import yaml
 
@@ -261,6 +297,11 @@ def cmd_screen(args: argparse.Namespace) -> int:
     else:
         last_session = str(panel.close.index[-1]) if len(panel.close.index) else "n/a"
         _print_screen_table(market, top, asof_fallback=args.asof or last_session)
+
+    if not args.no_ledger:
+        # every gated candidate, not just the printed top: a realized rank-IC over 20
+        # names is noise, over the whole pool it is a measurement.
+        _append_score_rows(market, provider, panel, candidates, args.snapshot_top)
     return 0
 
 
@@ -624,6 +665,66 @@ def cmd_research(args: argparse.Namespace) -> int:
     print(f"report: {report_path}")
     if decision:
         print(f"verdict: {decision}")
+
+    if not args.no_ledger:
+        try:
+            from kuroshio.core import ledger
+
+            controls = (final_state.get("strategy_payload") or {}).get("risk_controls") or {}
+            row = {
+                "date": trade_date, "market": args.market, "ticker": args.ticker,
+                "rating": decision, "stop_loss": controls.get("stop_loss"),
+                "price_target": controls.get("price_target"), "close": None,
+            }
+            path = ledger.ledger_dir() / ledger.RATINGS
+            ledger.append(path, [row])
+            print(f"ledger: 1 row -> {path}", file=sys.stderr)
+        except Exception as exc:
+            print(f"warning: ledger append failed: {exc}", file=sys.stderr)
+    return 0
+
+
+# --- evaluate ------------------------------------------------------------------
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    from kuroshio.core import ledger
+    from kuroshio.providers import get_provider
+
+    market = args.market
+    profile = get_profile(market)
+    ledger_dir_path = Path(args.ledger_dir) if args.ledger_dir else ledger.ledger_dir()
+    print(f"ledger dir: {ledger_dir_path}", file=sys.stderr)
+
+    scores = [r for r in ledger.load(ledger_dir_path / ledger.SCORES) if r.get("market") == market]
+    ratings = [r for r in ledger.load(ledger_dir_path / ledger.RATINGS) if r.get("market") == market]
+
+    dates = sorted({r["date"] for r in scores})
+    if len(dates) < 2:
+        print(f"evaluate: {len(dates)} run(s) logged; need at least 2 dates with a resolved horizon")
+        return 0
+
+    tickers = sorted({r["ticker"] for r in scores} | {r["ticker"] for r in ratings})
+    if profile.benchmark:  # first: providers/yf.py filters the panel to its first resolved ticker
+        tickers = [profile.benchmark] + [t for t in tickers if t != profile.benchmark]
+
+    earliest = datetime.date.fromisoformat(dates[0])
+    lookback_days = (datetime.date.today() - earliest).days + args.horizon * 2 + 10
+
+    try:
+        provider = get_provider(profile.default_provider)
+        panel = provider.fetch_panel(tickers, lookback_days)
+    except ImportError:
+        print(
+            f'error: the {profile.default_provider!r} provider is not installed. '
+            f'Run: pip install "kuroshio[{profile.default_provider}]"',
+            file=sys.stderr,
+        )
+        return 2
+
+    summary = ledger.realized(scores, panel.close, args.horizon, profile.benchmark, args.top)
+    rating_stats = ledger.rating_table(ratings, panel.close, args.horizon)
+    print(ledger.to_markdown(summary, rating_stats))
     return 0
 
 
@@ -649,6 +750,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_screen.add_argument(
         "--json", action="store_true", help="machine-readable JSON output instead of the text table"
+    )
+    p_screen.add_argument(
+        "--no-ledger", action="store_true", help="skip appending score rows to the ledger"
+    )
+    p_screen.add_argument(
+        "--snapshot-top", type=int, default=50,
+        help="fetch a fundamentals snapshot only for the top N screened names (default 50)",
     )
     p_screen.set_defaults(func=cmd_screen)
 
@@ -720,7 +828,21 @@ def main(argv: list[str] | None = None) -> int:
         "--no-cache", action="store_true", help="bypass the facet cache; run every analyst"
     )
     p_research.add_argument("--out", default="./reports", help="report output directory (default: ./reports)")
+    p_research.add_argument(
+        "--no-ledger", action="store_true", help="skip appending a rating row to the ledger"
+    )
     p_research.set_defaults(func=cmd_research)
+
+    p_evaluate = sub.add_parser(
+        "evaluate", help="read the score/rating ledger and print realized forward performance"
+    )
+    p_evaluate.add_argument("--market", choices=sorted(PROFILES), required=True)
+    p_evaluate.add_argument("--horizon", type=int, default=20)
+    p_evaluate.add_argument("--top", type=int, default=10)
+    p_evaluate.add_argument(
+        "--ledger-dir", help="override $KUROSHIO_LEDGER_DIR / ~/.kuroshio/ledger for this run"
+    )
+    p_evaluate.set_defaults(func=cmd_evaluate)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -771,3 +771,93 @@ def test_propose_fetches_prices_for_an_entry_price_with_no_setup_type(
     assert "### DECIDE 1103" in out
     assert "-40.0% from your entry price of 100.00" in out
     assert "per your IPS: caps.max_adverse_excursion_pct" in out
+
+
+# --- screen / evaluate: ledger wiring (T6) --------------------------------------
+
+
+class _FundamentalsStub(_StubProvider):
+    """fetch_fundamentals returns a snapshot for GGG only, None for everything else —
+    exercises the "missing fundamentals leaves the row's snapshot null" path."""
+
+    def fetch_fundamentals(self, ticker):
+        if ticker != "GGG":
+            return None
+        return {
+            "forward_pe": 15.0, "forward_eps": 2.0, "trailing_eps": 1.8, "trailing_pe": 16.0,
+            "market_cap": 1_000_000_000.0, "sector": "Technology", "industry": "Software",
+        }
+
+
+def test_screen_appends_score_rows_with_a_fundamentals_snapshot(tmp_path, capsys, monkeypatch):
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    stub = _FundamentalsStub(_us_mom_panel())
+    monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: stub)
+
+    code = main(["screen", "--market", "us", "--tickers", ",".join(_US_MOM_SPECS)])
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "ledger:" in cap.err
+
+    n_candidates = int(cap.out.splitlines()[0].split("candidates=")[1])
+    rows = ledger.load(ledger.ledger_dir() / ledger.SCORES)
+    assert len(rows) == n_candidates > 0
+
+    ggg = next(r for r in rows if r["ticker"] == "GGG")
+    assert ggg["fundamentals"]["forward_pe"] == 15.0
+    others = [r for r in rows if r["ticker"] != "GGG"]
+    assert others and all(r["fundamentals"] is None for r in others)
+
+
+def test_screen_no_ledger_writes_nothing(tmp_path, capsys, monkeypatch):
+    from kuroshio.core import ledger
+
+    ledger_dir = tmp_path / "ledger"
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(ledger_dir))
+    _use_stub(monkeypatch, _us_mom_panel())
+
+    code = main(["screen", "--market", "us", "--tickers", ",".join(_US_MOM_SPECS), "--no-ledger"])
+    assert code == 0
+    assert not (ledger_dir / ledger.SCORES).exists()
+
+
+def _us_mom_panel_n(n: int) -> Panel:
+    """Same shape as `_us_mom_panel` but with enough sessions for a screen `asof` past
+    the 252-session momentum lookback to also have `--horizon`-worth of forward data
+    for `evaluate` — 260 rows (the min_history fixture) has no room for both."""
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2023-01-02", periods=n)]
+    ramp = lambda lo, hi: [lo + (hi - lo) * i / (n - 1) for i in range(n)]  # noqa: E731
+    close = pd.DataFrame({t: ramp(*lohi) for t, lohi in _US_MOM_SPECS.items()}, index=dates)
+    volume = pd.DataFrame({t: [1_000_000.0] * n for t in close.columns}, index=dates)
+    return Panel(close=close, volume=volume)
+
+
+def test_evaluate_prints_rank_ic_after_two_screen_runs(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    panel = _us_mom_panel_n(300)
+    _use_stub(monkeypatch, panel)
+
+    for asof in (panel.close.index[255], panel.close.index[260]):
+        assert main(["screen", "--market", "us", "--tickers", ",".join(_US_MOM_SPECS), "--asof", asof]) == 0
+    capsys.readouterr()
+
+    code = main(["evaluate", "--market", "us", "--horizon", "20", "--top", "3"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "rank-IC" in out
+    assert "top-k" in out
+
+
+def test_evaluate_with_one_run_reports_need_at_least_two_dates(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    panel = _us_mom_panel_n(300)
+    _use_stub(monkeypatch, panel)
+    main(["screen", "--market", "us", "--tickers", ",".join(_US_MOM_SPECS), "--asof", panel.close.index[255]])
+    capsys.readouterr()
+
+    code = main(["evaluate", "--market", "us"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "need at least 2" in out
