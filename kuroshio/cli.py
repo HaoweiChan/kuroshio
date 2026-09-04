@@ -68,6 +68,24 @@ def _members_at(snapshots: list[tuple[str, frozenset[str]]], asof: str) -> froze
     return snapshots[i][1]
 
 
+def _load_universe(path: str) -> list[str]:
+    """`propose --universe-file` loader: a `date,tickers` snapshot (the last row, sorted)
+    or a plain newline ticker list (`_parse_tickers`'s format). Raises ValueError on an
+    empty file — callers catch it the way holdings/candidates file errors are caught."""
+    try:
+        with open(path) as f:
+            first_line = f.readline().rstrip("\n\r")
+    except OSError as exc:  # a missing universe file is a file error, not a traceback
+        raise ValueError(f"{path}: {exc.strerror}") from exc
+    if first_line == "date,tickers":
+        snapshots = _load_members(path)
+        return sorted(snapshots[-1][1])
+    tickers = _parse_tickers(None, path)
+    if not tickers:
+        raise ValueError(f"{path}: no tickers")
+    return tickers
+
+
 def _pit_screen(
     screen_fn: Callable[..., list[Candidate]], snapshots: list[tuple[str, frozenset[str]]]
 ) -> Callable[..., list[Candidate]]:
@@ -428,7 +446,12 @@ def cmd_simulate(args: argparse.Namespace) -> int:
 
 
 def _score_missing(
-    holdings: list[Holding], challengers: list[Candidate], profile, panel, hurdle: float
+    holdings: list[Holding],
+    challengers: list[Candidate],
+    profile,
+    panel,
+    hurdle: float,
+    universe: list[str] | None = None,
 ):
     """Fill in the scores the user didn't hand-type; return (surviving challengers, auto-filled).
 
@@ -464,8 +487,19 @@ def _score_missing(
     return value maps each auto-filled ticker to the pool it was ranked in and ``propose``
     discloses that on the card itself (see ``core/allocator/engine.py``). Hand-typed
     scores are untouched and undisclosed.
+
+    ``universe`` (``propose --universe-file``) adds a third source of names to the pool
+    alongside holdings and challengers — an index-sized cross-section rather than "the
+    user's own files". It is not a separate refusal path: ``need`` is unchanged and the
+    same ``len(ranked) < need`` check still applies, it just no longer fires in practice
+    once the pool is index-sized (a universe too thin on history to clear ``need`` is not
+    big by construction and still gets the refusal).
     """
-    names = list(dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers]))
+    names = list(
+        dict.fromkeys(
+            [h.ticker for h in holdings] + [c.ticker for c in challengers] + list(universe or [])
+        )
+    )
     ranked = {c.ticker: c.final_score for c in profile.score_names(panel, tickers=names)}
     need = math.floor(profile.min_rank_weight / hurdle) + 2
     if len(ranked) < need:
@@ -523,13 +557,23 @@ def cmd_propose(args: argparse.Namespace) -> int:
         return 2
 
     challengers, verdicts, themes, auto_scored = [], {}, {}, {}
+    universe: list[str] | None = None
     try:
         holdings = _holdings_from_yaml(args.holdings)
         if args.candidates:
             challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
+        if args.universe_file:
+            universe = _load_universe(args.universe_file)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+
+    # TASK-7: with a universe, an auto-filled score is a percentile of that cross-section
+    # rather than of "your own files" — the SWAP card names which pool it came from.
+    pool_name = (
+        f"the universe in {Path(args.universe_file).name}" if args.universe_file
+        else "your own files"
+    )
 
     # The user is no longer the integration layer: anything without a hand-typed
     # score gets one from the screener, and a holding a monitoring rule can read gets
@@ -546,11 +590,20 @@ def cmd_propose(args: argparse.Namespace) -> int:
     if need_scores or monitored:
         profile = get_profile(args.market)
         provider_name = args.provider or profile.default_provider
-        fetch_tickers = list(
-            dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers])
-        )
-        if profile.benchmark and profile.benchmark not in fetch_tickers:
-            fetch_tickers.append(profile.benchmark)
+        if universe is not None:
+            # first: providers/yf.py filters the panel to its first resolved ticker
+            fetch_tickers = [profile.benchmark] if profile.benchmark else []
+            fetch_tickers += [
+                t for t in dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers])
+                if t not in fetch_tickers
+            ]
+            fetch_tickers += [t for t in universe if t not in fetch_tickers]
+        else:
+            fetch_tickers = list(
+                dict.fromkeys([h.ticker for h in holdings] + [c.ticker for c in challengers])
+            )
+            if profile.benchmark and profile.benchmark not in fetch_tickers:
+                fetch_tickers.append(profile.benchmark)
         try:
             provider = get_provider(provider_name)
             panel = provider.fetch_panel(fetch_tickers, profile.lookback_days)
@@ -566,7 +619,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
         # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
         if need_scores:
             challengers, auto_scored = _score_missing(
-                holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0]
+                holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0],
+                universe=universe,
             )
         # the monitoring seam: prices enter here, never inside the allocator.
         prices, ma50, asof = monitor_inputs(panel)
@@ -574,7 +628,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
     cards = propose(
         holdings, challengers, ips, args.market,
         verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
-        auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
+        auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof, pool_name=pool_name,
     )
 
     if not cards:
@@ -804,6 +858,12 @@ def main(argv: list[str] | None = None) -> int:
     p_propose.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_propose.add_argument("--provider")
     p_propose.add_argument("--candidates")
+    p_propose.add_argument(
+        "--universe-file",
+        help="cross-section for auto-filled scores: a newline ticker list, or a "
+        "date,tickers snapshot (scripts/sp500_members.py) whose latest row is used. "
+        "Without it, auto-filled scores are ranked against holdings+candidates only.",
+    )
     p_propose.add_argument("--swaps-this-week", type=int, default=0)
     p_propose.add_argument(
         "--discord-webhook",

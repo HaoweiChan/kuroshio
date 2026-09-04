@@ -58,7 +58,9 @@ previous MA200/breakout leadership screen is still there as `--market us-leaders
 fetches prices from the market's provider and fills it in. Hand-typed values always win, per name.
 An auto-filled score is **a percentile rank within the names in your own files**, not the number
 `kuroshio screen` prints for that name: the pool is your holdings + candidates, not a universe,
-and, for `us-leadership`, `propose` passes no `--sector-map`/`--asof`. Two things follow. A pool small enough that
+and, for `us-leadership`, `propose` passes no `--sector-map`/`--asof`. Pass `--universe-file
+members.csv` (a newline ticker list, or a `date,tickers` snapshot from `scripts/sp500_members.py`)
+to rank against that index instead, and the card discloses it did. Two things follow. A pool small enough that
 your turnover hurdle may not be doing any work gets nothing filled at all — you get the "no
 holding has a screener score" ALERT instead of a made-up gap. (That floor is a deliberately
 conservative rule of thumb, not an exact cutoff: it will sometimes refuse a pool your hurdle

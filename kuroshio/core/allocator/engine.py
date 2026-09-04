@@ -132,6 +132,7 @@ def propose(
     prices: dict[str, float] | None = None,
     ma50: dict[str, float] | None = None,
     asof: str | None = None,
+    pool_name: str = "your own files",
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -407,7 +408,7 @@ def propose(
             if len(auto) == 2:
                 disclosure = (
                     f" Auto-filled score(s): {', '.join(auto)} — a percentile rank among "
-                    f"the {auto_scored[auto[0]]} names in your own files, so this gap is a "
+                    f"the {auto_scored[auto[0]]} names in {pool_name}, so this gap is a "
                     f"rank distance within that pool, not a difference in screener scores."
                 )
             elif auto:
@@ -417,7 +418,7 @@ def propose(
                 hand = c.ticker if auto[0] == incumbent.ticker else incumbent.ticker
                 disclosure = (
                     f" Auto-filled score(s): {auto[0]} — a percentile rank among the "
-                    f"{auto_scored[auto[0]]} names in your own files. {hand}'s score is "
+                    f"{auto_scored[auto[0]]} names in {pool_name}. {hand}'s score is "
                     f"hand-typed and not on that scale, so this gap subtracts two different "
                     f"scales: it is not a rank distance, and {hand}'s own rank in that pool "
                     f"would give a different number."
