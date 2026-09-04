@@ -50,11 +50,15 @@ printf -- '- {ticker: AAPL, weight: 0.08, theme: tech, score: 0.55}\n- {ticker: 
 kuroshio propose --ips examples/ips-balanced.md --holdings holdings.yml --market us
 ```
 
+`us` is 12-1 momentum since 2026-09 (the less bad of the two US screens — neither beats SPY out of
+sample, see `docs/backtest-2026-09.md`); the
+previous MA200/breakout leadership screen is still there as `--market us-leadership`.
+
 `score:` is optional (same for `final_score:` in a candidates file) — leave it out and `propose`
 fetches prices from the market's provider and fills it in. Hand-typed values always win, per name.
 An auto-filled score is **a percentile rank within the names in your own files**, not the number
 `kuroshio screen` prints for that name: the pool is your holdings + candidates, not a universe,
-and `propose` passes no `--sector-map`/`--asof`. Two things follow. A pool small enough that
+and, for `us-leadership`, `propose` passes no `--sector-map`/`--asof`. Two things follow. A pool small enough that
 your turnover hurdle may not be doing any work gets nothing filled at all — you get the "no
 holding has a screener score" ALERT instead of a made-up gap. (That floor is a deliberately
 conservative rule of thumb, not an exact cutoff: it will sometimes refuse a pool your hurdle

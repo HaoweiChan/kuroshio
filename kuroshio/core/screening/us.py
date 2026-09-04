@@ -1,4 +1,4 @@
-"""US leadership profile.
+"""US leadership profile (`us-leadership`) — the pre-2026-09 default, kept for comparison.
 
 Ported from a production-validated US screener prototype (``_indicators``
 + ``evaluate``). Point-in-time S&P membership, the congress/13F/polymarket

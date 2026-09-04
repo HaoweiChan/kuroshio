@@ -3,10 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import tw, us
+from . import tw, us, us_mom
 from .score import pctrank
 
-__all__ = ["tw", "us", "pctrank", "MarketProfile", "PROFILES", "get_profile"]
+__all__ = ["tw", "us", "us_mom", "pctrank", "MarketProfile", "PROFILES", "get_profile"]
 
 
 @dataclass(frozen=True)
@@ -29,11 +29,20 @@ class MarketProfile:
 
 
 PROFILES = {
+    # 252 sessions of momentum history needs ~365 calendar days -> 400 single-screen
+    # lookback; 420 warmup as US; first rebalance after 260 sessions.
+    # min_rank_weight=1.0: single pctrank IS the score.
+    "us": MarketProfile(
+        "us", us_mom.screen, us_mom.score_names, "yfinance", 400, 420, 260, "SPY",
+        min_rank_weight=1.0, accepts_sector_map=False,
+    ),
     # US MA200 needs ~200 trading sessions -> 320 calendar days single-screen lookback,
     # + weeks*7 -> 420 calendar days of backtest warmup headroom; first rebalance
     # row after 210 trading sessions.
-    "us": MarketProfile(
-        "us", us.screen, us.score_names, "yfinance", 320, 420, 210, "SPY",
+    # kept for comparison; no demonstrated edge on a point-in-time universe
+    # (docs/backtest-2026-09.md).
+    "us-leadership": MarketProfile(
+        "us-leadership", us.screen, us.score_names, "yfinance", 320, 420, 210, "SPY",
         min_rank_weight=us.MIN_RANK_WEIGHT, accepts_sector_map=True,
     ),
     # TW MA60 needs ~60 trading sessions -> 120 calendar days single-screen lookback,

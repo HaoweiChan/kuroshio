@@ -540,11 +540,12 @@ def test_propose_reports_candidates_the_gate_dropped(tmp_path, capsys, monkeypat
     assert "1103" in cap.err and "Stage-1" in cap.err
 
 
-# --- propose: the US half of the same guard (R18) ------------------------------
+# --- propose: the US-leadership half of the same guard (R18) -------------------
 #
-# Every other `--market us` propose test hand-types `score:`, so `_score_missing` is
-# never reached on the US path; without these, `us.MIN_RANK_WEIGHT` is pinned by nothing.
-N_US = 210  # US profile needs MA200 -> 200 sessions of clean history
+# Every other `--market us-leadership` propose test hand-types `score:`, so
+# `_score_missing` is never reached on that path; without these, `us.MIN_RANK_WEIGHT`
+# is pinned by nothing.
+N_US = 210  # us-leadership profile needs MA200 -> 200 sessions of clean history
 _US_SPECS = {"AAA": (100.0, 110.0), "BBB": (100.0, 130.0), "DDD": (100.0, 145.0),
              "CCC": (100.0, 160.0), "SPY": (100.0, 101.0)}  # SPY = the profile's benchmark
 
@@ -559,13 +560,67 @@ def _us_panel() -> Panel:
 
 
 @pytest.mark.parametrize("tickers", [["AAA", "BBB"], ["AAA", "BBB", "DDD"]])
-def test_propose_guards_the_us_pool_too(tmp_path, capsys, monkeypatch, tickers):
-    """R18: the same `min_rank_weight / (n - 1)` guard, read off the US profile's own
-    weights — a 3-name pool refuses, a 4-name pool scores and discloses."""
+def test_propose_guards_the_us_leadership_pool_too(tmp_path, capsys, monkeypatch, tickers):
+    """R18: the same `min_rank_weight / (n - 1)` guard, read off the us-leadership
+    profile's own weights — a 3-name pool refuses, a 4-name pool scores and discloses."""
     _use_stub(monkeypatch, _us_panel())
     holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
     candidates = tmp_path / "candidates.yml"
     candidates.write_text('- {ticker: "CCC", verdict: buy}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "us-leadership",
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
+    if len(tickers) == 2:  # pool of 3 -> below the us-leadership floor of 4
+        assert "SWAP" not in cap.out
+        assert "No current holding has a screener score" in cap.out
+        # R19: the step-grid claim is false for US — its degraded weights (0.625, 0.375)
+        # are not commensurate, so the composite does not move on a min_rank_weight grid.
+        assert "deliberately conservative floor" in cap.err
+        assert not [c for c in _STEP_GRID_CLAIMS if c in cap.err]
+    else:                  # pool of 4 -> scores, and says what the number is
+        assert "SWAP AAA → CCC" in cap.out
+        assert "among the 4 names in your own files" in cap.out
+        assert "so this gap is a rank distance within that pool" in cap.out
+
+
+# --- propose: the US 12-1 momentum guard (`us`, min_rank_weight=1.0) -----------
+#
+# min_rank_weight=1.0 (single pctrank IS the score) with the balanced IPS's
+# turnover hurdle (0.15 + us_roundtrip_pct/100 = 0.1502) gives
+# need = floor(1.0 / 0.1502) + 2 == 8.
+N_US_MOM = 260  # us profile's min_history: 252-session momentum lookback + skip headroom
+_US_MOM_SPECS = {
+    "AAA": (100.0, 105.0), "BBB": (100.0, 115.0), "CCC": (100.0, 125.0),
+    "DDD": (100.0, 135.0), "EEE": (100.0, 145.0), "FFF": (100.0, 155.0),
+    "GGG": (100.0, 165.0), "SPY": (100.0, 101.0),  # SPY = the profile's benchmark
+}
+
+
+def _us_mom_panel() -> Panel:
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2023-01-02", periods=N_US_MOM)]
+    ramp = lambda lo, hi: [lo + (hi - lo) * i / (N_US_MOM - 1) for i in range(N_US_MOM)]  # noqa: E731
+    close = pd.DataFrame({t: ramp(*lohi) for t, lohi in _US_MOM_SPECS.items()}, index=dates)
+    volume = pd.DataFrame({t: [1_000_000.0] * N_US_MOM for t in close.columns}, index=dates)
+    return Panel(close=close, volume=volume)
+
+
+def test_propose_guards_the_us_momentum_pool_too(tmp_path, capsys, monkeypatch):
+    """The `us` profile's guard needs 8 names (see module comment above); a 7-name
+    pool is one short and refuses, mirroring the us-leadership case above."""
+    _use_stub(monkeypatch, _us_mom_panel())
+    tickers = [t for t in _US_MOM_SPECS if t not in ("SPY", "GGG")]  # 6 names
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", tickers)
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "GGG", verdict: buy}\n')  # 7th name -> still below 8
 
     code = main(
         [
@@ -578,17 +633,10 @@ def test_propose_guards_the_us_pool_too(tmp_path, capsys, monkeypatch, tickers):
     )
     cap = capsys.readouterr()
     assert code == 0
-    if len(tickers) == 2:  # pool of 3 -> below the US floor of 4
-        assert "SWAP" not in cap.out
-        assert "No current holding has a screener score" in cap.out
-        # R19: the step-grid claim is false for US — its degraded weights (0.625, 0.375)
-        # are not commensurate, so the composite does not move on a min_rank_weight grid.
-        assert "deliberately conservative floor" in cap.err
-        assert not [c for c in _STEP_GRID_CLAIMS if c in cap.err]
-    else:                  # pool of 4 -> scores, and says what the number is
-        assert "SWAP AAA → CCC" in cap.out
-        assert "among the 4 names in your own files" in cap.out
-        assert "so this gap is a rank distance within that pool" in cap.out
+    assert "SWAP" not in cap.out
+    assert "No current holding has a screener score" in cap.out
+    assert "deliberately conservative floor" in cap.err
+    assert not [c for c in _STEP_GRID_CLAIMS if c in cap.err]
 
 
 def test_propose_exits_2_on_unknown_candidates_key(tmp_path, capsys):
