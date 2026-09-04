@@ -173,3 +173,22 @@ def test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type():
     typed = validate(parse_ips('---\ncaps:\n  max_adverse_excursion_pct: "-15"\n---\nbody\n'))
     ranged = validate(parse_ips("---\ncaps:\n  max_adverse_excursion_pct: 15\n---\nbody\n"))
     assert typed != ranged  # the string case is not reported with a rule its value meets
+
+
+def test_risk_budget_pct_parses_and_is_validated():
+    text = """---
+version: 1
+caps:
+  risk_budget_pct: 0.5
+---
+Philosophy body.
+"""
+    ips = parse_ips(text)
+    assert ips.caps.risk_budget_pct == 0.5
+    assert validate(ips) == []
+
+    # 0% of NAV risked sizes every position at nothing; a non-number crashes the
+    # allocator's division rather than being rejected here.
+    for bad in (0, "1"):
+        ips.caps.risk_budget_pct = bad
+        assert any("risk_budget_pct" in p for p in validate(ips))

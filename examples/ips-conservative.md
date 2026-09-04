@@ -38,7 +38,9 @@ challenger must beat the incumbent by 25 points of composite score AND already
 carry an `overweight` verdict from research — not merely `neutral`. One swap a
 week, at most. This refuses to chase a name on momentum alone; conviction has
 to come from both the quant screen and the qualitative debate before capital
-moves.
+moves. Those 25 points are index percentile points only when `propose` is run
+with `--universe-file`; otherwise they are percentile points of your own
+holdings + candidates files, a coarser scale.
 
 Override this IPS only for a name already held that develops a genuine
 thesis break (accounting red flag, guidance cut, regime change in its

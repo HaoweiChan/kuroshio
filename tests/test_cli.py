@@ -13,6 +13,7 @@ import pytest
 from kuroshio.cli import (
     _candidates_from_yaml,
     _holdings_from_yaml,
+    _load_universe,
     _parse_tickers,
     _score_missing,
     main,
@@ -863,3 +864,141 @@ def test_evaluate_with_one_run_reports_need_at_least_two_dates(tmp_path, capsys,
     out = capsys.readouterr().out
     assert code == 0
     assert "need at least 2" in out
+
+
+# --- propose: `--universe-file` gives the hurdle a cross-section (TASK-7) -------
+#
+# 60 names, each with a distinct constant per-session growth rate, so the panel's
+# 12-1 momentum scores are strictly ordered by ticker index and the challenger's
+# pctrank position is known exactly — see the derivation in the acceptance test below.
+
+N_UNIVERSE = 260  # same session floor as `_us_mom_panel` — the `us` profile's min_history
+_UNIVERSE_TICKERS = [f"U{i:02d}" for i in range(60)]
+HURDLE_US = 0.15 + 0.02 / 100  # balanced IPS: turnover.hurdle + us_roundtrip_pct / 100
+
+
+def _us_universe_panel() -> Panel:
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2023-01-02", periods=N_UNIVERSE)]
+    close = pd.DataFrame(
+        {
+            t: [100.0 * (1.0002 + 0.00002 * i) ** day for day in range(N_UNIVERSE)]
+            for i, t in enumerate(_UNIVERSE_TICKERS)
+        },
+        index=dates,
+    )
+    close["SPY"] = [100.0] * N_UNIVERSE  # flat benchmark
+    volume = pd.DataFrame({t: [1_000_000.0] * N_UNIVERSE for t in close.columns}, index=dates)
+    return Panel(close=close, volume=volume)
+
+
+def test_score_missing_with_universe_ranks_the_challenger_against_the_index():
+    """A universe adds a third source of names to the ranking pool (holdings ∪
+    challengers ∪ universe) instead of just the user's own files, so an auto-filled
+    score is the challenger's exact pctrank position among all 60: U55 has the 56th
+    (0-indexed 55th) lowest growth rate of 60, so its score is 55 / (60 - 1)."""
+    panel = _us_universe_panel()
+    profile = get_profile("us")
+    holdings = [Holding(ticker=t, weight=0.05) for t in ("U05", "U25", "U45")]
+    challenger = Candidate(ticker="U55", date="2024-01-01", rank=0, final_score=None)
+
+    kept, auto = _score_missing(
+        holdings, [challenger], profile, panel, HURDLE_US, universe=_UNIVERSE_TICKERS
+    )
+
+    assert auto["U55"] == 60  # ranked against the whole universe, not a 4-name pool
+    assert kept[0].final_score == pytest.approx(55 / 59)
+
+
+def test_propose_universe_file_names_the_pool_and_skips_the_small_pool_refusal(
+    tmp_path, capsys, monkeypatch
+):
+    """Acceptance: with a 60-name universe file, `propose --market us` auto-fills the
+    candidate's score against the whole universe (not just the 4 names in holdings +
+    candidates — well under the `need=8` floor on their own), the SWAP card names the
+    universe file instead of "your own files", and the small-pool refusal never fires."""
+    _use_stub(monkeypatch, _us_universe_panel())
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", ("U05", "U25", "U45"))
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "U55", verdict: buy}\n')
+    universe = tmp_path / "universe.txt"
+    universe.write_text("\n".join(_UNIVERSE_TICKERS) + "\n")
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "us",
+            "--universe-file", str(universe),
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "SWAP U05 → U55" in cap.out
+    assert "the 60 names in the universe in universe.txt" in cap.out
+    assert "too small a cross-section" not in cap.err
+
+
+def test_propose_universe_file_accepts_a_members_snapshot_and_uses_the_last_row(
+    tmp_path, capsys, monkeypatch
+):
+    """Acceptance: a `date,tickers` snapshot file (the `scripts/sp500_members.py`
+    format) is accepted too, and the pool is the LAST row's tickers — an earlier,
+    unrelated row must be ignored."""
+    _use_stub(monkeypatch, _us_universe_panel())
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", ("U05", "U25", "U45"))
+    candidates = tmp_path / "candidates.yml"
+    candidates.write_text('- {ticker: "U55", verdict: buy}\n')
+    universe = tmp_path / "members.csv"
+    universe.write_text(
+        "date,tickers\n"
+        "2020-01-01,ZZZ\n"  # stale snapshot — must not be the pool used
+        f"2024-01-01,{' '.join(_UNIVERSE_TICKERS)}\n"
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--candidates", str(candidates),
+            "--market", "us",
+            "--universe-file", str(universe),
+        ]
+    )
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "SWAP U05 → U55" in cap.out
+    assert "the 60 names in the universe in members.csv" in cap.out
+    assert "too small a cross-section" not in cap.err
+
+
+def test_propose_empty_universe_file_exits_2(tmp_path, capsys):
+    holdings = _holdings_yaml(tmp_path / "holdings.yml", ["AAPL"], ", score: 0.5")
+    universe = tmp_path / "universe.txt"
+    universe.write_text("")
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "us",
+            "--universe-file", str(universe),
+        ]
+    )
+    assert code == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_load_universe_rejects_empty_file(tmp_path):
+    f = tmp_path / "empty.txt"
+    f.write_text("")
+    with pytest.raises(ValueError):
+        _load_universe(str(f))
+
+
+def test_load_universe_missing_file_is_a_value_error(tmp_path):
+    with pytest.raises(ValueError):
+        _load_universe(str(tmp_path / "nope.txt"))

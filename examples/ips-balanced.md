@@ -37,7 +37,9 @@ The turnover hurdle sits at a moderate 15 points, and the verdict floor is
 the deciding, using qualitative research mainly as a veto (no `sell`/
 `underweight` names get proposed) rather than a second bar to clear. Up to two
 swaps a week keeps the portfolio responsive without letting churn eat the
-edge to friction.
+edge to friction. Those 15 points are index percentile points only when
+`propose` is run with `--universe-file`; otherwise they are percentile points
+of your own holdings + candidates files, a coarser scale.
 
 This refuses to hold a name purely on inertia once a materially better
 challenger clears the hurdle — "I've held it a while" is not a reason.
