@@ -17,7 +17,9 @@ Two files under ``ledger_dir()`` (default ``~/.kuroshio/ledger``, override with
 names::
 
     {"forward_pe", "forward_eps", "trailing_eps", "trailing_pe",
-     "market_cap", "sector", "industry", "asof"}
+     "market_cap", "sector", "industry", "eps_rev_up_30d", "eps_rev_down_30d",
+     "eps_est_growth_fy", "n_analysts", "rec_buy", "rec_hold", "rec_sell",
+     "next_earnings_date", "last_surprise_pct", "insider_net_shares_90d", "asof"}
 
 with any key the provider didn't return set to ``None``; ``asof`` is the screen
 run's date, not a fetch timestamp.
@@ -155,21 +157,34 @@ def realized(
             ey_df = pd.DataFrame(ey_pairs, columns=["ey", "fwd"])
             ey_ic = float(ey_df["ey"].rank().corr(ey_df["fwd"].rank()))
 
+        rev_pairs = []
+        for row, fwd in scored:
+            fundamentals = row.get("fundamentals")
+            up = fundamentals.get("eps_rev_up_30d") if fundamentals else None
+            down = fundamentals.get("eps_rev_down_30d") if fundamentals else None
+            if up is not None and down is not None and (up + down) > 0:
+                rev_pairs.append(((up - down) / (up + down), fwd))
+        rev_ic = None
+        if len(rev_pairs) >= 3:
+            rev_df = pd.DataFrame(rev_pairs, columns=["breadth", "fwd"])
+            rev_ic = float(rev_df["breadth"].rank().corr(rev_df["fwd"].rank()))
+
         per_date.append({
             "date": date, "n": len(scored), "ic": ic, "topk_fwd": topk_fwd,
-            "bench_fwd": bench_fwd, "ey_ic": ey_ic,
+            "bench_fwd": bench_fwd, "ey_ic": ey_ic, "rev_ic": rev_ic,
         })
 
     if not per_date:
         return {
             "per_date": [], "mean_ic": None, "mean_topk_fwd": None, "mean_excess": None,
-            "beat_rate": None, "mean_ey_ic": None, "n_dates": 0,
+            "beat_rate": None, "mean_ey_ic": None, "mean_rev_ic": None, "n_dates": 0,
         }
 
     df = pd.DataFrame(per_date)
     ic_s = df["ic"].dropna()
     topk_s = df["topk_fwd"].dropna()
     ey_s = df["ey_ic"].dropna()
+    rev_s = df["rev_ic"].dropna()
     both = df.dropna(subset=["topk_fwd", "bench_fwd"])
     mean_excess = beat_rate = None
     if not both.empty:
@@ -184,6 +199,7 @@ def realized(
         "mean_excess": mean_excess,
         "beat_rate": beat_rate,
         "mean_ey_ic": float(ey_s.mean()) if not ey_s.empty else None,
+        "mean_rev_ic": float(rev_s.mean()) if not rev_s.empty else None,
         "n_dates": len(per_date),
     }
 
@@ -231,6 +247,8 @@ def to_markdown(summary: dict, ratings: dict) -> str:
             )
         if summary["mean_ey_ic"] is not None:
             lines.append(f"mean earnings-yield IC={summary['mean_ey_ic']:+.3f}")
+        if summary["mean_rev_ic"] is not None:
+            lines.append(f"mean revision-breadth IC={summary['mean_rev_ic']:+.3f}")
         lines.append("")
         lines.append("per-date:")
         for row in summary["per_date"]:

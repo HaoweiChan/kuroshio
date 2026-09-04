@@ -9,6 +9,7 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 # Import tools from separate utility files
 from kuroshio.agents.engine.agents.utils.core_stock_tools import get_stock_data
 from kuroshio.agents.engine.agents.utils.fundamental_data_tools import (
+    get_analyst_estimates,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
@@ -33,6 +34,7 @@ __all__ = [
     "get_balance_sheet",
     "get_cashflow",
     "get_income_statement",
+    "get_analyst_estimates",
     "get_news",
     "get_global_news",
     "get_insider_transactions",
