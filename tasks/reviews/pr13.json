@@ -1,0 +1,8 @@
+{
+  "pr": 13,
+  "task": "TASK-1",
+  "review_calls": 1,
+  "review_mode": "full",
+  "call_1": {"result": "APPROVED", "findings": []},
+  "call_2": null
+}

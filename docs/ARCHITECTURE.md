@@ -136,9 +136,12 @@ caps:
   position_pct: 10             # standard max position, % of NAV
   position_hard_pct: 25        # absolute per-name ceiling
   theme_pct: 20                # per-theme effective-exposure budget
+  risk_budget_pct: 1           # % of NAV one position may lose to its invalidation price;
+                               # the allocator's percent-risk cap turns it into a weight
   max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
-                               # (not max_adverse_excursion_pct — that cap has no carve-out)
+                               # (not max_adverse_excursion_pct or risk_budget_pct — neither
+                               #  a ceiling with a carve-out)
 turnover:
   hurdle: 0.15                 # challenger final_score must exceed incumbent by this
   verdict_floor: neutral       # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)
@@ -164,7 +167,17 @@ Pure function. v1 logic:
 1. **Theme budgets**: effective exposure per theme = Σ weight × leverage. Theme over
    `ips.caps.theme_pct` → challengers in that theme may only swap against same-theme
    incumbents; also emit an ALERT card for the breach.
-2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card.
+2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card,
+   stating the weight to trim *to*: `engine.target_weight` = min(`caps.position_pct`,
+   percent-risk), and the card names the cap that bound. Percent-risk sizes
+   `caps.risk_budget_pct` of NAV across the entry-to-invalidation distance — weight =
+   risk x entry / (entry - invalidation), NAV cancels, so `propose` needs no portfolio
+   value — and it applies only when the holding has both prices and the invalidation is
+   below the entry (at or above it is not a stop, and its distance divides by zero or
+   sizes the position negatively). `position_hard_pct` is not in the min: `validate`
+   already holds `position_pct` at or under it. Inverse-vol parity is the third cap and is
+   not implemented — it needs a vol estimate and `propose` takes no panel
+   (docs/PORTFOLIO-PLAN.md phase 3).
 3. **Thesis monitoring**, dispatched on `setup_type` — the ranking in step 4 is a momentum
    composite, so a `value_dip` is *meant* to look weak there and must not be alerted on that:
    `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);
@@ -217,7 +230,10 @@ Pure function. v1 logic:
    monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
    both halves of the run silent about the same position — and when step 3b already forced
    a decision on that incumbent, the SWAP card says so and names itself the "kill it"
-   option on that card rather than a fourth one. The hurdle is measured in percentile
+   option on that card rather than a fourth one. The SWAP also carries a target weight —
+   the incumbent's, and the card says whose it is: a challenger is a name the user has not
+   opened, so it carries no entry or invalidation price and the percent-risk cap has
+   nothing to read on the buy side. The hurdle is measured in percentile
    points of whatever cross-section the scores came from: the index when `propose` was run
    with `--universe-file`, or the user's own holdings + candidates files otherwise — the
    card discloses which (TASK-7, docs/backtest-2026-09.md §What this means, item 3).
