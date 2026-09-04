@@ -1,7 +1,7 @@
 ---
 id: TASK-5
 title: Portfolio simulator over walk-forward
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-03'
 labels: []
