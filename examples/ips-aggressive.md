@@ -39,7 +39,9 @@ The turnover hurdle is intentionally low at 10 points, with up to four swaps
 a week: this IPS would rather pay the friction cost of being wrong quickly
 than the opportunity cost of holding a stale leader. The verdict floor stays
 at `neutral` — research is a veto against clearly broken names, not a brake
-on rotation speed.
+on rotation speed. Those 10 points are index percentile points only when
+`propose` is run with `--universe-file`; otherwise they are percentile points
+of your own holdings + candidates files, a coarser scale.
 
 This refuses to average down on a name that has lost its momentum
 characteristics just because it was recently a winner. Override toward fewer,

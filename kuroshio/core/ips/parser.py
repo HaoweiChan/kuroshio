@@ -75,6 +75,7 @@ def _parse_text(text: str) -> IPS:
             position_pct=caps_raw.get("position_pct", 10),
             position_hard_pct=caps_raw.get("position_hard_pct", 25),
             theme_pct=caps_raw.get("theme_pct", 20),
+            risk_budget_pct=caps_raw.get("risk_budget_pct", 1),
             max_adverse_excursion_pct=caps_raw.get("max_adverse_excursion_pct", -15),
             book_vol_target_pct=caps_raw.get("book_vol_target_pct"),
             exemptions=exemptions,
@@ -114,6 +115,13 @@ def validate(ips: IPS) -> list[str]:
         )
     if not (0 < c.theme_pct <= 100):
         problems.append(f"caps.theme_pct ({c.theme_pct}) must be in (0, 100]")
+
+    # The allocator divides by the entry-to-invalidation distance with this on top, so a
+    # bad value doesn't just look wrong: 0 or negative sizes every position at nothing or
+    # below it, and a string crashes the multiplication. Type first, same as friction below.
+    rb = c.risk_budget_pct
+    if isinstance(rb, bool) or not isinstance(rb, (int, float)) or not (0 < rb <= 100):
+        problems.append(f"caps.risk_budget_pct ({rb!r}) must be a percent of NAV in (0, 100]")
 
     # The allocator compares a price against entry x (1 + mae/100), so the sign is the
     # whole meaning: written unsigned (15) every position is already "past" it, written

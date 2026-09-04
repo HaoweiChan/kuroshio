@@ -136,14 +136,16 @@ caps:
   position_pct: 10             # standard max position, % of NAV
   position_hard_pct: 25        # absolute per-name ceiling
   theme_pct: 20                # per-theme effective-exposure budget
+  risk_budget_pct: 1           # % of NAV one position may lose to its invalidation price;
+                               # the allocator's percent-risk cap turns it into a weight
   max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
   book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off (opt-in).
                                # docs/backtest-2026-09.md §E: through propose() on 12-1 top-20, 15%
                                # bought 13pts of 2021-2026 drawdown for 54pts of return and nothing
                                # out of sample for 74pts; no example IPS sets it.
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
-                               # (not max_adverse_excursion_pct or book_vol_target_pct — neither
-                               # cap has a per-ticker carve-out)
+                               # (not max_adverse_excursion_pct, risk_budget_pct or
+                               #  book_vol_target_pct — none a ceiling with a carve-out)
 turnover:
   hurdle: 0.15                 # challenger final_score must exceed incumbent by this
   verdict_floor: neutral       # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)
@@ -169,7 +171,17 @@ Pure function. v1 logic:
 1. **Theme budgets**: effective exposure per theme = Σ weight × leverage. Theme over
    `ips.caps.theme_pct` → challengers in that theme may only swap against same-theme
    incumbents; also emit an ALERT card for the breach.
-2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card.
+2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card,
+   stating the weight to trim *to*: `engine.target_weight` = min(`caps.position_pct`,
+   percent-risk), and the card names the cap that bound. Percent-risk sizes
+   `caps.risk_budget_pct` of NAV across the entry-to-invalidation distance — weight =
+   risk x entry / (entry - invalidation), NAV cancels, so `propose` needs no portfolio
+   value — and it applies only when the holding has both prices and the invalidation is
+   below the entry (at or above it is not a stop, and its distance divides by zero or
+   sizes the position negatively). `position_hard_pct` is not in the min: `validate`
+   already holds `position_pct` at or under it. Inverse-vol parity is the third cap and is
+   not implemented — it needs a vol estimate and `propose` takes no panel
+   (docs/PORTFOLIO-PLAN.md phase 3).
 2b. **Book vol target**: when `ips.caps.book_vol_target_pct` is set and the caller-supplied
    `book_vol` (`allocator/signals.py:book_vol`, trailing 20-session realized vol of the book,
    annualized %) exceeds it, one SCALE card naming the realized vol, the window, the target
@@ -229,7 +241,13 @@ Pure function. v1 logic:
    monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
    both halves of the run silent about the same position — and when step 3b already forced
    a decision on that incumbent, the SWAP card says so and names itself the "kill it"
-   option on that card rather than a fourth one.
+   option on that card rather than a fourth one. The SWAP also carries a target weight —
+   the incumbent's, and the card says whose it is: a challenger is a name the user has not
+   opened, so it carries no entry or invalidation price and the percent-risk cap has
+   nothing to read on the buy side. The hurdle is measured in percentile
+   points of whatever cross-section the scores came from: the index when `propose` was run
+   with `--universe-file`, or the user's own holdings + candidates files otherwise — the
+   card discloses which (TASK-7, docs/backtest-2026-09.md §What this means, item 3).
 5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
@@ -249,10 +267,15 @@ Two files, one JSON object per line:
   top — a rank-IC needs breadth) on a `kuroshio screen` run:
   `{date, market, profile, ticker, rank, final_score, scores, factors, close,
   fundamentals}`. `fundamentals` is `None`, or a snapshot (`{forward_pe,
-  forward_eps, trailing_eps, trailing_pe, market_cap, sector, industry, asof}`,
-  any missing key `None`) fetched only for the top `--snapshot-top` (default 50)
-  screened names via `provider.fetch_fundamentals` (yfinance: ~0.6 s per name, so the
-  full S&P 500 is about five minutes — a deliberate opt-in, not the default).
+  forward_eps, trailing_eps, trailing_pe, market_cap, sector, industry,
+  eps_rev_up_30d, eps_rev_down_30d, eps_est_growth_fy, n_analysts, rec_buy,
+  rec_hold, rec_sell, next_earnings_date, last_surprise_pct,
+  insider_net_shares_90d, asof}`, any missing key `None`) fetched only for the
+  top `--snapshot-top` (default 50) screened names via `provider.fetch_fundamentals`
+  (yfinance: ~3 s per name — seven extra HTTP calls beyond `.info` for revisions,
+  estimates, recommendations, calendar, earnings-date history and insider
+  transactions — so the full S&P 500 is well over 20 minutes; a deliberate
+  opt-in, not the default).
 - `ratings.jsonl` (`RATINGS`) — one row per `kuroshio research` run: `{date,
   market, ticker, rating, stop_loss, price_target, close}`, levels `None` when
   unavailable.
@@ -264,9 +287,13 @@ horizon, benchmark, top_k)` groups scores by date, and for each date with a
 session >= `horizon` sessions later in `close` computes rank-IC (pandas
 `.rank().corr()` — scipy is not a dependency; a row dated on a non-session is measured
 from the next open), top-k mean forward return (by
-rank), benchmark forward return, and `ey_ic` (rank-IC of forward earnings yield,
+rank), benchmark forward return, `ey_ic` (rank-IC of forward earnings yield,
 `1/forward_pe`, vs. forward return, only when >= 3 rows carry a positive
-`forward_pe`). `rating_table(rating_rows, close, horizon)` computes a per-rating
+`forward_pe`), and `rev_ic` (rank-IC of revision breadth, `(up - down) / (up +
+down)` off `eps_rev_up_30d`/`eps_rev_down_30d`, vs. forward return, only for
+rows with both counts present and `up + down > 0`, needs >= 3 rows; summary
+carries the across-date mean as `mean_rev_ic`, `None` when undefined).
+`rating_table(rating_rows, close, horizon)` computes a per-rating
 hit rate — a first cut: Buy/Overweight hits on a positive forward return,
 Sell/Underweight on a negative one, Hold on staying within +-5%; a rating
 outside that vocabulary still gets n/mean_fwd but no hit_rate. `to_markdown`
@@ -320,14 +347,18 @@ argparse subcommands:
   point-in-time snapshot CSV from `scripts/sp500_members.py`, screening in only that date's members);
   even with `--members-file`, a delisted name the provider no longer carries price history for could
   not have been held, so residual survivorship bias remains either way.
-- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
+- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]
+  [--universe-file PATH]` — proposal
   cards to stdout. A `score:` / `final_score:` missing from the input files is filled from one
   ungated `score_names` cross-section over *the tickers in those files* (one fetch through the
   market's provider); the gated `screen` decides challenger eligibility only, and names it drops
   are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
   the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
   auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
-  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). Two consequences, both handled:
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30), unless `--universe-file` (a
+  newline ticker list, or a `date,tickers` snapshot from `scripts/sp500_members.py` — its
+  latest row is used) adds the index to the pool, in which case the score is a percentile of
+  that index and the card says so instead of "your own files" (TASK-7). Two consequences, both handled:
   (1) below `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for both
   markets under the balanced IPS) nothing is filled and the allocator's ALERT stands. That
   floor is a heuristic, not a theorem: it scales one pctrank step `1/(n-1)` by the largest

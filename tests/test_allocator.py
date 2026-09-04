@@ -855,3 +855,72 @@ def test_no_scale_card_when_book_vol_is_none():
     ips = make_ips(**{"caps.book_vol_target_pct": 15})
     cards = propose([], [], ips, "us", book_vol=None)
     assert [c for c in cards if c.action == "SCALE"] == []
+
+# --- T7: position sizing -------------------------------------------------------
+#
+# A target weight is min(base position cap, percent-risk cap); inverse-vol parity is
+# deliberately not here (backlog task-1 defers it). Each cap gets a test as the binding
+# one, because a min() that silently always picks the same operand passes any single case.
+
+
+def test_trim_card_states_a_target_weight_set_by_the_base_cap():
+    holdings = [Holding(ticker="OVER", weight=0.30, score=0.5)]  # over the 25% hard cap
+    ips = make_ips(**{"caps.position_pct": 8})
+
+    trim = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
+
+    assert trim.details["target_weight"] == pytest.approx(0.08)
+    assert trim.details["binding_cap"] == "caps.position_pct"
+    assert "8.0%" in trim.reason
+    assert "caps.position_pct" in trim.ips_clauses
+
+
+def test_trim_target_weight_takes_the_percent_risk_cap_when_it_is_tighter():
+    # 0.5% of NAV risked over a 100 -> 90 stop (10% of the entry price) sizes the
+    # position at 5% of NAV, half the 10% base cap.
+    holdings = [
+        Holding(ticker="OVER", weight=0.30, score=0.5, entry_price=100.0, invalidation_price=90.0)
+    ]
+    ips = make_ips(**{"caps.position_pct": 10, "caps.risk_budget_pct": 0.5})
+
+    trim = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
+
+    assert trim.details["target_weight"] == pytest.approx(0.05)
+    assert trim.details["binding_cap"] == "caps.risk_budget_pct"
+    assert "5.0%" in trim.reason
+    assert "caps.risk_budget_pct" in trim.ips_clauses
+
+
+def test_swap_card_names_the_percent_risk_cap_when_it_binds():
+    holdings = [
+        Holding(ticker="WEAK", weight=0.05, score=0.40, entry_price=100.0, invalidation_price=90.0)
+    ]
+    ips = make_ips(**{
+        "turnover.hurdle": 0.15, "caps.position_pct": 10, "caps.risk_budget_pct": 0.5,
+    })
+
+    cards = propose(holdings, [cand("GOOD", 0.60)], ips, "us", verdicts={"GOOD": "buy"})
+
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.details["target_weight"] == pytest.approx(0.05)
+    assert swap.details["binding_cap"] == "caps.risk_budget_pct"
+    assert "5.0%" in swap.reason
+    assert "caps.risk_budget_pct" in swap.ips_clauses
+
+
+@pytest.mark.parametrize("invalidation", [100.0, 110.0])
+def test_an_invalidation_at_or_above_entry_leaves_the_base_cap_binding(invalidation):
+    # Not a stop: the entry-to-invalidation distance is zero or negative, which would
+    # divide by zero or size the position negatively rather than cap it.
+    holdings = [
+        Holding(
+            ticker="OVER", weight=0.30, score=0.5,
+            entry_price=100.0, invalidation_price=invalidation,
+        )
+    ]
+    ips = make_ips(**{"caps.position_pct": 10, "caps.risk_budget_pct": 0.5})
+
+    trim = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
+
+    assert trim.details["target_weight"] == pytest.approx(0.10)
+    assert trim.details["binding_cap"] == "caps.position_pct"

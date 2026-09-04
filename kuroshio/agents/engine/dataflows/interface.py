@@ -24,6 +24,7 @@ from .errors import (
 from .fred import get_macro_data as get_fred_macro_data
 from .polymarket import get_prediction_markets as get_polymarket_prediction_markets
 from .y_finance import (
+    get_analyst_estimates as get_yfinance_analyst_estimates,
     get_balance_sheet as get_yfinance_balance_sheet,
     get_cashflow as get_yfinance_cashflow,
     get_fundamentals as get_yfinance_fundamentals,
@@ -56,7 +57,8 @@ TOOLS_CATEGORIES = {
             "get_fundamentals",
             "get_balance_sheet",
             "get_cashflow",
-            "get_income_statement"
+            "get_income_statement",
+            "get_analyst_estimates"
         ]
     },
     "news_data": {
@@ -130,6 +132,9 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "yfinance": get_yfinance_income_statement,
         "finmind": tw_interface.get_income_statement,
+    },
+    "get_analyst_estimates": {
+        "yfinance": get_yfinance_analyst_estimates,
     },
     # news_data
     "get_news": {

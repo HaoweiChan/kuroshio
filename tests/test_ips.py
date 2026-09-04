@@ -198,3 +198,21 @@ def test_book_vol_target_pct_is_not_exemptable():
         "---\ncaps:\n  exemptions:\n    - {ticker: A, cap: book_vol_target_pct}\n---\nbody\n"
     ))
     assert any("unknown cap field" in p for p in problems)
+
+def test_risk_budget_pct_parses_and_is_validated():
+    text = """---
+version: 1
+caps:
+  risk_budget_pct: 0.5
+---
+Philosophy body.
+"""
+    ips = parse_ips(text)
+    assert ips.caps.risk_budget_pct == 0.5
+    assert validate(ips) == []
+
+    # 0% of NAV risked sizes every position at nothing; a non-number crashes the
+    # allocator's division rather than being rejected here.
+    for bad in (0, "1"):
+        ips.caps.risk_budget_pct = bad
+        assert any("risk_budget_pct" in p for p in validate(ips))

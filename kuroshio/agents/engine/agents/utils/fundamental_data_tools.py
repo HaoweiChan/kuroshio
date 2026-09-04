@@ -23,6 +23,25 @@ def get_fundamentals(
 
 
 @tool
+def get_analyst_estimates(
+    ticker: Annotated[str, "ticker symbol"],
+    curr_date: Annotated[str, "current date you are trading at, yyyy-mm-dd"],
+) -> str:
+    """
+    Retrieve analyst estimate revisions, earnings estimates, recommendation trend,
+    and the next earnings date for a given ticker symbol.
+    Uses the configured fundamental_data vendor.
+    Args:
+        ticker (str): Ticker symbol of the company
+        curr_date (str): Current date you are trading at, yyyy-mm-dd
+    Returns:
+        str: A formatted report of analyst estimate revisions, earnings estimates,
+            recommendation trend, and the next earnings date
+    """
+    return route_to_vendor("get_analyst_estimates", ticker, curr_date)
+
+
+@tool
 def get_balance_sheet(
     ticker: Annotated[str, "ticker symbol"],
     freq: Annotated[str, "reporting frequency: annual/quarterly"] = "quarterly",

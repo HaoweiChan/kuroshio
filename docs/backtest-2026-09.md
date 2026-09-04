@@ -191,6 +191,7 @@ a ratchet: 33 cuts in five years, exposure never recovered, same drawdown, less 
    the same ranker" in both windows.
 3. **Give `turnover.hurdle` a unit.** The IPS must name the cross-section a hurdle is
    measured on (the index, not the book), or the number means nothing.
+   (`propose --universe-file`, TASK-7)
 4. **The fundamentals pipeline and the forward ledger are now the critical path**, not
    optional follow-ups: they are the only routes to a signal this report could not
    find. Snapshot forward P/E and estimates on every run from day one (task-2 data

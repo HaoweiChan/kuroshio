@@ -338,6 +338,55 @@ def get_fundamentals(
         return f"Error retrieving fundamentals for {ticker}: {str(e)}"
 
 
+def get_analyst_estimates(
+    ticker: Annotated[str, "ticker symbol of the company"],
+    curr_date: Annotated[str, "current date (not used for yfinance)"] = None
+):
+    """Get analyst estimate revisions, earnings estimates, recommendation trend,
+    and the next earnings date from yfinance.
+
+    ``curr_date`` is accepted for signature parity with the other fundamentals
+    dataflows but ignored: this feed is point-in-time only (yfinance does not
+    expose a history of past revisions/estimates), so there is nothing to
+    filter by date.
+    """
+    canonical = normalize_symbol(ticker)
+    try:
+        ticker_obj = yf.Ticker(canonical)
+
+        sections = []
+
+        earnings_estimate = yf_retry(lambda: ticker_obj.earnings_estimate)
+        if earnings_estimate is not None and not earnings_estimate.empty:
+            sections.append("## Earnings Estimate\n" + earnings_estimate.to_csv())
+
+        eps_revisions = yf_retry(lambda: ticker_obj.eps_revisions)
+        if eps_revisions is not None and not eps_revisions.empty:
+            sections.append("## EPS Revisions\n" + eps_revisions.to_csv())
+
+        recommendations = yf_retry(lambda: ticker_obj.recommendations_summary)
+        if recommendations is not None and not recommendations.empty:
+            sections.append("## Recommendations Summary\n" + recommendations.to_csv())
+
+        if not sections:  # no estimate table at all — a date alone is not a report
+            raise NoMarketDataError(ticker, canonical, "no analyst estimate data")
+
+        calendar = yf_retry(lambda: ticker_obj.calendar)
+        next_earnings = calendar.get("Earnings Date") if calendar else None
+        next_earnings = next_earnings[0] if next_earnings else "unknown"
+        sections.append(f"## Next Earnings Date\n{next_earnings}")
+
+        header = f"# Analyst Estimates for {canonical}\n"
+        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
+        return header + "\n\n".join(sections)
+
+    except NoMarketDataError:
+        raise
+    except Exception as e:
+        return f"Error retrieving analyst estimates for {ticker}: {str(e)}"
+
+
 def get_balance_sheet(
     ticker: Annotated[str, "ticker symbol of the company"],
     freq: Annotated[str, "frequency of data: 'annual' or 'quarterly'"] = "quarterly",
