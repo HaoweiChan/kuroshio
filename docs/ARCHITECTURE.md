@@ -217,7 +217,10 @@ Pure function. v1 logic:
    monitored setup the SWAP card quotes what step 3 concluded about it, rather than leaving
    both halves of the run silent about the same position — and when step 3b already forced
    a decision on that incumbent, the SWAP card says so and names itself the "kill it"
-   option on that card rather than a fourth one.
+   option on that card rather than a fourth one. The hurdle is measured in percentile
+   points of whatever cross-section the scores came from: the index when `propose` was run
+   with `--universe-file`, or the user's own holdings + candidates files otherwise — the
+   card discloses which (TASK-7, docs/backtest-2026-09.md §What this means, item 3).
 5. **Never executes.** Cards cite the IPS clause that authorized them ("your IPS §turnover.hurdle = 0.15").
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
@@ -308,14 +311,18 @@ argparse subcommands:
   point-in-time snapshot CSV from `scripts/sp500_members.py`, screening in only that date's members);
   even with `--members-file`, a delisted name the provider no longer carries price history for could
   not have been held, so residual survivorship bias remains either way.
-- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
+- `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]
+  [--universe-file PATH]` — proposal
   cards to stdout. A `score:` / `final_score:` missing from the input files is filled from one
   ungated `score_names` cross-section over *the tickers in those files* (one fetch through the
   market's provider); the gated `screen` decides challenger eligibility only, and names it drops
   are reported on stderr. Incumbent and challenger scores therefore come from the same pool —
   the scale-compatibility contract the swap gate needs. That pool is not a universe, so an
   auto-filled score is a percentile among your own names, not a `kuroshio screen` number (no
-  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30). Two consequences, both handled:
+  `--sector-map`/`--asof` either — see tasks/TODO.md T25/T30), unless `--universe-file` (a
+  newline ticker list, or a `date,tickers` snapshot from `scripts/sp500_members.py` — its
+  latest row is used) adds the index to the pool, in which case the score is a percentile of
+  that index and the card says so instead of "your own files" (TASK-7). Two consequences, both handled:
   (1) below `floor(min_rank_weight / (turnover.hurdle + friction/100)) + 2` names (4, for both
   markets under the balanced IPS) nothing is filled and the allocator's ALERT stands. That
   floor is a heuristic, not a theorem: it scales one pctrank step `1/(n-1)` by the largest
