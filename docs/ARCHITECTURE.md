@@ -28,12 +28,13 @@ kuroshio/
 │   ├── ips/              # IPS schema, parser, presets
 │   ├── allocator/        # swap proposals + per-setup_type thesis monitoring
 │   ├── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
-│   └── simulate.py       # walk-forward sim that runs propose() (sizing/swap/trim/MAE), vs. EW + benchmark
+│   ├── simulate.py       # walk-forward sim that runs propose() (sizing/swap/trim/MAE), vs. EW + benchmark
+│   └── ledger.py         # plain-file score/rating ledger + realized-performance math (`kuroshio evaluate`)
 ├── agents/
 │   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
 ├── providers/            # data-source plugins: base ABC, yfinance (default), finmind (TW)
 ├── integrations/         # edge adapters: discord webhook notifier
-└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research`
+└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research|evaluate`
 ```
 
 ## Shared types (`kuroshio/types.py`)
@@ -237,6 +238,52 @@ Pure function. v1 logic:
 6. Respect `max_swaps_per_week` (caller passes how many were already made via kwarg
    `swaps_this_week: int = 0`).
 
+## `core/ledger`
+
+docs/backtest-2026-09.md found no price-only ranking that beats SPY, so the only
+remaining routes to a signal — fundamentals/estimates and the LLM qualitative
+layer — need a forward record from day one, before anyone knows whether they
+work. `core/ledger.py` is a dependency-free JSONL append log under
+`ledger_dir()` (`$KUROSHIO_LEDGER_DIR`, default `~/.kuroshio/ledger`), pure file
+IO plus the realized-performance math — stdlib + pandas only, no provider
+imports.
+
+Two files, one JSON object per line:
+- `scores.jsonl` (`SCORES`) — one row per gated candidate (the whole pool, not the printed
+  top — a rank-IC needs breadth) on a `kuroshio screen` run:
+  `{date, market, profile, ticker, rank, final_score, scores, factors, close,
+  fundamentals}`. `fundamentals` is `None`, or a snapshot (`{forward_pe,
+  forward_eps, trailing_eps, trailing_pe, market_cap, sector, industry, asof}`,
+  any missing key `None`) fetched only for the top `--snapshot-top` (default 50)
+  screened names via `provider.fetch_fundamentals` (yfinance: ~0.6 s per name, so the
+  full S&P 500 is about five minutes — a deliberate opt-in, not the default).
+- `ratings.jsonl` (`RATINGS`) — one row per `kuroshio research` run: `{date,
+  market, ticker, rating, stop_loss, price_target, close}`, levels `None` when
+  unavailable.
+
+`append(path, rows)` / `load(path)` are the whole IO surface (`load` returns
+`[]` for a missing file and skips a malformed line with a `logging.warning`
+naming the line number rather than crashing). `realized(scores_rows, close,
+horizon, benchmark, top_k)` groups scores by date, and for each date with a
+session >= `horizon` sessions later in `close` computes rank-IC (pandas
+`.rank().corr()` — scipy is not a dependency; a row dated on a non-session is measured
+from the next open), top-k mean forward return (by
+rank), benchmark forward return, and `ey_ic` (rank-IC of forward earnings yield,
+`1/forward_pe`, vs. forward return, only when >= 3 rows carry a positive
+`forward_pe`). `rating_table(rating_rows, close, horizon)` computes a per-rating
+hit rate — a first cut: Buy/Overweight hits on a positive forward return,
+Sell/Underweight on a negative one, Hold on staying within +-5%; a rating
+outside that vocabulary still gets n/mean_fwd but no hit_rate. `to_markdown`
+renders both, in the style of `backtest.py:BacktestResult.to_markdown`.
+
+`kuroshio evaluate --market M [--horizon 20] [--top 10] [--ledger-dir PATH]`
+reads both files, filters to that market, fetches one panel (provider =
+`profile.default_provider`, lookback = days since the earliest logged score
+date + `horizon * 2` + 10) over the logged tickers plus the market's benchmark,
+and prints `to_markdown(realized(...), rating_table(...))`. Fewer than 2
+distinct score dates prints a "need at least 2 dates" notice and returns 0
+rather than erroring.
+
 ## `agents/engine` — facet cache
 
 Facet TTL cache — the cost-engineering core. LLM analyst reports are cached per
@@ -270,6 +317,8 @@ stay optional.
 argparse subcommands:
 - `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
   `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
+  Unless `--no-ledger`, appends one `core/ledger.py` score row per printed candidate, with a
+  fundamentals snapshot fetched for only the top `--snapshot-top` (default 50).
 - `kuroshio backtest` / `kuroshio simulate` take `--tickers`/`--tickers-file` (today's roster used as
   the universe on every rebalance date — survivorship bias) or `--members-file` (a `date,tickers`
   point-in-time snapshot CSV from `scripts/sp500_members.py`, screening in only that date's members);
@@ -301,6 +350,11 @@ argparse subcommands:
   carries a monitored `setup_type` or an `entry_price`; every score hand-typed *and* nothing
   for either rule to read = no fetch.
 - `kuroshio ips-validate path.md`
+- `kuroshio research TICKER [--market us] ...` — unless `--no-ledger`, appends one rating row to
+  `core/ledger.py`'s `ratings.jsonl` (levels from `final_state["strategy_payload"]["risk_controls"]`
+  when the run produced one); a ledger failure prints a warning to stderr and never fails the run.
+- `kuroshio evaluate --market M [--horizon 20] [--top 10] [--ledger-dir PATH]` — reads the ledger
+  and prints realized rank-IC / top-k forward return / per-rating hit rate; see `core/ledger`.
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
 `candidates.yml`: list of {ticker, final_score?, verdict?, theme?} — same rule (`final_scores:` is a typo, not a request to fetch one).

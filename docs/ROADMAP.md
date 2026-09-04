@@ -26,7 +26,11 @@ content and portfolio data stay on their own machine and never enter it.
   no cross-sectional edge and the allocator rules subtract from it; plain 12-1 momentum wins
   2021–2026 and loses 2014–2021, so it is the `us` default without being an edge (the
   leadership screen is `us-leadership`)
-- **CLI** — `screen` / `backtest` / `simulate` / `propose` / `ips-validate` / `research`, stdlib argparse only
+- **CLI** — `screen` / `backtest` / `simulate` / `propose` / `ips-validate` / `research` / `evaluate`, stdlib argparse only
+- **`core/ledger`** — plain-file JSONL score/rating ledger + fundamentals snapshot
+  (`providers/yf.py:fetch_fundamentals`), written by `screen`/`research` and read back by
+  `kuroshio evaluate` (realized rank-IC, top-k forward return vs. benchmark, earnings-yield IC,
+  per-rating hit rate) — the forward record the 2026-09 backtest said any future signal needs
 - **Genericization** — `MarketProfile` registry: adding a market is one module + one registry entry
   ([docs/adding-a-market.md](adding-a-market.md))
 - **Project hygiene** — CI (ruff + pytest on 3.11/3.12/3.13), `py.typed`, CONTRIBUTING, SECURITY

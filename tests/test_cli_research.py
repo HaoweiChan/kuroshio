@@ -144,3 +144,26 @@ def test_research_custom_analysts_and_lang(monkeypatch, tmp_path):
     assert graph.selected_analysts == ["market", "chip"]
     assert graph.config["output_lang"] == "zh-TW"
     assert graph.config["market_region"] == "tw"
+
+
+# --- ledger wiring (T6) --------------------------------------------------------
+
+
+def test_research_appends_a_rating_row_to_the_ledger(monkeypatch, tmp_path, capsys):
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    _stub_engine(monkeypatch)
+
+    code = main([
+        "research", "AAPL", "--market", "us", "--date", "2026-07-01",
+        "--no-cache", "--out", str(tmp_path),
+    ])
+    capsys.readouterr()
+
+    assert code == 0
+    rows = ledger.load(ledger.ledger_dir() / ledger.RATINGS)
+    assert rows == [{
+        "date": "2026-07-01", "market": "us", "ticker": "AAPL",
+        "rating": "Buy", "stop_loss": None, "price_target": None, "close": None,
+    }]

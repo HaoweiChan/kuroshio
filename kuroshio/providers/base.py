@@ -19,5 +19,5 @@ class MarketDataProvider(ABC):
     def fetch_panel(self, tickers: list[str], lookback_days: int, end: str | None = None) -> Panel: ...
 
     def fetch_fundamentals(self, ticker: str) -> dict | None:
-        """Optional. Most providers don't have a fundamentals feed wired up yet."""
+        """Optional. Most providers don't have a fundamentals feed wired up yet — yfinance does."""
         return None

@@ -125,6 +125,86 @@ class Lab:
             navs.append(nav)
         return pd.Series(navs, index=pd.to_datetime(self.idx[MIN_HISTORY:])), traded
 
+    def walk(self, weights_fn, step, friction_rt=FRICTION_RT, vol_target=None):
+        """``ew_walk`` generalized: ``weights_fn(i) -> {ticker: weight}`` (sum <= 1); with
+        ``vol_target`` the book is scaled so its trailing-20-session vol matches it."""
+        close, rets = self.close, self.close.pct_change()
+        nav, cash, w, traded = 1.0, 1.0, {}, 0.0
+        navs = []
+        for i in range(MIN_HISTORY, len(self.idx)):
+            if i > MIN_HISTORY:
+                grown = {}
+                for t, wt in w.items():
+                    c0, c1 = close[t].iloc[i - 1], close[t].iloc[i]
+                    grown[t] = wt * (1 + (0.0 if pd.isna(c0) or pd.isna(c1) else c1 / c0 - 1))
+                g = cash + sum(grown.values())
+                nav *= g
+                w, cash = {t: v / g for t, v in grown.items()}, cash / g
+            if (i - MIN_HISTORY) % step == 0:
+                new = weights_fn(i)
+                if vol_target and new:
+                    book = (rets.iloc[i - 20:i][list(new)].fillna(0) * pd.Series(new)).sum(axis=1)
+                    v = float(book.std() * np.sqrt(252))
+                    scale = min(1.0, vol_target / v) if v > 0 else 1.0
+                    gross = sum(new.values())
+                    new = {t: x / gross * scale for t, x in new.items()}
+                cost = sum(abs(new.get(t, 0) - w.get(t, 0)) for t in set(w) | set(new))
+                traded += cost
+                nav *= 1 - cost * friction_rt / 2
+                w, cash = new, 1 - sum(new.values())
+            navs.append(nav)
+        return pd.Series(navs, index=pd.to_datetime(self.idx[MIN_HISTORY:])), traded
+
+    # --- volatility variants of 12-1 momentum (docs/backtest-2026-09.md §E) -------------
+    def vol_runs(self, k: int = 20):
+        """(name, weights_fn, vol_target) for the seven pre-declared volatility variants."""
+        vol252 = self.close.pct_change().rolling(252).std() * np.sqrt(252)
+        vol63 = self.close.pct_change().rolling(63).std() * np.sqrt(252)
+
+        def ew(picks):
+            return {t: 1 / len(picks) for t in picks} if picks else {}
+
+        def top(i):
+            return self.r_mom_12_1(i)[:k]
+
+        def sharpe(i):
+            t = self.live(i)
+            s = (self.mom_12_1.iloc[i][t] / vol252.iloc[i][t]).replace([np.inf, -np.inf], np.nan).dropna()
+            return list(s.sort_values(ascending=False).index[:k])
+
+        def ex_top_vol(i):
+            t = self.live(i)
+            v = vol252.iloc[i][t].dropna()
+            keep = v[v <= v.quantile(0.8)].index
+            return list(self.mom_12_1.iloc[i][keep].dropna().sort_values(ascending=False).index[:k])
+
+        def rank_mix(i):
+            t = self.live(i)
+            d = pd.DataFrame({"m": self.mom_12_1.iloc[i][t], "v": vol252.iloc[i][t]}).dropna()
+            s = d["m"].rank(pct=True) + (-d["v"]).rank(pct=True)
+            return list(s.sort_values(ascending=False).index[:k])
+
+        def inverse_vol(i):
+            picks = top(i)
+            v = vol63.iloc[i]
+            iv = {t: 1 / v[t] for t in picks if pd.notna(v[t]) and v[t] > 0}
+            s = sum(iv.values())
+            return {t: v / s for t, v in iv.items()} if s else {}
+
+        def min_vol(i):
+            t = self.live(i)
+            return list(vol252.iloc[i][t].dropna().sort_values().index[:k])
+
+        return [
+            (f"12-1 top{k} EW (reference)", lambda i: ew(top(i)), None),
+            (f"12-1 / vol252 (Sharpe momentum) top{k}", lambda i: ew(sharpe(i)), None),
+            (f"12-1 ex top-vol quintile top{k}", lambda i: ew(ex_top_vol(i)), None),
+            (f"rank(mom)+rank(-vol) top{k}", lambda i: ew(rank_mix(i)), None),
+            (f"12-1 top{k} inverse-vol weights", inverse_vol, None),
+            (f"12-1 top{k} EW, book vol target 15%", lambda i: ew(top(i)), 0.15),
+            (f"min-vol top{k} EW (reference)", lambda i: ew(min_vol(i)), None),
+        ]
+
     def spy(self) -> pd.Series:
         s = self.close[BENCH].iloc[MIN_HISTORY:]
         return pd.Series(s.values / s.values[0], index=pd.to_datetime(s.index))
@@ -167,6 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--end", help="last session to fetch (default: today)")
     ap.add_argument("--years", type=float, default=5.0, help="simulation years before --end")
     ap.add_argument("--cutoff", default=CUTOFF, help="date the 'through' column reports at")
+    ap.add_argument("--vol", action="store_true", help="only the volatility variants of 12-1 momentum")
     args = ap.parse_args(argv)
     CUTOFF = args.cutoff
 
@@ -185,6 +266,11 @@ def main(argv: list[str] | None = None) -> int:
     spy25 = spy.loc[:CUTOFF].iloc[-1] - 1
     print(f"window {lab.idx[MIN_HISTORY]} -> {lab.idx[-1]}")
     print(f"SPY total {spy.iloc[-1] - 1:+.1%}, thru {CUTOFF} {spy25:+.1%}\n")
+    if args.vol:
+        for name, fn, vt in lab.vol_runs():
+            nav, tr = lab.walk(fn, 21, vol_target=vt)
+            report(name, nav, tr, spy)
+        return 0
 
     nav, tr = lab.ew_walk(lambda i: [BENCH], 5, 1, regime=lab.breadth_on)
     report("SPY when breadth(>MA200) >= 50%, else cash", nav, tr, spy)
