@@ -1,7 +1,7 @@
 ---
 id: TASK-8
 title: Estimates, revisions, insider and earnings dates in the snapshot and the fundamentals analyst
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-04'
 labels: []

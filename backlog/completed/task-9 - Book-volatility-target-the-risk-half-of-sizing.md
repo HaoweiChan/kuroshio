@@ -1,7 +1,7 @@
 ---
 id: TASK-9
 title: 'Book volatility target: the risk half of sizing'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-04'
 labels: []

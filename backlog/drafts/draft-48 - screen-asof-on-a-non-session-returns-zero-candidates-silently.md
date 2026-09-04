@@ -1,12 +1,12 @@
 ---
-id: DRAFT-45
+id: DRAFT-48
 title: '`screen --asof` on a non-session returns zero candidates silently'
 status: To Do
 assignee: []
 created_date: '2026-09-04'
 labels: []
 dependencies: []
-ordinal: 45000
+ordinal: 48000
 ---
 
 ## Description

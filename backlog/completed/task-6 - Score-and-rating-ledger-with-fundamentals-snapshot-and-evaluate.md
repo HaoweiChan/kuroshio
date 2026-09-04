@@ -1,7 +1,7 @@
 ---
 id: TASK-6
 title: Score and rating ledger, fundamentals snapshot, `kuroshio evaluate`
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-04'
 labels: []

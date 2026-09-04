@@ -1,7 +1,7 @@
 ---
 id: TASK-7
 title: '`turnover.hurdle` gets a cross-section: `propose --universe-file`'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-04'
 labels: []
