@@ -59,7 +59,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str  # "SWAP" | "TRIM" | "DECIDE" | "ALERT"
+    action: str  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
     reason: str
     sell: str | None = None
     buy: str | None = None
@@ -72,6 +72,8 @@ class ProposalCard:
         heads = {
             "SWAP": f"SWAP {self.sell} → {self.buy}",
             "TRIM": f"TRIM {self.sell}",
+            # SCALE cuts every position pro rata rather than naming one — sell/buy stay None.
+            "SCALE": "SCALE gross exposure",
             # DECIDE is about one position but proposes no side — kill / add / rewrite are
             # the user's three — so its ticker comes from details, not from `sell`.
             "DECIDE": f"DECIDE {self.details.get('ticker', '')}".strip(),

@@ -75,7 +75,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str                  # "SWAP" | "TRIM" | "DECIDE" | "ALERT"
+    action: str                  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
     sell: str | None
     buy: str | None
     reason: str                  # one paragraph, human-readable
@@ -137,8 +137,12 @@ caps:
   position_hard_pct: 25        # absolute per-name ceiling
   theme_pct: 20                # per-theme effective-exposure budget
   max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
+  book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off.
+                               # docs/backtest-2026-09.md §E: 15% cut 12-1 top-20's 2021-2026
+                               # max drawdown from -33% to -14%, at ~30pts of out-of-sample cost.
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
-                               # (not max_adverse_excursion_pct — that cap has no carve-out)
+                               # (not max_adverse_excursion_pct or book_vol_target_pct — neither
+                               # cap has a per-ticker carve-out)
 turnover:
   hurdle: 0.15                 # challenger final_score must exceed incumbent by this
   verdict_floor: neutral       # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)
@@ -157,7 +161,7 @@ Unknown keys: preserved in `ips.extra`, never an error (forward compatibility).
 
 ## `core/allocator`
 
-`propose(holdings: list[Holding], challengers: list[Candidate], ips: IPS, market: str, verdicts: dict[str, str] | None = None) -> list[ProposalCard]`
+`propose(holdings: list[Holding], challengers: list[Candidate], ips: IPS, market: str, verdicts: dict[str, str] | None = None, book_vol: float | None = None) -> list[ProposalCard]`
 
 Pure function. v1 logic:
 
@@ -165,6 +169,13 @@ Pure function. v1 logic:
    `ips.caps.theme_pct` → challengers in that theme may only swap against same-theme
    incumbents; also emit an ALERT card for the breach.
 2. **Cap breaches**: holding over `position_hard_pct` (minus exemptions) → TRIM card.
+2b. **Book vol target**: when `ips.caps.book_vol_target_pct` is set and the caller-supplied
+   `book_vol` (`allocator/signals.py:book_vol`, trailing 20-session realized vol of the book,
+   annualized %) exceeds it, one SCALE card naming the realized vol, the window, the target
+   and the pro-rata cut (`target / book_vol`) — never a card that levers up, and nothing when
+   the book is at or under target or either input is missing. `simulate` mirrors the same
+   arithmetic directly (`scripts/funnel_lab.py:Lab.walk`), scaling every weight down and
+   letting cash absorb the difference.
 3. **Thesis monitoring**, dispatched on `setup_type` — the ranking in step 4 is a momentum
    composite, so a `value_dip` is *meant* to look weak there and must not be alerted on that:
    `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);

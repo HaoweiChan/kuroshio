@@ -175,8 +175,43 @@ def test_summary_has_expected_keys_and_to_markdown_is_nonempty():
     result = _run(top_k=5, step=5)
     summary = result.summary()
     for key in (
-        "total_return", "max_drawdown", "ann_turnover", "n_swaps", "n_trims",
+        "total_return", "max_drawdown", "ann_turnover", "n_swaps", "n_trims", "n_scales",
         "n_decides", "ew_total_return", "bench_total_return", "n_rebalances",
     ):
         assert key in summary
     assert result.to_markdown()
+
+
+# --- book vol target (TASK-9) -----------------------------------------------
+
+
+def _gross_exposures(result):
+    return [sum(w for t, w in row.items() if t != "date") for row in result.weights]
+
+
+def test_book_vol_target_shrinks_the_dropper_drawdown_and_never_levers_up():
+    # top_k=1, hard cap raised to 100% (as in test_a_late_leader_swaps_out_the_weakest_
+    # incumbent above): DROPPER goes to ~full book weight, so its own 30%-in-10-sessions
+    # crash is a clean, high trailing-20-session book vol to scale against. MAE and the
+    # turnover hurdle are both relaxed so the crash is watched by SCALE, not raced by a
+    # DECIDE or a challenger SWAP that would sell DROPPER out before SCALE gets a look.
+    panel = _dropper_panel()
+    relaxed = {"caps.position_hard_pct": 100, "caps.max_adverse_excursion_pct": -90, "turnover.hurdle": 0.99}
+    base_ips = make_ips(**relaxed)
+    targeted_ips = make_ips(**{**relaxed, "caps.book_vol_target_pct": 15})
+
+    base = _run(panel=panel, ips=base_ips, top_k=1, step=5)
+    targeted = _run(panel=panel, ips=targeted_ips, top_k=1, step=5)
+
+    assert targeted.summary()["n_scales"] >= 1
+    assert base.summary()["n_scales"] == 0
+    # less negative == a smaller drawdown
+    assert targeted.summary()["max_drawdown"] >= base.summary()["max_drawdown"]
+    assert max(_gross_exposures(targeted)) <= 1.0 + 1e-9
+    assert max(_gross_exposures(base)) <= 1.0 + 1e-9
+
+
+def test_book_vol_target_off_never_emits_scale_trades():
+    result = _run(panel=_dropper_panel(), ips=make_ips(**{"caps.position_hard_pct": 100}), top_k=1, step=5)
+    assert result.summary()["n_scales"] == 0
+    assert not any(t["action"] == "SCALE" for t in result.trades)

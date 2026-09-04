@@ -18,6 +18,11 @@ position caps are exercised. ``swaps_this_week=0`` every call, since one ``propo
 runs per rebalance step: ``ips.turnover.max_swaps_per_week`` therefore caps swaps per
 rebalance, not per calendar week. Point-in-time universe membership is the caller's
 responsibility, not this module's (see ``backtest.py``'s caveat, printed by the CLI).
+
+``caps.book_vol_target_pct`` is the exception to "goes through ``propose()``": it is
+applied directly here, mirroring ``scripts/funnel_lab.py:Lab.walk``'s vol-target
+arithmetic exactly, rather than as a card ``propose()`` returns — see the rebalance
+block below for where.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ import pandas as pd
 
 from ..types import Candidate, Holding, Panel
 from .allocator.engine import propose, swap_hurdle
-from .allocator.signals import monitor_inputs
+from .allocator.signals import BOOK_VOL_WINDOW, monitor_inputs
 
 
 @dataclass
@@ -45,7 +50,7 @@ class SimResult:
     def summary(self) -> dict:
         years = max(len(self.dates), 1) / 252
         # a SWAP is one sell leg + one buy leg of the same size; every other action
-        # (BUY, TRIM, DECIDE, DELIST) is a single leg. Inception buys are excluded:
+        # (BUY, TRIM, SCALE, DECIDE, DELIST) is a single leg. Inception buys are excluded:
         # counting them would report 1.0x/yr for a book that never traded again.
         inception = self.dates[0] if self.dates else None
         strat_traded = sum(
@@ -59,6 +64,7 @@ class SimResult:
             "ann_turnover": strat_traded / years,
             "n_swaps": sum(1 for t in self.trades if t["action"] == "SWAP"),
             "n_trims": sum(1 for t in self.trades if t["action"] == "TRIM"),
+            "n_scales": sum(1 for t in self.trades if t["action"] == "SCALE"),
             "n_decides": sum(1 for t in self.trades if t["action"] == "DECIDE"),
             "ew_total_return": self.ew_nav[-1] / self.ew_nav[0] - 1.0,
             "final_holdings": sorted(self.weights[-1].keys() - {"date"}) if self.weights else [],
@@ -75,7 +81,8 @@ class SimResult:
             f"# Simulation — {s['n_rebalances']} rebalances, {len(self.dates)} sessions",
             f"total return={s['total_return']:+.2%}  max drawdown={s['max_drawdown']:.2%}  "
             f"ann. turnover={s['ann_turnover']:.2f}x",
-            f"trades: {s['n_swaps']} swap(s), {s['n_trims']} trim(s), {s['n_decides']} decide(s)",
+            f"trades: {s['n_swaps']} swap(s), {s['n_trims']} trim(s), {s['n_scales']} scale(s), "
+            f"{s['n_decides']} decide(s)",
             f"equal-weight baseline total return={s['ew_total_return']:+.2%}",
         ]
         if "bench_total_return" in s:
@@ -310,6 +317,35 @@ def simulate(
                 ew_weights = new_ew
                 ew_cash = 1.0 - sum(new_ew.values())
                 ew_nav *= (1.0 - ew_cost)
+
+            # book vol target — the same arithmetic as scripts/funnel_lab.py:Lab.walk's
+            # vol_target: trailing BOOK_VOL_WINDOW-session weighted book return at the
+            # *current* (post-redeploy) weights, annualized std, scale = min(1, target/vol)
+            # applied pro rata with cash absorbing the cut — never a lever-up, since this
+            # branch only runs when vol is already above target. Friction is charged on the
+            # sold fraction per leg, like a TRIM.
+            book_vol_target = ips.caps.book_vol_target_pct
+            if book_vol_target is not None and holdings and j >= BOOK_VOL_WINDOW:
+                w = {h.ticker: h.weight for h in holdings}
+                tickers = list(w)
+                window_rets = close.iloc[j - BOOK_VOL_WINDOW : j + 1][tickers].pct_change().iloc[1:]
+                book = (window_rets.fillna(0.0) * pd.Series(w)).sum(axis=1)
+                vol = float(book.std() * (252**0.5)) * 100
+                if vol > book_vol_target:
+                    scale = book_vol_target / vol
+                    sold = 0.0
+                    scale_cost = 0.0
+                    for h in holdings:
+                        cut = h.weight * (1.0 - scale)
+                        h.weight -= cut
+                        sold += cut
+                        scale_cost += cut * (roundtrip_pct / 100) / 2
+                    cash += sold
+                    total_cost += scale_cost
+                    trades.append({
+                        "date": asof, "action": "SCALE", "sell": None, "buy": None,
+                        "weight": sold, "cost": scale_cost,
+                    })
 
             nav *= (1.0 - total_cost)
             weights_log.append({"date": asof, **{h.ticker: h.weight for h in holdings}})

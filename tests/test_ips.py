@@ -9,6 +9,7 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 def test_conservative_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-conservative.md")
     assert ips.caps.max_adverse_excursion_pct == -10
+    assert ips.caps.book_vol_target_pct == 12
     assert ips.risk_profile == "conservative"
     assert ips.caps.position_pct == 5
     assert ips.caps.position_hard_pct == 15
@@ -23,6 +24,7 @@ def test_conservative_example_parses_and_validates():
 def test_balanced_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-balanced.md")
     assert ips.caps.max_adverse_excursion_pct == -15
+    assert ips.caps.book_vol_target_pct == 15
     assert ips.caps.position_pct == 10
     assert ips.caps.position_hard_pct == 25
     assert ips.caps.theme_pct == 20
@@ -35,6 +37,7 @@ def test_balanced_example_parses_and_validates():
 def test_aggressive_example_parses_and_validates():
     ips = parse_ips(EXAMPLES / "ips-aggressive.md")
     assert ips.caps.max_adverse_excursion_pct == -20
+    assert ips.caps.book_vol_target_pct is None  # aggressive rides the vol, unset
     assert ips.caps.position_pct == 15
     assert ips.caps.position_hard_pct == 25
     assert ips.caps.theme_pct == 30
@@ -173,3 +176,25 @@ def test_validate_catches_a_mae_threshold_with_the_wrong_sign_or_type():
     typed = validate(parse_ips('---\ncaps:\n  max_adverse_excursion_pct: "-15"\n---\nbody\n'))
     ranged = validate(parse_ips("---\ncaps:\n  max_adverse_excursion_pct: 15\n---\nbody\n"))
     assert typed != ranged  # the string case is not reported with a rule its value meets
+
+
+def test_book_vol_target_pct_parses_and_defaults_to_off():
+    assert IPS().caps.book_vol_target_pct is None
+    ips = parse_ips("---\ncaps:\n  book_vol_target_pct: 15\n---\nbody\n")
+    assert ips.caps.book_vol_target_pct == 15
+    assert validate(ips) == []
+
+
+def test_validate_catches_a_book_vol_target_out_of_range():
+    for bad in ("book_vol_target_pct: 0", "book_vol_target_pct: 150"):
+        problems = validate(parse_ips(f"---\ncaps:\n  {bad}\n---\nbody\n"))
+        assert any("book_vol_target_pct" in p for p in problems), bad
+
+
+def test_book_vol_target_pct_is_not_exemptable():
+    # book-level, like max_adverse_excursion_pct — a per-ticker exemption from a number
+    # that describes the whole book, not one position, is meaningless.
+    problems = validate(parse_ips(
+        "---\ncaps:\n  exemptions:\n    - {ticker: A, cap: book_vol_target_pct}\n---\nbody\n"
+    ))
+    assert any("unknown cap field" in p for p in problems)

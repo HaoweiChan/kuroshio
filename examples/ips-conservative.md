@@ -11,6 +11,7 @@ caps:
   position_hard_pct: 15
   theme_pct: 15
   max_adverse_excursion_pct: -10  # forced decision at 10% below entry
+  book_vol_target_pct: 12  # trailing-20-session book vol target, annualized — tighter than balanced
   exemptions: []
 turnover:
   hurdle: 0.25
@@ -44,3 +45,9 @@ Override this IPS only for a name already held that develops a genuine
 thesis break (accounting red flag, guidance cut, regime change in its
 industry) — that is a risk-management exit, not a turnover decision, and the
 hurdle does not apply to defense.
+
+The book targets a tighter 12% annualized volatility — lower than the
+balanced profile's 15%, in keeping with capital preservation over
+participation — scaling exposure down pro rata whenever the trailing
+20-session realized vol runs hotter than that (§E of
+docs/backtest-2026-09.md).

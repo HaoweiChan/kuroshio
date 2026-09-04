@@ -11,6 +11,8 @@ caps:
   position_hard_pct: 25
   theme_pct: 30
   max_adverse_excursion_pct: -20  # forced decision at 20% below entry
+  # book_vol_target_pct left unset: an aggressive book deliberately rides the vol
+  # that comes with staying close to leadership rather than scaling out of it.
   exemptions: []
 turnover:
   hurdle: 0.10
