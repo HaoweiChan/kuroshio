@@ -786,6 +786,7 @@ class _FundamentalsStub(_StubProvider):
         return {
             "forward_pe": 15.0, "forward_eps": 2.0, "trailing_eps": 1.8, "trailing_pe": 16.0,
             "market_cap": 1_000_000_000.0, "sector": "Technology", "industry": "Software",
+            "eps_rev_up_30d": 8, "eps_rev_down_30d": 2,
         }
 
 
@@ -807,6 +808,7 @@ def test_screen_appends_score_rows_with_a_fundamentals_snapshot(tmp_path, capsys
 
     ggg = next(r for r in rows if r["ticker"] == "GGG")
     assert ggg["fundamentals"]["forward_pe"] == 15.0
+    assert ggg["fundamentals"]["eps_rev_up_30d"] == 8
     others = [r for r in rows if r["ticker"] != "GGG"]
     assert others and all(r["fundamentals"] is None for r in others)
 

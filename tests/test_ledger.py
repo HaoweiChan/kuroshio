@@ -83,13 +83,51 @@ def test_realized_ic_and_topk_pinned_per_date():
     assert d0["topk_fwd"] == pytest.approx(0.35)  # mean(T4=+0.40, T3=+0.30)
     assert d0["bench_fwd"] == pytest.approx(0.05)
     assert d0["ey_ic"] is None  # no fundamentals logged
+    assert d0["rev_ic"] is None
 
     assert d1["ic"] == pytest.approx(-1.0)
     assert d1["topk_fwd"] == pytest.approx(0.15)  # mean(T4=+0.10, T3=+0.20)
     assert d1["bench_fwd"] == pytest.approx(0.08)
     assert d1["ey_ic"] is None
+    assert d1["rev_ic"] is None
 
     assert result["mean_ic"] == pytest.approx(0.0)
+
+
+# --- rev_ic: revision-breadth rank-IC (T8) ---------------------------------------
+#
+# Same 4-name / 2-date shape as _SCORES. Revision breadth (up-down)/(up+down) is
+# assigned monotonically with T1<T2<T3<T4 (-0.8, -0.4, +0.4, +0.8) — matching
+# date0's forward-return order exactly (IC=+1.0) and date1's reversed order
+# exactly (IC=-1.0), same trick the pinned ic/topk test above uses.
+
+_REV_FUNDAMENTALS = {
+    "T1": {"eps_rev_up_30d": 1, "eps_rev_down_30d": 9},
+    "T2": {"eps_rev_up_30d": 3, "eps_rev_down_30d": 7},
+    "T3": {"eps_rev_up_30d": 7, "eps_rev_down_30d": 3},
+    "T4": {"eps_rev_up_30d": 9, "eps_rev_down_30d": 1},
+}
+_REV_SCORES = [{**row, "fundamentals": _REV_FUNDAMENTALS[row["ticker"]]} for row in _SCORES]
+
+
+def test_realized_rev_ic_pinned_per_date():
+    result = ledger.realized(_REV_SCORES, _CLOSE, horizon=5, benchmark="BENCH", top_k=2)
+    d0, d1 = result["per_date"]
+    assert d0["rev_ic"] == pytest.approx(1.0)
+    assert d1["rev_ic"] == pytest.approx(-1.0)
+    assert result["mean_rev_ic"] == pytest.approx(0.0)
+
+
+def test_realized_rev_ic_none_below_three_rows():
+    rows = [
+        {**_SCORES[0], "fundamentals": _REV_FUNDAMENTALS["T1"]},
+        {**_SCORES[1], "fundamentals": _REV_FUNDAMENTALS["T2"]},
+        {**_SCORES[2], "fundamentals": None},  # no revisions logged for T3/T4
+        {**_SCORES[3], "fundamentals": None},
+    ]
+    result = ledger.realized(rows, _CLOSE, horizon=5, benchmark="BENCH", top_k=2)
+    assert result["per_date"][0]["rev_ic"] is None
+    assert result["mean_rev_ic"] is None
 
 
 def test_realized_no_dates_resolve_a_horizon_returns_none_summary():
@@ -98,7 +136,7 @@ def test_realized_no_dates_resolve_a_horizon_returns_none_summary():
     result = ledger.realized(rows, _CLOSE, horizon=5, benchmark="BENCH", top_k=2)
     assert result == {
         "per_date": [], "mean_ic": None, "mean_topk_fwd": None, "mean_excess": None,
-        "beat_rate": None, "mean_ey_ic": None, "n_dates": 0,
+        "beat_rate": None, "mean_ey_ic": None, "mean_rev_ic": None, "n_dates": 0,
     }
 
 
@@ -147,6 +185,12 @@ def test_to_markdown_renders_summary_and_ratings():
     assert "rank-IC" in out
     assert "top-k" in out
     assert "Buy" in out and "hit_rate=" in out
+
+
+def test_to_markdown_shows_revision_breadth_ic_when_present():
+    summary = ledger.realized(_REV_SCORES, _CLOSE, horizon=5, benchmark="BENCH", top_k=2)
+    out = ledger.to_markdown(summary, ratings={})
+    assert "mean revision-breadth IC=" in out
 
 
 def test_a_non_session_date_resolves_to_the_next_session():

@@ -756,7 +756,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_screen.add_argument(
         "--snapshot-top", type=int, default=50,
-        help="fetch a fundamentals snapshot only for the top N screened names (default 50)",
+        help="fetch a fundamentals snapshot only for the top N screened names "
+        "(default 50; about 3 s per name)",
     )
     p_screen.set_defaults(func=cmd_screen)
 

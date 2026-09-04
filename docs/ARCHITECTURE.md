@@ -237,10 +237,15 @@ Two files, one JSON object per line:
   top — a rank-IC needs breadth) on a `kuroshio screen` run:
   `{date, market, profile, ticker, rank, final_score, scores, factors, close,
   fundamentals}`. `fundamentals` is `None`, or a snapshot (`{forward_pe,
-  forward_eps, trailing_eps, trailing_pe, market_cap, sector, industry, asof}`,
-  any missing key `None`) fetched only for the top `--snapshot-top` (default 50)
-  screened names via `provider.fetch_fundamentals` (yfinance: ~0.6 s per name, so the
-  full S&P 500 is about five minutes — a deliberate opt-in, not the default).
+  forward_eps, trailing_eps, trailing_pe, market_cap, sector, industry,
+  eps_rev_up_30d, eps_rev_down_30d, eps_est_growth_fy, n_analysts, rec_buy,
+  rec_hold, rec_sell, next_earnings_date, last_surprise_pct,
+  insider_net_shares_90d, asof}`, any missing key `None`) fetched only for the
+  top `--snapshot-top` (default 50) screened names via `provider.fetch_fundamentals`
+  (yfinance: ~3 s per name — seven extra HTTP calls beyond `.info` for revisions,
+  estimates, recommendations, calendar, earnings-date history and insider
+  transactions — so the full S&P 500 is well over 20 minutes; a deliberate
+  opt-in, not the default).
 - `ratings.jsonl` (`RATINGS`) — one row per `kuroshio research` run: `{date,
   market, ticker, rating, stop_loss, price_target, close}`, levels `None` when
   unavailable.
@@ -252,9 +257,13 @@ horizon, benchmark, top_k)` groups scores by date, and for each date with a
 session >= `horizon` sessions later in `close` computes rank-IC (pandas
 `.rank().corr()` — scipy is not a dependency; a row dated on a non-session is measured
 from the next open), top-k mean forward return (by
-rank), benchmark forward return, and `ey_ic` (rank-IC of forward earnings yield,
+rank), benchmark forward return, `ey_ic` (rank-IC of forward earnings yield,
 `1/forward_pe`, vs. forward return, only when >= 3 rows carry a positive
-`forward_pe`). `rating_table(rating_rows, close, horizon)` computes a per-rating
+`forward_pe`), and `rev_ic` (rank-IC of revision breadth, `(up - down) / (up +
+down)` off `eps_rev_up_30d`/`eps_rev_down_30d`, vs. forward return, only for
+rows with both counts present and `up + down > 0`, needs >= 3 rows; summary
+carries the across-date mean as `mean_rev_ic`, `None` when undefined).
+`rating_table(rating_rows, close, horizon)` computes a per-rating
 hit rate — a first cut: Buy/Overweight hits on a positive forward return,
 Sell/Underweight on a negative one, Hold on staying within +-5%; a rating
 outside that vocabulary still gets n/mean_fwd but no hit_rate. `to_markdown`
