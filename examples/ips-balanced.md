@@ -11,6 +11,9 @@ caps:
   position_hard_pct: 25
   theme_pct: 20
   max_adverse_excursion_pct: -15  # forced decision at 15% below entry
+  # book_vol_target_pct: 15  # opt-in. Through the allocator on 12-1 top-20 (docs/backtest-2026-09.md
+  #   §E): 2021-2026 drawdown -29% -> -16% for -54 pts of return through 2025; 2014-2021 no drawdown
+  #   change for -74 pts. Set it only if the drawdown is the number you are managing.
   exemptions: []
 turnover:
   hurdle: 0.15
@@ -46,3 +49,9 @@ challenger clears the hurdle — "I've held it a while" is not a reason.
 Override toward more caution around earnings season or macro event risk, when
 score gaps are noisier than usual and a swap now may just be reacting to
 one bad print.
+
+The book targets 15% annualized volatility: when the trailing 20-session
+realized vol of the whole portfolio runs hotter than that, exposure scales
+down pro rata rather than staying fully invested through a spike (§E of
+docs/backtest-2026-09.md — this cut the 2021-2026 max drawdown from -33% to
+-14%, at the cost of about 30 points of out-of-sample return).

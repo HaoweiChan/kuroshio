@@ -1,13 +1,13 @@
 """core/allocator — challenger-vs-incumbent swap PROPOSALS.
 
 ARCHITECTURE.md design rule #1: the engine never executes trades. Every path
-through `propose()` ends in a ProposalCard (SWAP / TRIM / DECIDE / ALERT) for a human
-to act on — that's both the product position ("proposals, not a bot") and the
+through `propose()` ends in a ProposalCard (SWAP / TRIM / SCALE / DECIDE / ALERT) for a
+human to act on — that's both the product position ("proposals, not a bot") and the
 regulatory line (advice, not discretionary execution).
 
-v1 logic, in order: theme-budget alerts, hard-cap trims, per-setup_type thesis
-monitoring, the forced decision at max adverse excursion, then challenger vs
-weakest-same-or-any-theme incumbent swaps (gated by verdict floor + score
+v1 logic, in order: theme-budget alerts, hard-cap trims, a book-wide vol-target SCALE,
+per-setup_type thesis monitoring, the forced decision at max adverse excursion, then
+challenger vs weakest-same-or-any-theme incumbent swaps (gated by verdict floor + score
 hurdle, capped at max_swaps_per_week). See
 docs/ARCHITECTURE.md `core/allocator`.
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from kuroshio.core.allocator.signals import MA_TREND
+from kuroshio.core.allocator.signals import BOOK_VOL_WINDOW, MA_TREND
 from kuroshio.types import Candidate, Holding, ProposalCard
 
 # setup_types that carry a monitoring rule. "other" (and a missing setup_type) carry
@@ -133,6 +133,7 @@ def propose(
     ma50: dict[str, float] | None = None,
     asof: str | None = None,
     pool_name: str = "your own files",
+    book_vol: float | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -201,6 +202,29 @@ def propose(
             details={
                 "weight": h.weight, "cap": hard_cap,
                 "target_weight": target, "binding_cap": cap_clause,
+            },
+        ))
+
+    # 2b. book vol target — one book-wide SCALE, never a card that levers up (scale is
+    # clamped to at most 1.0 by signals.book_vol/simulate's own arithmetic, but the target
+    # check below (book_vol > target) already means this branch only ever cuts).
+    scale_cards: list[ProposalCard] = []
+    target = ips.caps.book_vol_target_pct
+    if target is not None and book_vol is not None and book_vol > target:
+        scale = target / book_vol
+        scale_cards.append(ProposalCard(
+            action="SCALE",
+            reason=(
+                f"The book's trailing {BOOK_VOL_WINDOW}-session realized volatility is "
+                f"{book_vol:.1f}% (annualized), above your IPS book vol target of "
+                f"{target:.1f}%. Scale gross exposure to {scale:.0%} (sell "
+                f"{1 - scale:.0%} of every position pro rata) to bring the book back "
+                f"to target."
+            ),
+            ips_clauses=["caps.book_vol_target_pct"],
+            details={
+                "book_vol_pct": book_vol, "target_pct": target,
+                "window": BOOK_VOL_WINDOW, "scale": scale,
             },
         ))
 
@@ -501,5 +525,6 @@ def propose(
         ))
 
     # decisions after alerts: a DECIDE quotes the thesis ALERT above it ("see the ALERT
-    # above") when the same run broke that position's thesis.
-    return alerts + decisions + trims + kept
+    # above") when the same run broke that position's thesis. SCALE goes after TRIMs
+    # (both are cap enforcement) and before the challenger-driven SWAP cards.
+    return alerts + decisions + trims + scale_cards + kept

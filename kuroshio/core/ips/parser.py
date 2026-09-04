@@ -77,6 +77,7 @@ def _parse_text(text: str) -> IPS:
             theme_pct=caps_raw.get("theme_pct", 20),
             risk_budget_pct=caps_raw.get("risk_budget_pct", 1),
             max_adverse_excursion_pct=caps_raw.get("max_adverse_excursion_pct", -15),
+            book_vol_target_pct=caps_raw.get("book_vol_target_pct"),
             exemptions=exemptions,
         ),
         turnover=Turnover(
@@ -135,6 +136,13 @@ def validate(ips: IPS) -> list[str]:
         problems.append(
             f"caps.max_adverse_excursion_pct ({mae}) must be a negative percent in (-100, 0) — "
             f"it is a loss from entry, so e.g. -15 for 15% below entry"
+        )
+
+    # None = off; a set value is an annualized percent like theme_pct, not signed like
+    # the MAE threshold above (it's a vol level, not a loss).
+    if c.book_vol_target_pct is not None and not (0 < c.book_vol_target_pct < 100):
+        problems.append(
+            f"caps.book_vol_target_pct ({c.book_vol_target_pct}) must be a percent in (0, 100), or unset"
         )
 
     for exemption in c.exemptions:

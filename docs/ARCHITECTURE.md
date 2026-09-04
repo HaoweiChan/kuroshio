@@ -75,7 +75,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str                  # "SWAP" | "TRIM" | "DECIDE" | "ALERT"
+    action: str                  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
     sell: str | None
     buy: str | None
     reason: str                  # one paragraph, human-readable
@@ -139,9 +139,13 @@ caps:
   risk_budget_pct: 1           # % of NAV one position may lose to its invalidation price;
                                # the allocator's percent-risk cap turns it into a weight
   max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
+  book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off (opt-in).
+                               # docs/backtest-2026-09.md §E: through propose() on 12-1 top-20, 15%
+                               # bought 13pts of 2021-2026 drawdown for 54pts of return and nothing
+                               # out of sample for 74pts; no example IPS sets it.
   exemptions: []               # [{ticker: "1234", cap: "position_hard_pct", reason: "..."}]
-                               # (not max_adverse_excursion_pct or risk_budget_pct — neither
-                               #  a ceiling with a carve-out)
+                               # (not max_adverse_excursion_pct, risk_budget_pct or
+                               #  book_vol_target_pct — none a ceiling with a carve-out)
 turnover:
   hurdle: 0.15                 # challenger final_score must exceed incumbent by this
   verdict_floor: neutral       # min TA verdict for a challenger (buy>overweight>neutral>underweight>sell ordering)
@@ -160,7 +164,7 @@ Unknown keys: preserved in `ips.extra`, never an error (forward compatibility).
 
 ## `core/allocator`
 
-`propose(holdings: list[Holding], challengers: list[Candidate], ips: IPS, market: str, verdicts: dict[str, str] | None = None) -> list[ProposalCard]`
+`propose(holdings: list[Holding], challengers: list[Candidate], ips: IPS, market: str, verdicts: dict[str, str] | None = None, book_vol: float | None = None) -> list[ProposalCard]`
 
 Pure function. v1 logic:
 
@@ -178,6 +182,13 @@ Pure function. v1 logic:
    already holds `position_pct` at or under it. Inverse-vol parity is the third cap and is
    not implemented — it needs a vol estimate and `propose` takes no panel
    (docs/PORTFOLIO-PLAN.md phase 3).
+2b. **Book vol target**: when `ips.caps.book_vol_target_pct` is set and the caller-supplied
+   `book_vol` (`allocator/signals.py:book_vol`, trailing 20-session realized vol of the book,
+   annualized %) exceeds it, one SCALE card naming the realized vol, the window, the target
+   and the pro-rata cut (`target / book_vol`) — never a card that levers up, and nothing when
+   the book is at or under target or either input is missing. `simulate` mirrors the same
+   arithmetic directly (`scripts/funnel_lab.py:Lab.walk`), scaling every weight down and
+   letting cash absorb the difference.
 3. **Thesis monitoring**, dispatched on `setup_type` — the ranking in step 4 is a momentum
    composite, so a `value_dip` is *meant* to look weak there and must not be alerted on that:
    `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);

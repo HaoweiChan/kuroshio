@@ -94,7 +94,10 @@ def test_ips_validate_reports_problems(tmp_path, capsys):
 # --- propose end-to-end -------------------------------------------------------
 
 
-def test_propose_emits_trim_card_for_hard_cap_breach(tmp_path, capsys):
+def test_propose_emits_trim_card_for_hard_cap_breach(tmp_path, capsys, monkeypatch):
+    # ips-balanced.md sets caps.book_vol_target_pct, so propose now fetches a panel even
+    # though every score here is hand-typed — stub the provider rather than hit the network.
+    _use_stub(monkeypatch)
     holdings = tmp_path / "holdings.yml"
     holdings.write_text("- {ticker: OVER, weight: 0.30, score: 0.5}\n")
 
@@ -112,7 +115,8 @@ def test_propose_emits_trim_card_for_hard_cap_breach(tmp_path, capsys):
     assert "position_hard_pct" in out
 
 
-def test_propose_no_candidates_still_runs(tmp_path, capsys):
+def test_propose_no_candidates_still_runs(tmp_path, capsys, monkeypatch):
+    _use_stub(monkeypatch)  # ips-balanced.md's book_vol_target_pct needs a panel fetch
     holdings = tmp_path / "holdings.yml"
     holdings.write_text("- {ticker: OK, weight: 0.05, score: 0.5}\n")
 
@@ -129,7 +133,8 @@ def test_propose_no_candidates_still_runs(tmp_path, capsys):
     assert "No proposals" in out
 
 
-def test_propose_with_candidates_swap(tmp_path, capsys):
+def test_propose_with_candidates_swap(tmp_path, capsys, monkeypatch):
+    _use_stub(monkeypatch)  # ips-balanced.md's book_vol_target_pct needs a panel fetch
     holdings = tmp_path / "holdings.yml"
     holdings.write_text("- {ticker: WEAK, weight: 0.05, score: 0.40}\n")
     candidates = tmp_path / "candidates.yml"
@@ -670,10 +675,13 @@ def test_propose_never_fetches_when_every_score_is_hand_written(tmp_path, capsys
     candidates = tmp_path / "candidates.yml"
     candidates.write_text('- {ticker: "1102", final_score: 0.90, verdict: buy}\n')
 
+    # ips-aggressive.md leaves caps.book_vol_target_pct unset — ips-balanced.md sets it,
+    # which needs a panel for book_vol even when every score is hand-written, and would
+    # make this test's premise (no fetch reason at all) false rather than exercising it.
     code = main(
         [
             "propose",
-            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--ips", str(EXAMPLES / "ips-aggressive.md"),
             "--holdings", str(holdings),
             "--candidates", str(candidates),
             "--market", "tw",
@@ -772,6 +780,53 @@ def test_propose_fetches_prices_for_an_entry_price_with_no_setup_type(
     assert "### DECIDE 1103" in out
     assert "-40.0% from your entry price of 100.00" in out
     assert "per your IPS: caps.max_adverse_excursion_pct" in out
+
+
+# --- propose: book vol target wiring (TASK-9) -----------------------------------
+
+
+def _volatile_panel(ticker: str = "VOL", n: int = 65) -> Panel:
+    """One name, alternating +5%/-5% daily — its trailing-20-session annualized vol is
+    far above any realistic IPS target, so a book that's all this one name needs a
+    SCALE card at a 15% target."""
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=n)]
+    prices = [100.0]
+    for i in range(1, n):
+        prices.append(prices[-1] * (1.05 if i % 2 == 0 else 0.95))
+    close = pd.DataFrame({ticker: prices}, index=dates)
+    volume = pd.DataFrame({ticker: [1_000_000.0] * n}, index=dates)
+    return Panel(close=close, volume=volume, institutional=None)
+
+
+def test_propose_emits_a_scale_card_when_the_book_is_volatile(tmp_path, capsys, monkeypatch):
+    """A set caps.book_vol_target_pct needs a panel even when every score is hand-typed
+    and no position is monitored — the fetch-gate case T5/T6 above don't cover, since
+    neither `need_scores` nor `monitored` is true here. No example IPS sets the field
+    (it is opt-in), so the test writes one."""
+    stub = _use_stub(monkeypatch, _volatile_panel())
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "VOL", weight: 0.05, score: 0.5}\n')
+    ips = tmp_path / "ips.md"
+    ips.write_text(
+        (EXAMPLES / "ips-balanced.md").read_text().replace(
+            "  exemptions: []", "  book_vol_target_pct: 15\n  exemptions: []", 1
+        )
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(ips),
+            "--holdings", str(holdings),
+            "--market", "us",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert stub.calls, "book_vol_target_pct needs a panel even with no other fetch reason"
+    assert "### SCALE gross exposure" in out
+    assert "15.0" in out  # the target it read
+    assert "20" in out  # the trailing window
 
 
 # --- screen / evaluate: ledger wiring (T6) --------------------------------------

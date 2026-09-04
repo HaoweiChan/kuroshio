@@ -18,6 +18,11 @@ position caps are exercised. ``swaps_this_week=0`` every call, since one ``propo
 runs per rebalance step: ``ips.turnover.max_swaps_per_week`` therefore caps swaps per
 rebalance, not per calendar week. Point-in-time universe membership is the caller's
 responsibility, not this module's (see ``backtest.py``'s caveat, printed by the CLI).
+
+``caps.book_vol_target_pct`` is the exception to "goes through ``propose()``": it is
+applied directly here, mirroring ``scripts/funnel_lab.py:Lab.walk``'s vol-target
+arithmetic exactly, rather than as a card ``propose()`` returns — see the rebalance
+block below for where.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ import pandas as pd
 
 from ..types import Candidate, Holding, Panel
 from .allocator.engine import propose, swap_hurdle
-from .allocator.signals import monitor_inputs
+from .allocator.signals import BOOK_VOL_WINDOW, monitor_inputs
 
 
 @dataclass
@@ -45,7 +50,7 @@ class SimResult:
     def summary(self) -> dict:
         years = max(len(self.dates), 1) / 252
         # a SWAP is one sell leg + one buy leg of the same size; every other action
-        # (BUY, TRIM, DECIDE, DELIST) is a single leg. Inception buys are excluded:
+        # (BUY, TRIM, SCALE, DECIDE, DELIST) is a single leg. Inception buys are excluded:
         # counting them would report 1.0x/yr for a book that never traded again.
         inception = self.dates[0] if self.dates else None
         strat_traded = sum(
@@ -59,6 +64,7 @@ class SimResult:
             "ann_turnover": strat_traded / years,
             "n_swaps": sum(1 for t in self.trades if t["action"] == "SWAP"),
             "n_trims": sum(1 for t in self.trades if t["action"] == "TRIM"),
+            "n_scales": sum(1 for t in self.trades if t["action"] == "SCALE"),
             "n_decides": sum(1 for t in self.trades if t["action"] == "DECIDE"),
             "ew_total_return": self.ew_nav[-1] / self.ew_nav[0] - 1.0,
             "final_holdings": sorted(self.weights[-1].keys() - {"date"}) if self.weights else [],
@@ -75,7 +81,8 @@ class SimResult:
             f"# Simulation — {s['n_rebalances']} rebalances, {len(self.dates)} sessions",
             f"total return={s['total_return']:+.2%}  max drawdown={s['max_drawdown']:.2%}  "
             f"ann. turnover={s['ann_turnover']:.2f}x",
-            f"trades: {s['n_swaps']} swap(s), {s['n_trims']} trim(s), {s['n_decides']} decide(s)",
+            f"trades: {s['n_swaps']} swap(s), {s['n_trims']} trim(s), {s['n_scales']} scale(s), "
+            f"{s['n_decides']} decide(s)",
             f"equal-weight baseline total return={s['ew_total_return']:+.2%}",
         ]
         if "bench_total_return" in s:
@@ -310,6 +317,38 @@ def simulate(
                 ew_weights = new_ew
                 ew_cash = 1.0 - sum(new_ew.values())
                 ew_nav *= (1.0 - ew_cost)
+
+            # book vol target — two-sided, like scripts/funnel_lab.py:Lab.walk, which
+            # rebuilds the book at full exposure every rebalance and then scales it: the
+            # target is a gross exposure for the *full* book, so the holdings are first
+            # restored pro rata to full exposure (cash flows back in), then the trailing
+            # BOOK_VOL_WINDOW-session vol of that full book is measured and gross =
+            # min(1, target/vol). One-sided cutting (never restoring) turned 33 cuts over
+            # five years into a ratchet that gave up 75 points of return for no
+            # out-of-sample drawdown benefit (PR #19 review run). Friction is charged on
+            # the absolute weight change per leg, like a TRIM either way.
+            book_vol_target = ips.caps.book_vol_target_pct
+            if book_vol_target is not None and holdings and j >= BOOK_VOL_WINDOW:
+                held_w = sum(h.weight for h in holdings)
+                full = {h.ticker: h.weight / held_w for h in holdings}  # full exposure, pro rata
+                tickers = list(full)
+                window_rets = close.iloc[j - BOOK_VOL_WINDOW : j + 1][tickers].pct_change().iloc[1:]
+                book = (window_rets.fillna(0.0) * pd.Series(full)).sum(axis=1)
+                vol = float(book.std() * (252**0.5)) * 100
+                gross = min(1.0, book_vol_target / vol) if vol > 0 else 1.0
+                traded_w = 0.0
+                for h in holdings:
+                    target_w = full[h.ticker] * gross
+                    traded_w += abs(target_w - h.weight)
+                    h.weight = target_w
+                if traded_w > 1e-12:
+                    cash = 1.0 - sum(h.weight for h in holdings)
+                    scale_cost = traded_w * (roundtrip_pct / 100) / 2
+                    total_cost += scale_cost
+                    trades.append({
+                        "date": asof, "action": "SCALE", "sell": None, "buy": None,
+                        "weight": traded_w, "cost": scale_cost,
+                    })
 
             nav *= (1.0 - total_cost)
             weights_log.append({"date": asof, **{h.ticker: h.weight for h in holdings}})

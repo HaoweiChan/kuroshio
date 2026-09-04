@@ -53,6 +53,11 @@ class Caps:
     # 15% below entry. Deliberately not in `_CAP_FIELDS`: a per-ticker exemption from it
     # is exactly the silent hold the card exists to refuse.
     max_adverse_excursion_pct: float = -15
+    # Annualized target for the trailing-20-session realized vol of the whole book
+    # (docs/backtest-2026-09.md §E); None = off. Book-level, like max_adverse_excursion_pct
+    # above — a per-ticker exemption from a number that describes the whole book, not one
+    # position, is meaningless, so this is deliberately not in `_CAP_FIELDS` either.
+    book_vol_target_pct: float | None = None
     exemptions: list[CapExemption] = field(default_factory=list)
 
 

@@ -816,6 +816,46 @@ def test_a_non_cent_price_is_judged_against_the_exact_level(entry, price, loss, 
     assert bool(cards) is fires, f"entry {entry}, price {price} ({loss} from entry)"
 
 
+# --- book vol target (TASK-9) -----------------------------------------------
+
+
+def test_book_vol_over_target_emits_one_scale_card():
+    ips = make_ips(**{"caps.book_vol_target_pct": 15})
+    cards = propose([], [], ips, "us", book_vol=24.0)
+    scales = [c for c in cards if c.action == "SCALE"]
+    assert len(scales) == 1
+    card = scales[0]
+    assert card.sell is None and card.buy is None
+    assert "24.0" in card.reason
+    assert "20" in card.reason
+    assert "15" in card.reason
+    assert "62%" in card.reason
+    assert card.ips_clauses == ["caps.book_vol_target_pct"]
+    assert card.details == {
+        "book_vol_pct": 24.0, "target_pct": 15, "window": 20, "scale": 15 / 24.0,
+    }
+
+
+def test_book_vol_at_or_under_target_emits_no_scale_card():
+    ips = make_ips(**{"caps.book_vol_target_pct": 15})
+    cards = propose([], [], ips, "us", book_vol=12.0)
+    assert [c for c in cards if c.action == "SCALE"] == []
+    # exactly at target is not "exceeds" either
+    cards = propose([], [], ips, "us", book_vol=15.0)
+    assert [c for c in cards if c.action == "SCALE"] == []
+
+
+def test_no_scale_card_when_target_unset_even_at_high_vol():
+    ips = make_ips()  # book_vol_target_pct defaults to None
+    cards = propose([], [], ips, "us", book_vol=40.0)
+    assert [c for c in cards if c.action == "SCALE"] == []
+
+
+def test_no_scale_card_when_book_vol_is_none():
+    ips = make_ips(**{"caps.book_vol_target_pct": 15})
+    cards = propose([], [], ips, "us", book_vol=None)
+    assert [c for c in cards if c.action == "SCALE"] == []
+
 # --- T7: position sizing -------------------------------------------------------
 #
 # A target weight is min(base position cap, percent-risk cap); inverse-vol parity is

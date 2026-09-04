@@ -545,6 +545,7 @@ def _score_missing(
 def cmd_propose(args: argparse.Namespace) -> int:
     from kuroshio.core.allocator import propose
     from kuroshio.core.allocator.engine import MONITORED_SETUPS, swap_hurdle
+    from kuroshio.core.allocator.signals import book_vol as compute_book_vol
     from kuroshio.core.allocator.signals import monitor_inputs
     from kuroshio.core.ips import parse_ips, validate
     from kuroshio.providers import get_provider
@@ -579,15 +580,18 @@ def cmd_propose(args: argparse.Namespace) -> int:
     # score gets one from the screener, and a holding a monitoring rule can read gets
     # this session's price — its thesis rule if it has a monitored setup_type, the
     # loss-from-entry rule if it has an entry_price, which dispatches on no setup at
-    # all. Neither needed -> no fetch, no network.
+    # all. A set caps.book_vol_target_pct needs a panel too, for signals.book_vol —
+    # none of that needed -> no fetch, no network.
     prices: dict[str, float] = {}
     ma50: dict[str, float] = {}
     asof = None
+    book_vol: float | None = None
     need_scores = any(h.score is None for h in holdings) or any(
         c.final_score is None for c in challengers
     )
     monitored = any(h.setup_type in MONITORED_SETUPS or h.entry_price for h in holdings)
-    if need_scores or monitored:
+    vol_targeted = ips.caps.book_vol_target_pct is not None
+    if need_scores or monitored or vol_targeted:
         profile = get_profile(args.market)
         provider_name = args.provider or profile.default_provider
         if universe is not None:
@@ -624,11 +628,13 @@ def cmd_propose(args: argparse.Namespace) -> int:
             )
         # the monitoring seam: prices enter here, never inside the allocator.
         prices, ma50, asof = monitor_inputs(panel)
+        book_vol = compute_book_vol(panel, holdings)
 
     cards = propose(
         holdings, challengers, ips, args.market,
         verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
-        auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof, pool_name=pool_name,
+        auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
+        pool_name=pool_name, book_vol=book_vol,
     )
 
     if not cards:
