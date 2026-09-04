@@ -31,6 +31,10 @@ Then: what price-only ranking *does* beat SPY before the 2026 blowoff?
   beats SPY, or the equal-weight universe, in both windows.** 12-1 is still the better
   of the two US screens (lower turnover, ahead of the leadership screen in the recent
   window, an academic prior) and is now the `us` default; it is not a demonstrated edge.
+- **Volatility is a risk control, not an edge.** Sharpe-scaling, low-vol filters, a
+  momentum+low-vol composite, inverse-vol weights and a 15% book vol target all move the
+  12-1 result toward the other window and none beats SPY in both; the vol target is the
+  one that cuts the blowoff-window drawdown to −14%, at a 30-point out-of-sample cost.
 - **Price-only dip funnels lose.** "Pullback inside an intact uptrend" ranked by 12-1
   momentum or 6-month RS trails SPY in 7 of 8 cells. Quality-at-a-discount needs
   fundamentals the panel does not have; that funnel is untested, not refuted.
@@ -132,6 +136,29 @@ leadership persisting for years), not a property of the rule. This is also why t
 breadth overlay looked like a loser both times — the two windows disagree on
 everything except that.
 
+### E. Volatility variants of 12-1 momentum
+
+Seven pre-declared variants, monthly top-20, both windows (`scripts/funnel_lab.py --vol`).
+Through-cutoff return; excess vs SPY in brackets.
+
+| variant | 2021–2025 (SPY +65%) | 2014–2021 (SPY +156%) | max dd in / out |
+|---|---|---|---|
+| 12-1, equal weight (reference) | +117% (+52) | +58% (−98) | −33% / −39% |
+| 12-1 ÷ 1-year vol ("Sharpe momentum") | +69% (+4) | +88% (−68) | −30% / −36% |
+| 12-1 after dropping the top-vol quintile | +54% (−11) | +98% (−58) | −21% / −39% |
+| rank(12-1) + rank(−vol), equal weight | +29% (−35) | +131% (−25) | −22% / −35% |
+| 12-1, inverse-vol weights | +115% (+50) | +54% (−102) | −30% / −40% |
+| 12-1, book vol target 15% | +74% (+9) | +28% (−128) | **−14%** / −26% |
+| min-vol top-20 (reference) | +27% (−37) | +120% (−36) | −19% / −34% |
+
+Every volatility adjustment moves the result *toward* the other window: it costs
+return in 2021–2026 and adds it in 2014–2021, which is what you expect from a factor
+that is anti-correlated with the momentum blowoff. None crosses the bar. The composite
+rank(12-1)+rank(−vol) is the most stable (−35 / −25 vs SPY) and still loses both times;
+inverse-vol weighting is a wash; the 15% vol target is the one drawdown tool that works
+(−14% in the blowoff window) and it pays for that with 30 points of out-of-sample return.
+Volatility is a risk control here, not a source of edge.
+
 ## What this means for the design
 
 1. **There is no price-only quant base to build on.** Two windows, five rankers, ~30
@@ -178,6 +205,8 @@ python scripts/sp500_members.py members.csv --since 2020-01-01
 python scripts/funnel_lab.py members.csv --panel panel.pkl
 python scripts/sp500_members.py members-2013.csv --since 2013-06-01
 python scripts/funnel_lab.py members-2013.csv --panel panel-oos.pkl --end 2021-07-31 --years 7 --cutoff 2021-07-31
+python scripts/funnel_lab.py members.csv --panel panel.pkl --vol
+python scripts/funnel_lab.py members-2013.csv --panel panel-oos.pkl --cutoff 2021-07-31 --vol
 kuroshio simulate --market us-leadership --ips examples/ips-balanced.md --members-file members.csv --weeks 260 --top 10
 kuroshio simulate --market us --ips examples/ips-balanced.md --members-file members.csv --weeks 260 --top 20 --step 21
 kuroshio backtest --market us --members-file members.csv --weeks 260 --top 20
