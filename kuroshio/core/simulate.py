@@ -3,8 +3,9 @@
 ``core/backtest.py`` checks whether ``final_score`` ranks forward returns; it never
 calls ``propose()``, so the sizing / swap / trim / max-adverse-excursion rules that
 make up the actual methodology have no backtest at all. This module runs them: on
-every rebalance date it builds the portfolio from the gated screen, scores incumbents
-and challengers in one ungated ``score_names`` cross-section, calls ``propose()`` with
+every rebalance date it builds the portfolio from the gated screen, scores the whole
+panel (every column but the reference instruments) in one ungated ``score_names``
+cross-section so the swap hurdle is a universe percentile, calls ``propose()`` with
 ``monitor_inputs`` of the panel sliced to that date, applies the returned cards
 mechanically, charges ``ips.friction`` per traded leg, and lets weights drift with
 prices between rebalances.
@@ -130,6 +131,8 @@ def simulate(
         return SimResult(dates=[], nav=[], ew_nav=[], bench_nav=None)
 
     roundtrip_pct = swap_hurdle(ips, market)[1]
+    reference = {benchmark} | set((screen_kwargs.get("sector_map") or {}).values())
+    universe = [c for c in close.columns if c not in reference]
     hard_cap = ips.caps.position_hard_pct / 100
     rebalance_dates = set(range(min_history, len(close.index), step))
 
@@ -210,8 +213,11 @@ def simulate(
                     })
 
                 held = {h.ticker for h in holdings}
-                names = list(dict.fromkeys(list(held) + eligible_tickers))
-                scored = score_fn(panel, names, asof=asof, **screen_kwargs)
+                # Score the whole cross-section, not held ∪ eligible: pctrank pins its scale
+                # to the pool it is handed, so a 20-name pool makes the hurdle a rank
+                # distance of three places and the book churns every rebalance
+                # (backlog draft-18). Reference instruments are never candidates.
+                scored = score_fn(panel, universe, asof=asof, **screen_kwargs)
                 score_map = {c.ticker: c.final_score for c in scored}
                 for h in holdings:
                     h.score = score_map.get(h.ticker)

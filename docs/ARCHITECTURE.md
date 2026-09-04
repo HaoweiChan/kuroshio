@@ -245,9 +245,14 @@ stay optional.
 
 ## CLI (`kuroshio/cli.py`)
 
-argparse, three subcommands (v1):
+argparse subcommands:
 - `kuroshio screen --market <market> [--provider ...] [--top 20]` — regime-free candidate table.
   `--market` choices and defaults (provider, lookback, benchmark) come from `core.screening.PROFILES`.
+- `kuroshio backtest` / `kuroshio simulate` take `--tickers`/`--tickers-file` (today's roster used as
+  the universe on every rebalance date — survivorship bias) or `--members-file` (a `date,tickers`
+  point-in-time snapshot CSV from `scripts/sp500_members.py`, screening in only that date's members);
+  even with `--members-file`, a delisted name the provider no longer carries price history for could
+  not have been held, so residual survivorship bias remains either way.
 - `kuroshio propose --ips path.md --holdings holdings.yml [--market us] [--provider ...]` — proposal
   cards to stdout. A `score:` / `final_score:` missing from the input files is filled from one
   ungated `score_names` cross-section over *the tickers in those files* (one fetch through the

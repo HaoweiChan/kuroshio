@@ -11,12 +11,15 @@ touches the network. Network calls happen only in the ``screen``, ``backtest``,
 from __future__ import annotations
 
 import argparse
+import bisect
+import csv
 import dataclasses
 import datetime
 import json
 import math
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from kuroshio.core.screening import PROFILES, get_profile
@@ -32,6 +35,78 @@ def _parse_tickers(tickers: str | None, tickers_file: str | None) -> list[str]:
                 out.append(line)
         return out
     return [t.strip() for t in (tickers or "").split(",") if t.strip()]
+
+
+# --- point-in-time membership (--members-file) ------------------------------
+
+
+def _load_members(path: str) -> list[tuple[str, frozenset[str]]]:
+    """Parse a `date,tickers` CSV (produced by scripts/sp500_members.py) into ascending
+    (date, tickers) snapshots. Membership on a given date is the tickers of the LAST
+    snapshot whose date <= that date; a date before the first snapshot uses the first
+    snapshot (see _members_at). Raises ValueError on a missing/wrong header or an empty
+    file — callers should catch it the way _holdings_from_yaml's ValueError is caught."""
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != ["date", "tickers"]:
+            raise ValueError(f"{path}: expected header 'date,tickers', got {reader.fieldnames!r}")
+        rows = [(row["date"], frozenset(row["tickers"].split())) for row in reader]
+    if not rows:
+        raise ValueError(f"{path}: no membership rows")
+    return sorted(rows, key=lambda r: r[0])
+
+
+def _members_at(snapshots: list[tuple[str, frozenset[str]]], asof: str) -> frozenset[str]:
+    """Membership on `asof`: the tickers of the last snapshot with date <= asof, or the
+    first snapshot if asof is before every snapshot date."""
+    dates = [d for d, _ in snapshots]
+    i = max(bisect.bisect_right(dates, asof) - 1, 0)
+    return snapshots[i][1]
+
+
+def _pit_screen(
+    screen_fn: Callable[..., list[Candidate]], snapshots: list[tuple[str, frozenset[str]]]
+) -> Callable[..., list[Candidate]]:
+    """Wrap a screen_fn so its candidates are filtered to that date's point-in-time
+    membership. Ranks are left as screen_fn produced them (gaps are fine — callers sort
+    by rank, not by position)."""
+
+    def screen(panel, asof: str | None = None, **kw) -> list[Candidate]:
+        resolved_asof = asof if asof is not None else str(panel.close.index[-1])
+        members = _members_at(snapshots, resolved_asof)
+        return [c for c in screen_fn(panel, asof=asof, **kw) if c.ticker in members]
+
+    return screen
+
+
+def _resolve_universe(args: argparse.Namespace):
+    """(tickers to fetch, point-in-time snapshots or None) for backtest/simulate, or None
+    after printing the error — the two commands share one universe contract."""
+    if args.members_file:
+        try:
+            snapshots = _load_members(args.members_file)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return None
+        return sorted(set().union(*(s for _, s in snapshots))), snapshots
+    tickers = _parse_tickers(args.tickers, args.tickers_file)
+    if not tickers:
+        print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
+        return None
+    return tickers, None
+
+
+def _survivorship_caveat(members_file: str | None) -> str:
+    if members_file:
+        return (
+            f"\ncaveat: membership is point-in-time from {members_file}, but names whose price "
+            "history the provider no longer carries could not be held — residual survivorship "
+            "bias remains."
+        )
+    return (
+        "\ncaveat: the supplied tickers ARE the universe — passing only today's survivors "
+        "introduces survivorship bias; point-in-time membership is on you."
+    )
 
 
 def _load_yaml(path: str):
@@ -201,20 +276,22 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     market = args.market
     profile = get_profile(market)
     provider_name = args.provider or profile.default_provider
-    tickers = _parse_tickers(args.tickers, args.tickers_file)
-    if not tickers:
-        print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
+    universe = _resolve_universe(args)
+    if universe is None:
         return 2
+    tickers, snapshots = universe
 
     sector_map = None
     if args.sector_map:
         sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
 
-    fetch_tickers = list(tickers)
-    extra = {profile.benchmark} if profile.benchmark else set()
+    # benchmark first: providers/yf.py:_shape_panel filters the whole panel to the first
+    # ticker that resolved as its reference row, so a delisted/unresolved name earlier in
+    # the list must never land in that slot and truncate the panel to its lifetime.
+    fetch_tickers = [profile.benchmark] if profile.benchmark else []
+    fetch_tickers += [t for t in tickers if t not in fetch_tickers]
     if profile.accepts_sector_map and sector_map:
-        extra |= set(sector_map.values())
-    fetch_tickers += [t for t in extra if t not in fetch_tickers]
+        fetch_tickers += [t for t in sector_map.values() if t not in fetch_tickers]
 
     # indicator warmup + horizon headroom; see MarketProfile.warmup_days for the derivation.
     lookback_days = args.weeks * 7 + profile.warmup_days
@@ -231,16 +308,14 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         return 2
 
     screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
+    screen_fn = _pit_screen(profile.screen, snapshots) if snapshots else profile.screen
     result = walkforward(
-        panel, profile.screen, horizon=args.horizon, top_k=args.top,
+        panel, screen_fn, horizon=args.horizon, top_k=args.top,
         benchmark=profile.benchmark, min_history=profile.min_history, **screen_kwargs,
     )
 
     print(result.to_markdown())
-    print(
-        "\ncaveat: the supplied tickers ARE the universe — passing only today's "
-        "survivors introduces survivorship bias; point-in-time membership is on you."
-    )
+    print(_survivorship_caveat(args.members_file))
     return 0
 
 
@@ -264,20 +339,22 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     market = args.market
     profile = get_profile(market)
     provider_name = args.provider or profile.default_provider
-    tickers = _parse_tickers(args.tickers, args.tickers_file)
-    if not tickers:
-        print("error: --tickers / --tickers-file resolved to zero tickers", file=sys.stderr)
+    universe = _resolve_universe(args)
+    if universe is None:
         return 2
+    tickers, snapshots = universe
 
     sector_map = None
     if args.sector_map:
         sector_map = yaml.safe_load(Path(args.sector_map).read_text()) or {}
 
-    fetch_tickers = list(tickers)
-    extra = {profile.benchmark} if profile.benchmark else set()
+    # benchmark first: providers/yf.py:_shape_panel filters the whole panel to the first
+    # ticker that resolved as its reference row, so a delisted/unresolved name earlier in
+    # the list must never land in that slot and truncate the panel to its lifetime.
+    fetch_tickers = [profile.benchmark] if profile.benchmark else []
+    fetch_tickers += [t for t in tickers if t not in fetch_tickers]
     if profile.accepts_sector_map and sector_map:
-        extra |= set(sector_map.values())
-    fetch_tickers += [t for t in extra if t not in fetch_tickers]
+        fetch_tickers += [t for t in sector_map.values() if t not in fetch_tickers]
 
     # same warmup headroom as backtest — see MarketProfile.warmup_days.
     lookback_days = args.weeks * 7 + profile.warmup_days
@@ -294,17 +371,15 @@ def cmd_simulate(args: argparse.Namespace) -> int:
         return 2
 
     screen_kwargs = {"sector_map": sector_map} if profile.accepts_sector_map else {}
+    screen_fn = _pit_screen(profile.screen, snapshots) if snapshots else profile.screen
     result = simulate(
-        panel, profile.screen, profile.score_names, ips, market,
+        panel, screen_fn, profile.score_names, ips, market,
         step=args.step, top_k=args.top, benchmark=profile.benchmark,
         min_history=profile.min_history, **screen_kwargs,
     )
 
     print(result.to_markdown())
-    print(
-        "\ncaveat: the supplied tickers ARE the universe — passing only today's "
-        "survivors introduces survivorship bias; point-in-time membership is on you."
-    )
+    print(_survivorship_caveat(args.members_file))
     return 0
 
 
@@ -585,6 +660,10 @@ def main(argv: list[str] | None = None) -> int:
     bt_tickers_group = p_backtest.add_mutually_exclusive_group(required=True)
     bt_tickers_group.add_argument("--tickers", help="comma-separated ticker list")
     bt_tickers_group.add_argument("--tickers-file", help="newline-separated file, '#' comments allowed")
+    bt_tickers_group.add_argument(
+        "--members-file",
+        help="CSV of date,tickers snapshots (scripts/sp500_members.py); point-in-time universe",
+    )
     p_backtest.add_argument("--weeks", type=int, default=52)
     p_backtest.add_argument("--horizon", type=int, default=20)
     p_backtest.add_argument("--top", type=int, default=10)
@@ -601,6 +680,10 @@ def main(argv: list[str] | None = None) -> int:
     sim_tickers_group = p_simulate.add_mutually_exclusive_group(required=True)
     sim_tickers_group.add_argument("--tickers", help="comma-separated ticker list")
     sim_tickers_group.add_argument("--tickers-file", help="newline-separated file, '#' comments allowed")
+    sim_tickers_group.add_argument(
+        "--members-file",
+        help="CSV of date,tickers snapshots (scripts/sp500_members.py); point-in-time universe",
+    )
     p_simulate.add_argument("--weeks", type=int, default=52)
     p_simulate.add_argument("--top", type=int, default=10)
     p_simulate.add_argument("--step", type=int, default=5)
