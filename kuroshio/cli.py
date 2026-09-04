@@ -520,8 +520,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 2
-        # ponytail: latest session only, and no sector_map for `us` (that factor
-        # renormalizes away) — add --asof/--sector-map here when propose needs to
+        # ponytail: latest session only, and no sector_map for `us-leadership` (that
+        # factor renormalizes away) — add --asof/--sector-map here when propose needs to
         # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
         if need_scores:
             challengers, auto_scored = _score_missing(
@@ -642,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
     tickers_group.add_argument("--tickers-file", help="newline-separated file, '#' comments allowed")
     p_screen.add_argument("--top", type=int, default=20)
     p_screen.add_argument("--asof", help="YYYY-MM-DD, default: latest session")
-    p_screen.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_screen.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us-leadership only)")
     p_screen.add_argument(
         "--no-gate", action="store_true",
         help="score every requested ticker without the Stage-1 breakout gate (Fix 2 — incumbent scoring)",
@@ -667,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
     p_backtest.add_argument("--weeks", type=int, default=52)
     p_backtest.add_argument("--horizon", type=int, default=20)
     p_backtest.add_argument("--top", type=int, default=10)
-    p_backtest.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_backtest.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us-leadership only)")
     p_backtest.set_defaults(func=cmd_backtest)
 
     p_simulate = sub.add_parser(
@@ -687,13 +687,13 @@ def main(argv: list[str] | None = None) -> int:
     p_simulate.add_argument("--weeks", type=int, default=52)
     p_simulate.add_argument("--top", type=int, default=10)
     p_simulate.add_argument("--step", type=int, default=5)
-    p_simulate.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us only)")
+    p_simulate.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us-leadership only)")
     p_simulate.set_defaults(func=cmd_simulate)
 
     p_propose = sub.add_parser("propose", help="propose portfolio swaps against an IPS")
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
-    p_propose.add_argument("--market", choices=["us", "tw"], required=True)
+    p_propose.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_propose.add_argument("--provider")
     p_propose.add_argument("--candidates")
     p_propose.add_argument("--swaps-this-week", type=int, default=0)

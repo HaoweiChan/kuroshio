@@ -27,6 +27,9 @@ Ranks breakout candidates with yfinance data, no account or key required:
 kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,NFLX
 ```
 
+`us` is 12-1 momentum since 2026-09; the previous leadership screen is `--market
+us-leadership`.
+
 ## 2. Validate an Investment Policy Statement
 
 ```bash

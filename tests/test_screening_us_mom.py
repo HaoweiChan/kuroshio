@@ -7,7 +7,7 @@ import math
 import pandas as pd
 import pytest
 
-from kuroshio.core.screening import get_profile, us_mom
+from kuroshio.core.screening import get_profile, us, us_mom
 from kuroshio.types import Panel
 
 N = 300  # > MOM_LB(252) + slack
@@ -107,10 +107,15 @@ def test_spy_never_a_candidate():
     assert "SPY" not in tickers
 
 
-def test_get_profile_us_mom12():
-    profile = get_profile("us-mom12")
-    assert profile.name == "us-mom12"
+def test_get_profile_us_is_12_1_momentum():
+    profile = get_profile("us")
+    assert profile.name == "us"
     assert profile.benchmark == "SPY"
     assert profile.min_history == 260
-    assert callable(profile.screen)
+    assert profile.accepts_sector_map is False
+    assert profile.screen is us_mom.screen
     assert callable(profile.score_names)
+
+    leadership = get_profile("us-leadership")
+    assert leadership.screen is us.screen
+    assert leadership.accepts_sector_map is True

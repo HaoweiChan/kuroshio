@@ -2,7 +2,11 @@
 """Funnel lab — which price-only ranking, held equal-weight top-k on a point-in-time
 S&P 500, beats SPY *through 2025-12-31* (before the 2026 blowoff)?
 
-Usage: python scripts/funnel_lab.py MEMBERS.csv [--panel cache.pkl]
+Usage: python scripts/funnel_lab.py MEMBERS.csv [--panel cache.pkl] [--end YYYY-MM-DD] [--years N]
+       [--cutoff YYYY-MM-DD]
+
+``--end``/``--years`` move the window (the out-of-sample run ends 2021-07-31); ``--cutoff``
+is the date the "through" column reports at (default 2025-12-31, the pre-blowoff bar).
 
 MEMBERS.csv comes from scripts/sp500_members.py. The panel is fetched through the
 yfinance provider (benchmark first — see cli.py's reference-row note) and cached to
@@ -138,23 +142,33 @@ class Lab:
         return float(a.mean()), float((a > 0).mean()), len(a)
 
 
+CUTOFF = "2025-12-31"
+
+
 def report(name: str, nav: pd.Series, traded: float, spy: pd.Series) -> None:
     ye = nav.resample("YE").last()
     y = ye.pct_change()
     y.iloc[0] = ye.iloc[0] - 1
-    thru25, spy25 = nav.loc[:"2025-12-31"].iloc[-1] - 1, spy.loc[:"2025-12-31"].iloc[-1] - 1
+    thru25, spy25 = nav.loc[:CUTOFF].iloc[-1] - 1, spy.loc[:CUTOFF].iloc[-1] - 1
     yearly = "  ".join(f"{k.year}:{v:+.0%}" for k, v in y.items())
+    mdd = (nav / nav.cummax() - 1).min()
     print(
-        f"{name:<40} total {nav.iloc[-1] - 1:+7.1%}  thru2025 {thru25:+7.1%} ({thru25 - spy25:+.1%} vs SPY)"
-        f"  mdd {(nav / nav.cummax() - 1).min():6.1%}  turnover {traded / (len(nav) / 252):4.1f}x  | {yearly}"
+        f"{name:<40} total {nav.iloc[-1] - 1:+7.1%}  thru {CUTOFF[:4]} {thru25:+7.1%}"
+        f" ({thru25 - spy25:+.1%} vs SPY)  mdd {mdd:6.1%}"
+        f"  turnover {traded / (len(nav) / 252):4.1f}x  | {yearly}"
     )
 
 
 def main(argv: list[str] | None = None) -> int:
+    global CUTOFF
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("members")
     ap.add_argument("--panel", help="pickle cache for the fetched Panel (created if missing)")
+    ap.add_argument("--end", help="last session to fetch (default: today)")
+    ap.add_argument("--years", type=float, default=5.0, help="simulation years before --end")
+    ap.add_argument("--cutoff", default=CUTOFF, help="date the 'through' column reports at")
     args = ap.parse_args(argv)
+    CUTOFF = args.cutoff
 
     members = pd.read_csv(args.members)
     if args.panel and Path(args.panel).exists():
@@ -163,14 +177,14 @@ def main(argv: list[str] | None = None) -> int:
         from kuroshio.providers.yf import YFinanceProvider
 
         union = sorted(set().union(*(set(t.split()) for t in members.tickers)))
-        panel = YFinanceProvider().fetch_panel([BENCH] + union, 260 * 7 + 420)
+        panel = YFinanceProvider().fetch_panel([BENCH] + union, int(args.years * 365) + 420, end=args.end)
         if args.panel:
             pickle.dump(panel, open(args.panel, "wb"))
     lab = Lab(panel, members)
     spy = lab.spy()
-    spy25 = spy.loc[:"2025-12-31"].iloc[-1] - 1
+    spy25 = spy.loc[:CUTOFF].iloc[-1] - 1
     print(f"window {lab.idx[MIN_HISTORY]} -> {lab.idx[-1]}")
-    print(f"SPY total {spy.iloc[-1] - 1:+.1%}, thru 2025 {spy25:+.1%}\n")
+    print(f"SPY total {spy.iloc[-1] - 1:+.1%}, thru {CUTOFF} {spy25:+.1%}\n")
 
     nav, tr = lab.ew_walk(lambda i: [BENCH], 5, 1, regime=lab.breadth_on)
     report("SPY when breadth(>MA200) >= 50%, else cash", nav, tr, spy)

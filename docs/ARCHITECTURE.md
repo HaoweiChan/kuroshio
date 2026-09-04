@@ -95,20 +95,23 @@ Two market profiles ported from production code, sharing scoring utilities:
   momentum (close/ma20, close/ma60, vol_mult pctranks averaged) 50% + institutional
   concentration (5d 三大法人 net / 20d avg volume) 50%. Universe: 4-digit tickers, no `00`
   prefix (ETFs), no letters (warrants). Flags: is_60d_high, crowded (price_pos_60d > 70).
-- `us.py` — US leadership profile: Stage-1 gates (stacked MAs close > MA20 > MA50 > MA200,
-  close ≥ 90% of 60d high, 5d return < +25%, price ≥ $5, dollar-volume ≥ $25M), factors:
-  momentum .333 / relative-strength-vs-benchmark .267 / volume .20 / sector-rotation .20.
-- `us_mom.py` — US 12-1 momentum profile: single factor (return from 252 sessions ago
-  to 21 sessions ago, skipping the most recent month), gated only on price ≥ $5 and
-  dollar-volume ≥ $25M — no trend/breakout gate by design.
+- `us.py` — US leadership profile (`us-leadership`, pre-2026-09 default): Stage-1 gates
+  (stacked MAs close > MA20 > MA50 > MA200, close ≥ 90% of 60d high, 5d return < +25%,
+  price ≥ $5, dollar-volume ≥ $25M), factors: momentum .333 / relative-strength-vs-benchmark
+  .267 / volume .20 / sector-rotation .20.
+- `us_mom.py` — US 12-1 momentum profile (`us`, default since 2026-09): single factor
+  (return from 252 sessions ago to 21 sessions ago, skipping the most recent month), gated
+  only on price ≥ $5 and dollar-volume ≥ $25M — no trend/breakout gate by design.
 
 Entry point per profile: `screen(panel: Panel, asof: str | None = None, **profile_kwargs) -> list[Candidate]`.
-Pure — no network, no DB. The US sector map is passed in as `sector_map: dict[str, str] | None`
-(ticker → sector ETF); sector factor drops out (renormalize) when absent.
+Pure — no network, no DB. The `us-leadership` sector map is passed in as
+`sector_map: dict[str, str] | None` (ticker → sector ETF); sector factor drops out
+(renormalize) when absent.
 
 Markets are registered, not hardcoded: `MarketProfile` (a frozen dataclass — screen fn,
 default provider, lookback/warmup windows, benchmark, whether the profile accepts a sector
-map) and the `PROFILES = {"us": ..., "tw": ...}` dict live in `core/screening/__init__.py`;
+map) and the `PROFILES = {"us": ..., "us-leadership": ..., "tw": ...}` dict live in
+`core/screening/__init__.py`;
 `get_profile(name)` resolves one or raises `ValueError` listing the known markets. The CLI
 reads everything (provider default, fetch lookback, backtest warmup/min-history, benchmark,
 screen kwargs) off the profile instead of branching on `market == "us"`. Adding a market is

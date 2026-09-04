@@ -1,8 +1,8 @@
-"""US 12-1 momentum profile.
+"""US default profile: 12-1 momentum.
 
 Single-factor, liquidity-gated-only baseline: no MA/breakout gate by design.
-Exists as the quant baseline the 2026-09 point-in-time backtest found
-(docs/backtest-2026-09.md).
+The 2026-09 point-in-time backtest (docs/backtest-2026-09.md) made it the default as
+the less bad of the two US screens; it beat SPY in 2021-2026 and lost in 2014-2021.
 """
 
 from __future__ import annotations
