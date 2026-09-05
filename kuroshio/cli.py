@@ -567,7 +567,7 @@ def _run_propose(
     from kuroshio.core.allocator import propose
     from kuroshio.core.allocator.engine import MONITORED_SETUPS, swap_hurdle
     from kuroshio.core.allocator.signals import book_vol as compute_book_vol
-    from kuroshio.core.allocator.signals import monitor_inputs
+    from kuroshio.core.allocator.signals import monitor_inputs, trail_inputs
     from kuroshio.core.ips import parse_ips, validate
     from kuroshio.providers import get_provider
 
@@ -602,6 +602,9 @@ def _run_propose(
     # none of that needed -> no fetch, no network.
     prices: dict[str, float] = {}
     ma50: dict[str, float] = {}
+    running_high: dict[str, float] = {}
+    atr14: dict[str, float] = {}
+    min_close: dict[str, float] = {}
     asof = None
     book_vol: float | None = None
     need_scores = any(h.score is None for h in holdings) or any(
@@ -644,6 +647,7 @@ def _run_propose(
             )
         # the monitoring seam: prices enter here, never inside the allocator.
         prices, ma50, asof = monitor_inputs(panel)
+        running_high, atr14, min_close = trail_inputs(panel, holdings)
         book_vol = compute_book_vol(panel, holdings)
 
     cards = propose(
@@ -651,8 +655,41 @@ def _run_propose(
         verdicts=verdicts, swaps_this_week=swaps_this_week, themes=themes,
         auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
         pool_name=pool_name, book_vol=book_vol,
+        running_high=running_high, atr14=atr14, min_close=min_close,
     )
+    _log_ratchets(cards, market, asof)
     return cards, None
+
+
+def _log_ratchets(cards, market: str, asof: str | None) -> None:
+    """Append every stop this run's ratchet moved to the ledger's ``STOPS`` file.
+
+    A trailing stop is a level that moves, so a record of only the final one cannot say
+    what was live when a rating was made — ``evaluate`` reads these rows back per date
+    (``ledger.live_stop``). Best-effort, like the ``research`` rating append: an
+    unwritable ledger warns and never costs the user their cards.
+    """
+    from kuroshio.core import ledger
+
+    rows = [
+        {
+            "date": c.details.get("asof") or asof or datetime.date.today().isoformat(),
+            "market": market,
+            "ticker": c.details["ticker"],
+            "old": c.details["old_invalidation"],
+            "new": c.details["new_invalidation"],
+            "reason": f"{c.details['setup_type']} atr trail",
+        }
+        for c in cards or [] if c.details.get("ratchet")
+    ]
+    if not rows:
+        return
+    try:
+        path = ledger.ledger_dir() / ledger.STOPS
+        ledger.append(path, rows)
+        print(f"ledger: {len(rows)} stop move(s) -> {path}", file=sys.stderr)
+    except OSError as exc:
+        print(f"warning: stop ledger append failed: {exc}", file=sys.stderr)
 
 
 def cmd_propose(args: argparse.Namespace) -> int:
@@ -811,6 +848,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
 
     scores = [r for r in ledger.load(ledger_dir_path / ledger.SCORES) if r.get("market") == market]
     ratings = [r for r in ledger.load(ledger_dir_path / ledger.RATINGS) if r.get("market") == market]
+    stops = [r for r in ledger.load(ledger_dir_path / ledger.STOPS) if r.get("market") == market]
 
     dates = sorted({r["date"] for r in scores})
     if len(dates) < 2:
@@ -836,7 +874,9 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         return 2
 
     summary = ledger.realized(scores, panel.close, args.horizon, profile.benchmark, args.top)
-    rating_stats = ledger.rating_table(ratings, panel.close, args.horizon, by_source=True)
+    rating_stats = ledger.rating_table(
+        ratings, panel.close, args.horizon, by_source=True, stop_rows=stops
+    )
     print(ledger.to_markdown(summary, rating_stats))
     return 0
 

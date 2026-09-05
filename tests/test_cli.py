@@ -1078,3 +1078,50 @@ def test_mcp_missing_extra_exits_2(monkeypatch, capsys):
 
     assert code == 2
     assert 'pip install "kuroshio[mcp]"' in err
+
+
+# --- propose: the ratchet log (TASK-11 #3) ------------------------------------
+
+N_TRAIL = 30
+_TRAIL_DATES = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=N_TRAIL)]
+
+
+def _trail_panel() -> Panel:
+    """One name ramping 100 -> 160 with a 4.00-wide bar every session."""
+    close = pd.DataFrame(
+        {"T": [100.0 + 60.0 * i / (N_TRAIL - 1) for i in range(N_TRAIL)]}, index=_TRAIL_DATES
+    )
+    volume = pd.DataFrame({"T": [1_000_000.0] * N_TRAIL}, index=_TRAIL_DATES)
+    return Panel(close=close, volume=volume, high=close + 2.0, low=close - 2.0)
+
+
+def test_propose_appends_every_ratchet_move_to_the_stop_ledger(tmp_path, capsys, monkeypatch):
+    """#3: the move is logged with date, ticker, old and new, so `evaluate` can score
+    the stop that was live on a date instead of the final one."""
+    import json
+
+    from kuroshio.core import ledger
+
+    _use_stub(monkeypatch, _trail_panel())
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        f'- {{ticker: "T", weight: 0.05, score: 0.5, setup_type: trend_add, '
+        f'entry_price: 100.0, entry_date: "{_TRAIL_DATES[0]}"}}\n'
+    )
+
+    code = main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "stop ratchets up" in out
+
+    rows = [json.loads(line) for line in (tmp_path / "ledger" / ledger.STOPS).read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["ticker"] == "T"
+    assert rows[0]["market"] == "us"
+    assert rows[0]["date"] == _TRAIL_DATES[-1]
+    assert rows[0]["old"] is None
+    assert rows[0]["new"] > 145.0  # running high 162 less 3 x ~4.07 of ATR

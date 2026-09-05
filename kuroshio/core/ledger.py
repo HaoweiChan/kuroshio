@@ -37,6 +37,16 @@ run's date, not a fetch timestamp. ``forward_pe`` is yfinance's next-fiscal-year
 absent on rows written before TASK-10) and ``"claude-session"``/the session's
 model id for a session-mode run — see ``rating_table(..., by_source=True)``.
 
+``stops.jsonl`` (``STOPS``) — one row per stop the allocator's ratchet moved on a
+``kuroshio propose`` run (TASK-11)::
+
+    {"date", "market", "ticker", "old", "new", "reason"}
+
+``old`` is ``None`` when the position had no invalidation price before the move.
+A trailing stop is a moving level, so scoring a rating against the *final* one is
+scoring a number that was not live when the rating was made — ``live_stop`` reads
+back the level that was live on a given date, and ``rating_table`` uses it.
+
 This module is pure file IO plus the realized-performance math (rank-IC, top-k
 forward return, per-rating hit rate) — no provider imports, stdlib + pandas only.
 """
@@ -52,6 +62,7 @@ import pandas as pd
 
 SCORES = "scores.jsonl"
 RATINGS = "ratings.jsonl"
+STOPS = "stops.jsonl"
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +106,17 @@ def load(path: Path) -> list[dict]:
             except json.JSONDecodeError:
                 logger.warning("%s:%d: malformed JSONL line, skipped", path, lineno)
     return rows
+
+
+def live_stop(stop_rows: list[dict], ticker: str, date: str) -> float | None:
+    """The stop live for ``ticker`` on ``date``: the ``new`` level of the newest ratchet
+    move at or before it. None when the ticker had not been ratcheted by then — the
+    caller decides whether that means "no stop" or "the one recorded elsewhere"."""
+    moves = [
+        r for r in stop_rows
+        if r.get("ticker") == ticker and r.get("new") is not None and str(r.get("date")) <= date
+    ]
+    return float(max(moves, key=lambda r: str(r["date"]))["new"]) if moves else None
 
 
 def _positional_index(index: pd.Index, date: str) -> int | None:
@@ -212,7 +234,8 @@ def realized(
 
 
 def rating_table(
-    rating_rows: list[dict], close: pd.DataFrame, horizon: int, by_source: bool = False
+    rating_rows: list[dict], close: pd.DataFrame, horizon: int, by_source: bool = False,
+    stop_rows: list[dict] | None = None,
 ) -> dict[str, dict]:
     """Per-rating {n, mean_fwd, hit_rate} off logged ratings vs. realized forward return.
 
@@ -225,9 +248,17 @@ def rating_table(
     ``claude-session``), each rating's bucket is split by source — key becomes
     ``"<rating> (<source>)"`` — so a cheap-tier/heavy-tier hit-rate gap is visible.
     A single source, or by_source=False, groups exactly as before.
+
+    ``stop_rows``: the ``STOPS`` ledger. Given it, each rated position is also scored
+    against the stop that was **live on its own rating date** — the newest ratchet move
+    at or before it, falling back to the row's recorded ``stop_loss`` — and the bucket
+    gains ``n_stops`` and ``stop_hit_rate`` (the share whose close reached that level
+    within the horizon). Without it, or for a bucket where no row had a stop at all, the
+    output is exactly what it has always been.
     """
     split = by_source and len({r.get("source") for r in rating_rows}) > 1
     by_rating: dict[str, list[float]] = {}
+    stopped: dict[str, list[bool]] = {}
     for row in rating_rows:
         i = _positional_index(close.index, row["date"])
         ticker = row["ticker"]
@@ -239,12 +270,21 @@ def rating_table(
         rating = row.get("rating") or "unknown"
         key = f"{rating} ({row.get('source', 'unknown')})" if split else rating
         by_rating.setdefault(key, []).append(float(c1 / c0 - 1.0))
+        if stop_rows:
+            stop = live_stop(stop_rows, ticker, row["date"]) or row.get("stop_loss")
+            if stop is not None:
+                path = close[ticker].iloc[i + 1: i + horizon + 1].dropna()
+                stopped.setdefault(key, []).append(bool((path <= stop).any()))
 
     out = {}
     for key, fwds in by_rating.items():
         rule = _HIT_RULES.get(key.split(" (")[0].lower())
         hit_rate = float(sum(1 for f in fwds if rule(f)) / len(fwds)) if rule else None
         out[key] = {"n": len(fwds), "mean_fwd": float(sum(fwds) / len(fwds)), "hit_rate": hit_rate}
+        hits = stopped.get(key)
+        if hits:
+            out[key]["n_stops"] = len(hits)
+            out[key]["stop_hit_rate"] = float(sum(hits) / len(hits))
     return out
 
 
@@ -279,6 +319,9 @@ def to_markdown(summary: dict, ratings: dict) -> str:
         lines.append("per-rating:")
         for rating, stats in ratings.items():
             hit = f"{stats['hit_rate']:.0%}" if stats["hit_rate"] is not None else "n/a"
-            lines.append(f"  {rating:<12} n={stats['n']}  mean_fwd={stats['mean_fwd']:+.2%}  hit_rate={hit}")
+            line = f"  {rating:<12} n={stats['n']}  mean_fwd={stats['mean_fwd']:+.2%}  hit_rate={hit}"
+            if "stop_hit_rate" in stats:
+                line += f"  stopped={stats['stop_hit_rate']:.0%} of {stats['n_stops']}"
+            lines.append(line)
 
     return "\n".join(lines)
