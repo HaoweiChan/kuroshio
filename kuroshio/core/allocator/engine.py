@@ -142,6 +142,7 @@ def propose(
     running_high: dict[str, float] | None = None,
     atr14: dict[str, float] | None = None,
     min_close: dict[str, float] | None = None,
+    last_stop: dict[str, float] | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -165,6 +166,10 @@ def propose(
     running_high = running_high or {}
     atr14 = atr14 or {}
     min_close = min_close or {}
+    # the newest stop an earlier run's ratchet logged per ticker (cli reads it back from
+    # ledger.STOPS — core/allocator imports no ledger, same rule as the panel). Empty =
+    # the ratchet only knows the recorded level, which is a run with no history yet.
+    last_stop = last_stop or {}
     # `asof` is the session `prices` was read from (signals.monitor_inputs), so a card can
     # name it instead of calling a still-forming bar a close — see _price_phrase.
     theme_cap = ips.caps.theme_pct / 100
@@ -260,9 +265,16 @@ def propose(
     # entry + 2R: before that the position is still inside the pullback it was bought in,
     # and a trail there stops it out on the setup itself. The level never moves down,
     # which is what makes this a ratchet and not a recomputation.
-    live_stop: dict[str, float] = {   # ticker -> the invalidation price this run watches
-        h.ticker: h.invalidation_price for h in holdings if h.invalidation_price is not None
-    }
+    # "Never down" is a claim across runs, so the level a run has to beat is the higher of
+    # what the user recorded and what an earlier run already ratcheted to (`last_stop`,
+    # read back from the stop ledger by the caller). Comparing only against the recorded
+    # level let a widening ATR14 under an unchanged high walk the stop back down.
+    live_stop: dict[str, float] = {}   # ticker -> the invalidation price this run watches
+    for h in holdings:
+        levels = [x for x in (h.invalidation_price, last_stop.get(h.ticker)) if x is not None]
+        if levels:
+            live_stop[h.ticker] = max(levels)
+    moved: set[str] = set()   # tickers this run's ratchet actually raised
     for h in holdings:
         if h.setup_type not in TRAILED_SETUPS:
             continue
@@ -271,18 +283,20 @@ def propose(
             # no entry_date to measure a running high from, or a panel with no high/low
             # and so no true range: nothing to trail from, and the recorded level stands.
             continue
-        recorded, entry_price = h.invalidation_price, _entry_price(h)
+        was, entry_price = live_stop.get(h.ticker), _entry_price(h)
         if h.setup_type == "pullback_add":
             # R is the entry-to-invalidation distance, so without both there is no 2R gate
             # to clear and the pullback keeps the level the user recorded.
+            recorded = h.invalidation_price
             if entry_price is None or recorded is None or recorded >= entry_price:
                 continue
             if peak < entry_price + 2 * (entry_price - recorded):
                 continue
         trail = peak - ips.caps.trail_atr_mult * atr
-        if recorded is not None and trail <= recorded:
+        if was is not None and trail <= was:
             continue
         live_stop[h.ticker] = trail
+        moved.add(h.ticker)
         alerts.append(ProposalCard(
             action="ALERT",
             reason=(
@@ -290,17 +304,17 @@ def propose(
                 f"{h.entry_date} is {peak:.2f}, and {ips.caps.trail_atr_mult:g}x its ATR14 "
                 f"of {atr:.2f} below that sits above "
                 + (
-                    f"the {recorded:.2f} you recorded."
-                    if recorded is not None
+                    f"the {was:.2f} it was already watching."
+                    if was is not None
                     else "the level it had — you recorded none."
                 )
-                + f" Monitoring watches {trail:.2f} for the rest of this run, and a "
-                f"ratcheted stop never moves back down."
+                + f" Monitoring watches {trail:.2f} from here, and a ratcheted stop never "
+                f"moves back down — later runs read this level back from the stop ledger."
             ),
             ips_clauses=["caps.trail_atr_mult"],
             details={
                 "ticker": h.ticker, "setup_type": h.setup_type, "ratchet": True,
-                "old_invalidation": recorded, "new_invalidation": trail,
+                "old_invalidation": was, "new_invalidation": trail,
                 "running_high": peak, "atr14": atr, "asof": asof,
             },
         ))
@@ -327,10 +341,13 @@ def propose(
         )
         at = _price_phrase(price, asof)
         stop = live_stop.get(h.ticker)
-        # how a card names the level: the user's own words for it, or the trail's
-        ratcheted = stop is not None and stop != h.invalidation_price
+        # how a card names the level: the user's own words for it, or the trail's — and
+        # the ALERT is only "above" when this run is the one that moved it.
         level = "" if stop is None else (
-            f"{stop:.2f} its stop has ratcheted up to (see the ALERT above)" if ratcheted
+            f"{stop:.2f} its stop has ratcheted up to (see the ALERT above)"
+            if h.ticker in moved
+            else f"{stop:.2f} its stop had already ratcheted up to on an earlier run"
+            if stop != h.invalidation_price
             else f"{stop:.2f} you recorded as the level that ends the thesis"
         )
         if h.setup_type == "trend_add" and (stop is None or price > stop):

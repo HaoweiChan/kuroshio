@@ -126,3 +126,12 @@ def test_trail_inputs_needs_a_full_atr_window():
     )
     _, atr14, _ = trail_inputs(short, [Holding(ticker="T", weight=0.05, entry_date=_TRAIL_DATES[0])])
     assert atr14 == {}  # 13 sessions < the 14 the window needs
+
+
+def test_trail_inputs_skips_a_holding_whose_entry_predates_the_panel():
+    """R2: "since entry" must be a window the panel actually covers — an entry_date
+    before its first row would score a fetch window and call it a holding period."""
+    from kuroshio.core.allocator.signals import trail_inputs
+
+    early = Holding(ticker="T", weight=0.05, entry_date="2023-06-01", entry_price=100.0)
+    assert trail_inputs(_ohlc_panel(), [early]) == ({}, {}, {})

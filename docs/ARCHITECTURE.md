@@ -214,15 +214,24 @@ Pure function. v1 logic:
 3a. **The stop ratchet** (TASK-11): before the dispatch above reads a level, a `trend_add`
    always — and a `pullback_add` once its running high has cleared `entry + 2R`, R being the
    entry-to-recorded-invalidation distance — has its live invalidation price moved up to
-   `max(recorded, running_high_since_entry - caps.trail_atr_mult x ATR14)`. It is never
-   moved down: that is what makes it a ratchet. Every move is an ALERT card and a
-   `stops.jsonl` row (`{date, market, ticker, old, new, reason}`), so `evaluate` can read
-   back the level that was live on a date instead of the final one. The inputs — running
+   `max(recorded, last logged, running_high_since_entry - caps.trail_atr_mult x ATR14)`. It
+   is never moved down: that is what makes it a ratchet — and "never" spans runs, so the
+   comparison is against the newest `stops.jsonl` level as well as the recorded one
+   (`last_stop`, read back by `cli.py:_logged_stops` and passed in like the panel-derived
+   inputs; `core/allocator` imports no ledger). Without that read-back an ATR14 that widened
+   under an unchanged high walked the stop back down. A move — and only a move — is an ALERT
+   card and a `stops.jsonl` row (`{date, market, ticker, old, new, reason}`), so a repeat run
+   on an unmoved stop logs nothing and `evaluate` can read back the level that was live on a
+   date instead of the final one. The inputs — running
    high since `entry_date`, ATR14 (mean true range over 14 sessions), and minimum close
    since `entry_date` for 3b — come from `allocator/signals.py:trail_inputs(panel, holdings)`
    and arrive as `running_high` / `atr14` / `min_close`, same seam as `monitor_inputs`. A
    holding with no `entry_date`, or a panel with no high/low, simply does not trail: the
-   recorded level stands. A trailed stop the price is at or below is itself a break, which
+   recorded level stands. So does one whose `entry_date` predates the panel's first row —
+   "since entry" over a shorter panel is the fetch window under another name, so
+   `cli.py:_lookback_days` extends the fetch back to the oldest `entry_date` in the book
+   (plus the profile's window as warm-up) and `trail_inputs` drops any ticker the provider
+   still came up short on. A trailed stop the price is at or below is itself a break, which
    is the drawdown trigger a `trend_add` had lacked.
 3b. **Max adverse excursion**: a position whose *worst close since `entry_date`* is at or
    past `caps.max_adverse_excursion_pct` from its `entry_price` gets a DECIDE card — kill it, add

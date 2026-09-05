@@ -5,6 +5,7 @@ by design (no network in this repo's test suite)."""
 
 from __future__ import annotations
 
+import datetime
 import sys
 from pathlib import Path
 
@@ -1125,3 +1126,48 @@ def test_propose_appends_every_ratchet_move_to_the_stop_ledger(tmp_path, capsys,
     assert rows[0]["date"] == _TRAIL_DATES[-1]
     assert rows[0]["old"] is None
     assert rows[0]["new"] > 145.0  # running high 162 less 3 x ~4.07 of ATR
+
+
+def test_a_second_propose_run_logs_no_stop_row_when_the_stop_has_not_moved(
+    tmp_path, capsys, monkeypatch
+):
+    """R3: the ledger records moves, not runs — the same tape twice appends once."""
+    from kuroshio.core import ledger
+
+    _use_stub(monkeypatch, _trail_panel())
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        f'- {{ticker: "T", weight: 0.05, score: 0.5, setup_type: trend_add, '
+        f'entry_price: 100.0, entry_date: "{_TRAIL_DATES[0]}"}}\n'
+    )
+    argv = [
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us",
+    ]
+    assert main(argv) == 0
+    assert main(argv) == 0
+    err = capsys.readouterr().err
+
+    rows = (tmp_path / "ledger" / ledger.STOPS).read_text().splitlines()
+    assert len(rows) == 1
+    assert err.count("stop move(s)") == 1   # and the second run does not claim one
+
+
+def test_propose_fetches_back_to_the_oldest_entry_date(tmp_path, capsys, monkeypatch):
+    """R2: the tw profile's 120-day window is shorter than this holding period, and a
+    min-close "since entry_date" read off it would be a fetch window wearing that name."""
+    stub = _use_stub(monkeypatch, _trail_panel())
+    entry = (datetime.date.today() - datetime.timedelta(days=500)).isoformat()
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        f'- {{ticker: "T", weight: 0.05, score: 0.5, setup_type: trend_add, '
+        f'entry_price: 100.0, entry_date: "{entry}"}}\n'
+    )
+
+    assert main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "tw",
+    ]) == 0
+    capsys.readouterr()
+    assert stub.calls[0][1] >= 500

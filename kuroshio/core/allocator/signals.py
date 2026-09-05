@@ -90,6 +90,12 @@ def trail_inputs(
     absent from all three dicts: the panel's whole lookback is not "since entry", and
     trailing a stop from a high the user never held through is worse than not trailing.
 
+    So is a window the panel does not cover: a holding whose ``entry_date`` predates the
+    panel's first row is absent from all three too, because everything read off it would
+    be the provider's fetch window under the name "since entry" — the drawdown or high
+    before the first row is simply unread. ``cli.py`` fetches back to the oldest
+    ``entry_date`` in the book, so this is the provider coming up short, not the default.
+
     ATR is the mean true range over the last ``ATR_WINDOW`` sessions of the *panel*, not
     of the holding period — it is a volatility estimate, not a since-entry statistic. It
     needs high/low, so it is absent for every ticker on a panel without them, which is
@@ -110,6 +116,8 @@ def trail_inputs(
         if not entry_date or ticker in seen or ticker not in close.columns:
             continue
         seen.add(ticker)
+        if pd.Timestamp(close.index[0]) > pd.Timestamp(entry_date):
+            continue
         since = close[ticker].loc[close.index >= entry_date].dropna()
         peaks = since
         if have_range and ticker in high.columns:

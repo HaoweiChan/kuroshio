@@ -631,7 +631,7 @@ def _run_propose(
                 fetch_tickers.append(profile.benchmark)
         try:
             provider = get_provider(provider_name)
-            panel = provider.fetch_panel(fetch_tickers, profile.lookback_days)
+            panel = provider.fetch_panel(fetch_tickers, _lookback_days(profile, holdings))
         except ImportError:
             return None, [
                 f'error: the {provider_name!r} provider is not installed. '
@@ -656,9 +656,47 @@ def _run_propose(
         auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
         pool_name=pool_name, book_vol=book_vol,
         running_high=running_high, atr14=atr14, min_close=min_close,
+        last_stop=_logged_stops(holdings, asof),
     )
     _log_ratchets(cards, market, asof)
     return cards, None
+
+
+def _lookback_days(profile, holdings: list[Holding]) -> int:
+    """The fetch window: the profile's, extended to reach the oldest ``entry_date`` in the
+    book plus the profile's own window as warm-up (MA50 and ATR14 need sessions *before*
+    the entry). Without this, ``signals.trail_inputs`` measures "since entry_date" over
+    whatever the provider's default lookback happened to cover — 120 sessions for `tw` —
+    and a drawdown older than that is never seen (it drops the ticker instead)."""
+    entries = [h.entry_date for h in holdings if h.entry_date]
+    if not entries:
+        return profile.lookback_days
+    try:
+        held = (datetime.date.today() - datetime.date.fromisoformat(min(entries))).days
+    except ValueError:   # a non-ISO entry_date is the holdings file's problem, not a crash
+        return profile.lookback_days
+    return max(profile.lookback_days, held + profile.lookback_days)
+
+
+def _logged_stops(holdings: list[Holding], asof: str | None) -> dict[str, float]:
+    """The newest ``STOPS`` level per held ticker, so this run's ratchet compares against
+    the stop the last one logged rather than the level recorded in the holdings file — a
+    trail that has since widened must not walk the stop back down, and a level that has
+    not moved must not be logged again. Best-effort: an unreadable ledger warns."""
+    from kuroshio.core import ledger
+
+    date = asof or datetime.date.today().isoformat()
+    try:
+        rows = ledger.load(ledger.ledger_dir() / ledger.STOPS)
+    except OSError as exc:
+        print(f"warning: stop ledger read failed: {exc}", file=sys.stderr)
+        return {}
+    stops = {}
+    for h in holdings:
+        level = ledger.live_stop(rows, h.ticker, date)
+        if level is not None:
+            stops[h.ticker] = level
+    return stops
 
 
 def _log_ratchets(cards, market: str, asof: str | None) -> None:

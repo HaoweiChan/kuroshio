@@ -1061,3 +1061,36 @@ def test_mae_decides_on_the_minimum_close_since_entry_after_a_recovery():
     assert decides(propose(
         holdings, [], make_ips(), "us", prices=prices, min_close={"LOSER": 90.0},
     )) == []
+
+
+def test_the_ratchet_reads_back_the_stop_it_logged_and_never_lowers_it():
+    """R1: run A trails to 140.50 off a 3.50 ATR14. Run B widens ATR14 to 10.00 under
+    the same running high, so the trail *falls* — the live stop does not, and nothing
+    is logged for a move that did not happen (R3)."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0, invalidation_price=90.0)]
+    run_a = propose(
+        holdings, [], make_ips(), "us", prices={"T": 145.0}, ma50={"T": 120.0},
+        running_high={"T": 151.0}, atr14={"T": 3.5},
+    )
+    logged = ratchets(run_a)[0].details["new_invalidation"]
+    assert logged == pytest.approx(140.5)
+
+    run_b = propose(
+        holdings, [], make_ips(), "us", prices={"T": 145.0}, ma50={"T": 120.0},
+        running_high={"T": 151.0}, atr14={"T": 10.0}, last_stop={"T": logged},
+    )
+    assert ratchets(run_b) == []
+
+
+def test_a_close_under_the_last_logged_stop_still_breaches():
+    """R1: the breach check watches the level read back from the stop ledger, not the
+    90.00 the user recorded — a 130.00 close under the logged 140.50 is a breach."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0, invalidation_price=90.0)]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"T": 130.0}, ma50={"T": 120.0},
+        running_high={"T": 151.0}, atr14={"T": 28.0}, last_stop={"T": 140.5},
+    )
+    breach = [c for c in cards if c.details.get("ticker") == "T" and not c.details.get("ratchet")]
+    assert len(breach) == 1
+    assert breach[0].details["invalidation_price"] == pytest.approx(140.5)
+    assert "trailing stop" in breach[0].reason
