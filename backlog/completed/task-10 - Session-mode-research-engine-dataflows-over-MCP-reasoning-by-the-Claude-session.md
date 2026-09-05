@@ -1,7 +1,7 @@
 ---
 id: TASK-10
 title: 'Session-mode research: engine dataflows over MCP, reasoning by the Claude session'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-05'
 labels: []
@@ -28,6 +28,6 @@ Probe: none — library/CLI with no deployed surface; ruff + pytest are the whol
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the skill's frontmatter declares the role→tier routing and the per-run budget; a dry read of the skill shows analysts/debate/risk on the cheap tier and only trader + PM on the session model; `record_rating` rows carry `model`
-- [ ] #2 `kuroshio mcp` starts, lists the tools above, and `record_rating` appends a row `evaluate` reads with a `source` field; the skill, run in a Claude Code session on one ticker, produces `5_portfolio/decision.md` with a `**Rating**:` line the ledger parser accepts and no OpenRouter/OpenAI call is made (assert via an env guard that fails the run if `KUROSHIO_LLM_PROVIDER` is used).
+- [x] #1 the skill's frontmatter declares the role→tier routing and the per-run budget; a dry read of the skill shows analysts/debate/risk on the cheap tier and only trader + PM on the session model; `record_rating` rows carry `model`
+- [x] #2 `kuroshio mcp` starts, lists the tools above, and `record_rating` appends a row `evaluate` reads with a `source` field; the skill, run in a Claude Code session on one ticker, produces `5_portfolio/decision.md` with a `**Rating**:` line the ledger parser accepts and no OpenRouter/OpenAI call is made (assert via an env guard that fails the run if `KUROSHIO_LLM_PROVIDER` is used).
 <!-- AC:END -->

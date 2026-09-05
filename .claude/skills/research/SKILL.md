@@ -10,7 +10,7 @@ routing:
   portfolio_manager: session
 budget:
   max_names_per_run: 5
-  max_subagents_per_name: 6
+  max_subagents_per_name: 6   # 4 analysts + 1 bull/bear + 1 risk
   max_tool_calls_per_subagent: 8
   debate_rounds: 1
   risk_rounds: 1
@@ -84,12 +84,13 @@ owner names one, `MARKET` = `us` unless said otherwise:
      statement, analyst estimates, insider transactions: valuation,
      margins, estimate-revision direction, insider buy/sell balance.
 
-3. **Bull vs bear — one message, two `sonnet` subagents, one round**
-   (`debate_rounds: 1`, `retries_per_role: 1`). Bull builds the strongest
-   case from the four reports (growth, moat, positive indicators); bear
-   builds the opposing case (risk, weakening position, negative
-   indicators) from the same reports. One bull turn, one bear turn each
-   seeing the other's argument — not a back-and-forth loop.
+3. **Bull vs bear — ONE `sonnet` subagent, one round** (`debate_rounds: 1`,
+   `retries_per_role: 1`). The same subagent writes the bull case first
+   (growth, moat, positive indicators) and then the bear case responding to
+   it (risk, weakening position, negative indicators), both from the four
+   reports — one turn each, the bear having seen the bull. One subagent, not
+   two, is what makes the budget add up: 4 analysts + 1 debate + 1 risk =
+   `max_subagents_per_name: 6`.
 
 4. **Research manager plan — session model, short.** Read both sides and
    commit to one of the five tiers from step 7 (a plan for the trader,
