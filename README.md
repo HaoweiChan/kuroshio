@@ -104,6 +104,15 @@ limit suppressed:
 
 Full walkthrough (including the LLM research pipeline): [examples/quickstart.md](examples/quickstart.md).
 
+`kuroshio research` reasons over a paid LLM API. `kuroshio mcp` (`pip install
+-e ".[mcp]"`) is the free alternative: a stdio MCP server that exposes the
+engine's data tools plus `screen`/`propose`/`record_rating`, wired up via
+`.mcp.json` (paths there are relative to the repo root — adjust `command` if
+your checkout lives elsewhere) so a Claude Code session can do the reasoning
+itself and pay nothing beyond its own subscription; see
+`.claude/skills/research/SKILL.md` and "Session mode (MCP)" in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Architecture
 
 ```mermaid
