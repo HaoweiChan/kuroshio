@@ -63,6 +63,12 @@ class Caps:
     # above — a per-ticker exemption from a number that describes the whole book, not one
     # position, is meaningless, so this is deliberately not in `_CAP_FIELDS` either.
     book_vol_target_pct: float | None = None
+    # How many ATR14s below the running high since entry the allocator's stop ratchet
+    # parks a position's live invalidation price (allocator/engine.py step 3). A multiple,
+    # not a percent — the point of a trail is that its distance scales with the name's own
+    # range — and not in `_CAP_FIELDS`: exempting one ticker from the trail is simply not
+    # giving it a trailed setup_type. 3 x ATR is the classic default.
+    trail_atr_mult: float = 3
     exemptions: list[CapExemption] = field(default_factory=list)
 
 

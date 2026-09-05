@@ -22,6 +22,10 @@ from kuroshio.types import Candidate, Holding, ProposalCard
 # setup_types that carry a monitoring rule. "other" (and a missing setup_type) carry
 # none — see the dispatch in `propose` step 3 and `signals.monitor_inputs`.
 MONITORED_SETUPS = ("value_dip", "pullback_add", "trend_add")
+# setup_types whose invalidation price ratchets up behind the tape — see `propose` step
+# 3a. A value_dip is not one: its level is a valuation thesis the user wrote down, not a
+# distance from a high the position has not made yet.
+TRAILED_SETUPS = ("trend_add", "pullback_add")
 
 
 def _price_phrase(price: float, asof: str | None) -> str:
@@ -134,6 +138,10 @@ def propose(
     asof: str | None = None,
     pool_name: str = "your own files",
     book_vol: float | None = None,
+    *,
+    running_high: dict[str, float] | None = None,
+    atr14: dict[str, float] | None = None,
+    min_close: dict[str, float] | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -150,6 +158,13 @@ def propose(
     # (allocator.signals.monitor_inputs) — core/allocator takes no panel and no provider.
     prices = prices or {}
     ma50 = ma50 or {}
+    # the same seam, for the stop ratchet and the max-adverse-excursion rule: running high
+    # and minimum close since each holding's entry_date, and ATR14, from
+    # allocator.signals.trail_inputs. Empty = those rules degrade to what they did before
+    # TASK-11 (the recorded level, and this session's price).
+    running_high = running_high or {}
+    atr14 = atr14 or {}
+    min_close = min_close or {}
     # `asof` is the session `prices` was read from (signals.monitor_inputs), so a card can
     # name it instead of calling a still-forming bar a close — see _price_phrase.
     theme_cap = ips.caps.theme_pct / 100
@@ -238,8 +253,58 @@ def propose(
     # weak against its moving averages: that is the setup, not a broken thesis, so only
     # the invalidation_price the user recorded ends it. A trend_add is the opposite —
     # the trend is the thesis, so a close under the 50-day mean is the exit signal.
-    # ponytail: MA50 only. Panel carries close/volume, no high/low, so the spec's ATR
-    # trail needs a data-model change first (tasks/TODO.md T38).
+    #
+    # 3a. the stop ratchet (TASK-11), run before the dispatch that reads the level it
+    # sets. A trend_add trails always — the trend is the thesis, so the tape draws the
+    # only level it ever had. A pullback_add trails only once the running high has cleared
+    # entry + 2R: before that the position is still inside the pullback it was bought in,
+    # and a trail there stops it out on the setup itself. The level never moves down,
+    # which is what makes this a ratchet and not a recomputation.
+    live_stop: dict[str, float] = {   # ticker -> the invalidation price this run watches
+        h.ticker: h.invalidation_price for h in holdings if h.invalidation_price is not None
+    }
+    for h in holdings:
+        if h.setup_type not in TRAILED_SETUPS:
+            continue
+        peak, atr = running_high.get(h.ticker), atr14.get(h.ticker)
+        if peak is None or atr is None:
+            # no entry_date to measure a running high from, or a panel with no high/low
+            # and so no true range: nothing to trail from, and the recorded level stands.
+            continue
+        recorded, entry_price = h.invalidation_price, _entry_price(h)
+        if h.setup_type == "pullback_add":
+            # R is the entry-to-invalidation distance, so without both there is no 2R gate
+            # to clear and the pullback keeps the level the user recorded.
+            if entry_price is None or recorded is None or recorded >= entry_price:
+                continue
+            if peak < entry_price + 2 * (entry_price - recorded):
+                continue
+        trail = peak - ips.caps.trail_atr_mult * atr
+        if recorded is not None and trail <= recorded:
+            continue
+        live_stop[h.ticker] = trail
+        alerts.append(ProposalCard(
+            action="ALERT",
+            reason=(
+                f"{h.ticker}'s stop ratchets up to {trail:.2f}: its running high since "
+                f"{h.entry_date} is {peak:.2f}, and {ips.caps.trail_atr_mult:g}x its ATR14 "
+                f"of {atr:.2f} below that sits above "
+                + (
+                    f"the {recorded:.2f} you recorded."
+                    if recorded is not None
+                    else "the level it had — you recorded none."
+                )
+                + f" Monitoring watches {trail:.2f} for the rest of this run, and a "
+                f"ratcheted stop never moves back down."
+            ),
+            ips_clauses=["caps.trail_atr_mult"],
+            details={
+                "ticker": h.ticker, "setup_type": h.setup_type, "ratchet": True,
+                "old_invalidation": recorded, "new_invalidation": trail,
+                "running_high": peak, "atr14": atr, "asof": asof,
+            },
+        ))
+
     thesis_gap: dict[str, str] = {}   # ticker -> why its setup_type's rule could not run
     # ticker -> what monitoring concluded, for the SWAP card in step 4 to quote.
     thesis_note: dict[str, str] = {}
@@ -261,7 +326,15 @@ def propose(
             else "entry price not recorded"
         )
         at = _price_phrase(price, asof)
-        if h.setup_type == "trend_add":
+        stop = live_stop.get(h.ticker)
+        # how a card names the level: the user's own words for it, or the trail's
+        ratcheted = stop is not None and stop != h.invalidation_price
+        level = "" if stop is None else (
+            f"{stop:.2f} its stop has ratcheted up to (see the ALERT above)" if ratcheted
+            else f"{stop:.2f} you recorded as the level that ends the thesis"
+        )
+        if h.setup_type == "trend_add" and (stop is None or price > stop):
+            # the trend half of the rule; the trailed stop below is the drawdown half
             ma = ma50.get(h.ticker)
             if ma is None:
                 thesis_gap[h.ticker] = (
@@ -280,25 +353,29 @@ def propose(
                 f"The setup that justified the position no longer holds."
             )
             details = {"ma50": ma}
+        elif h.setup_type == "trend_add":
+            reason = (
+                f"{h.ticker} was opened as a trend_add and its trailing stop is breached: "
+                f"{at}, at or below the {level} ({entry}). "
+                f"The setup that justified the position no longer holds."
+            )
+            details = {"invalidation_price": stop}
         else:  # value_dip | pullback_add — the recorded level, never MA distance
-            if h.invalidation_price is None:
+            if stop is None:
                 thesis_gap[h.ticker] = (
                     f"no invalidation_price for its {h.setup_type} — nothing to breach"
                 )
                 continue
-            if price > h.invalidation_price:
+            if price > stop:
                 thesis_note[h.ticker] = (
-                    f"its invalidation price of {h.invalidation_price:.2f} is not "
-                    f"breached — {at}"
+                    f"its invalidation price of {stop:.2f} is not breached — {at}"
                 )
                 continue
             reason = (
                 f"{h.ticker} was opened as a {h.setup_type} and its invalidation price is "
-                f"breached: {at}, at or below the "
-                f"{h.invalidation_price:.2f} you recorded as the level that ends the thesis "
-                f"({entry})."
+                f"breached: {at}, at or below the {level} ({entry})."
             )
-            details = {"invalidation_price": h.invalidation_price}
+            details = {"invalidation_price": stop}
         thesis_note[h.ticker] = "its thesis broke this run — see the ALERT above"
         alerts.append(ProposalCard(
             action="ALERT",
@@ -313,10 +390,10 @@ def propose(
     # dispatches on nothing — any position with an entry price can be far enough under
     # water, whatever setup opened it, or none. Built after the loop above so it can quote
     # what that loop concluded about the same ticker instead of talking past it.
-    # ponytail: this session's price against entry, not the worst price since entry — a
-    # position that fell past the threshold and recovered is not decided on. Equal to the
-    # real excursion only for someone who runs propose the day of the low; the low itself
-    # needs panel history sliced from entry_date (tasks/TODO.md T52).
+    # The excursion is the worst *close* since entry_date (signals.trail_inputs), not this
+    # session's price: a position that fell to -25% and recovered to -5% made the decision
+    # the key exists to force, and running propose weekly must not miss it (TASK-11 #4).
+    # A holding with no entry_date has no such window, and falls back to today's price.
     mae_gap: dict[str, str] = {}   # ticker -> why the loss-from-entry rule could not run
     decided: dict[str, str] = {}   # ticker -> its loss, for the SWAP card in step 4 to quote
     mae_pct = ips.caps.max_adverse_excursion_pct
@@ -332,15 +409,26 @@ def propose(
                 else f"entry_price {h.entry_price} is not a price"
             ) + ", so the loss from entry is not watched"
             continue
-        if not _past_threshold(price, entry_price, mae_pct):
+        low = min_close.get(h.ticker)
+        worst = price if low is None else min(price, low)
+        if not _past_threshold(worst, entry_price, mae_pct):
             continue
         note = thesis_note.get(h.ticker)
-        decided[h.ticker] = f"{price / entry_price - 1:+.1%}"
+        decided[h.ticker] = f"{worst / entry_price - 1:+.1%}"
+        # the card states what the rule read: the low when the position has recovered off
+        # it, and this session's print when the low *is* this session's print.
+        lead = (
+            f"{h.ticker} fell to {worst / entry_price - 1:+.1%} from your entry price of "
+            f"{entry_price:.2f} — its lowest close since {h.entry_date} was {worst:.2f}, "
+            f"and it is back {_price_phrase(price, asof)}"
+            if worst < price else
+            f"{h.ticker} is {worst / entry_price - 1:+.1%} from your entry price of "
+            f"{entry_price:.2f}, {_price_phrase(price, asof)}"
+        )
         decisions.append(ProposalCard(
             action="DECIDE",
             reason=(
-                f"{h.ticker} is {price / entry_price - 1:+.1%} from your entry price of "
-                f"{entry_price:.2f}, {_price_phrase(price, asof)} — at or past your IPS max "
+                f"{lead} — at or past your IPS max "
                 f"adverse excursion of {mae_pct:.1f}%. "
                 f"Decide: kill it, add to it per the plan you opened it with, or "
                 f"rewrite the thesis and record the new one. Holding it unchanged is not "
@@ -353,7 +441,9 @@ def propose(
             ips_clauses=["caps.max_adverse_excursion_pct"],
             details={
                 "ticker": h.ticker, "entry_price": entry_price, "price": price, "asof": asof,
-                "drawdown": price / entry_price - 1, "threshold_pct": mae_pct,
+                "drawdown": worst / entry_price - 1, "threshold_pct": mae_pct,
+                # only when the rule had one: the card's details are the numbers it read
+                **({"min_close": worst} if low is not None else {}),
             },
         ))
 

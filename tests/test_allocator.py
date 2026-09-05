@@ -937,3 +937,127 @@ def test_theme_caps_override_replaces_theme_pct_for_the_named_theme_only():
     alerts = [c for c in cards if c.action == "ALERT" and c.details.get("theme")]
     assert [c.details["theme"] for c in alerts] == ["space"]
     assert alerts[0].details["cap"] == 0.15 and alerts[0].ips_clauses == ["caps.theme_caps.space"]
+
+
+# --- TASK-11: the ATR ratchet on invalidation_price ---------------------------
+#
+# One tape for all of them: a running high of 150.00 and an ATR14 of 5.00, so the
+# default caps.trail_atr_mult of 3 puts the trail at 150 - 15 = 135.00.
+
+TRAIL_HIGH = {"T": 150.0}
+TRAIL_ATR = {"T": 5.0}
+
+
+def ratchets(cards) -> list[ProposalCard]:
+    return [c for c in cards if c.details.get("ratchet")]
+
+
+def trailed(ticker: str, **kw) -> Holding:
+    kw.setdefault("score", 0.5)
+    return Holding(ticker=ticker, weight=0.05, entry_date="2026-01-05", **kw)
+
+
+def test_a_trend_add_ratchets_its_stop_to_the_atr_trail():
+    """#2, trend_add half: the trail applies with no 2R gate and with no recorded
+    level to start from — a trend_add's stop is the trail."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0)]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"T": 140.0}, ma50={"T": 120.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    move = ratchets(cards)
+    assert len(move) == 1
+    assert move[0].details["old_invalidation"] is None
+    assert move[0].details["new_invalidation"] == pytest.approx(135.0)
+    assert move[0].ips_clauses == ["caps.trail_atr_mult"]
+    assert "135.00" in move[0].reason
+
+
+def test_a_trend_add_below_its_trailed_stop_is_alerted():
+    """DRAFT-28's missing drawdown trigger: the trend is intact against the MA50 and
+    the position is still stopped, because the trail is above the MA."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0)]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"T": 130.0}, ma50={"T": 120.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    breach = [c for c in cards if c.details.get("ticker") == "T" and not c.details.get("ratchet")]
+    assert len(breach) == 1
+    assert breach[0].details["invalidation_price"] == pytest.approx(135.0)
+    assert "trailing stop" in breach[0].reason
+
+
+def test_a_pullback_add_ratchets_only_once_the_running_high_clears_entry_plus_two_r():
+    """#2, pullback_add half: entry 100 over a recorded 90 is R = 10, so the gate is
+    120. A 115 high does not open it; a 150 high does."""
+    holding = trailed("T", setup_type="pullback_add", entry_price=100.0, invalidation_price=90.0)
+    below = propose(
+        [holding], [], make_ips(), "us", prices={"T": 115.0},
+        running_high={"T": 115.0}, atr14=TRAIL_ATR,
+    )
+    assert ratchets(below) == []
+
+    cleared = propose(
+        [holding], [], make_ips(), "us", prices={"T": 140.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    assert len(ratchets(cleared)) == 1
+    assert ratchets(cleared)[0].details["old_invalidation"] == pytest.approx(90.0)
+    assert ratchets(cleared)[0].details["new_invalidation"] == pytest.approx(135.0)
+
+
+def test_the_ratchet_never_lowers_a_recorded_invalidation():
+    """#2, the never-lower rule: the trail sits below the level the user recorded, so
+    the recorded one stays live and nothing moves."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0, invalidation_price=140.0)]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"T": 145.0}, ma50={"T": 120.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,   # trail = 135.00, under the recorded 140
+    )
+    assert ratchets(cards) == []
+    # and the recorded level is still the one being watched
+    breached = propose(
+        holdings, [], make_ips(), "us", prices={"T": 139.0}, ma50={"T": 120.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    stop = [c for c in breached if c.details.get("ticker") == "T"]
+    assert len(stop) == 1
+    assert stop[0].details["invalidation_price"] == pytest.approx(140.0)
+
+
+def test_the_trail_multiple_is_read_from_the_ips():
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0)]
+    cards = propose(
+        holdings, [], make_ips(**{"caps.trail_atr_mult": 1}), "us",
+        prices={"T": 146.0}, ma50={"T": 120.0}, running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    assert ratchets(cards)[0].details["new_invalidation"] == pytest.approx(145.0)
+
+
+def test_a_value_dip_and_an_other_never_ratchet():
+    """The two setups the rule does not name keep the level the user recorded."""
+    for setup in ("value_dip", "other", None):
+        holdings = [trailed("T", setup_type=setup, entry_price=100.0, invalidation_price=90.0)]
+        cards = propose(
+            holdings, [], make_ips(), "us", prices={"T": 140.0}, ma50={"T": 120.0},
+            running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+        )
+        assert ratchets(cards) == [], setup
+
+
+def test_mae_decides_on_the_minimum_close_since_entry_after_a_recovery():
+    """#4 (DRAFT-37): -25% then back to -5%. The excursion happened, so the card is
+    still owed — and it names the low it measured, not the price on the screen."""
+    holdings, prices = loser(95.0, entry=100.0, entry_date="2026-01-05")
+    cards = propose(
+        holdings, [], make_ips(), "us", prices=prices, min_close={"LOSER": 75.0},
+    )
+    assert len(decides(cards)) == 1
+    card = decides(cards)[0]
+    assert card.details["min_close"] == pytest.approx(75.0)
+    assert card.details["drawdown"] == pytest.approx(-0.25)
+    assert "-25.0%" in card.reason and "75.00" in card.reason
+    # and a position whose worst close never reached the threshold still gets nothing
+    assert decides(propose(
+        holdings, [], make_ips(), "us", prices=prices, min_close={"LOSER": 90.0},
+    )) == []

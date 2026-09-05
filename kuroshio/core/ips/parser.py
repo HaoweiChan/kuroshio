@@ -85,6 +85,7 @@ def _parse_text(text: str) -> IPS:
             risk_budget_pct=caps_raw.get("risk_budget_pct", 1),
             max_adverse_excursion_pct=caps_raw.get("max_adverse_excursion_pct", -15),
             book_vol_target_pct=caps_raw.get("book_vol_target_pct"),
+            trail_atr_mult=caps_raw.get("trail_atr_mult", 3),
             exemptions=exemptions,
         ),
         turnover=Turnover(
@@ -152,6 +153,15 @@ def validate(ips: IPS) -> list[str]:
         problems.append(
             f"caps.max_adverse_excursion_pct ({mae}) must be a negative percent in (-100, 0) — "
             f"it is a loss from entry, so e.g. -15 for 15% below entry"
+        )
+
+    # The allocator subtracts `mult x ATR14` from the running high, so a non-number
+    # crashes that arithmetic and 0 (or a negative) parks the stop on — or above — the
+    # high itself, stopping every position out on its own noise. Type first, as above.
+    mult = c.trail_atr_mult
+    if isinstance(mult, bool) or not isinstance(mult, (int, float)) or mult <= 0:
+        problems.append(
+            f"caps.trail_atr_mult ({mult!r}) must be a positive multiple of ATR14, e.g. 3"
         )
 
     # None = off; a set value is an annualized percent like theme_pct, not signed like
