@@ -14,6 +14,8 @@ dependencies = [
 yfinance = ["yfinance>=0.2.40"]
 finmind = ["requests>=2.31"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
+# `kuroshio mcp` — stdio MCP server for session-mode research (TASK-10).
+mcp = ["mcp>=2.0"]
 # kuroshio.agents.engine — componentized TradingAgents LLM pipeline.
 # Data-vendor deps (yfinance, finmind) are separate extras; combine as needed,
 # e.g. pip install "kuroshio[agents,yfinance]".

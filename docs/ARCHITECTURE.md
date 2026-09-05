@@ -34,7 +34,8 @@ kuroshio/
 │   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
 ├── providers/            # data-source plugins: base ABC, yfinance (default), finmind (TW)
 ├── integrations/         # edge adapters: discord webhook notifier
-└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research|evaluate`
+├── mcp_server.py         # stdio MCP server: engine dataflows + screen/propose/record_rating (session mode)
+└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research|evaluate|mcp`
 ```
 
 ## Shared types (`kuroshio/types.py`)
@@ -382,9 +383,40 @@ argparse subcommands:
   when the run produced one); a ledger failure prints a warning to stderr and never fails the run.
 - `kuroshio evaluate --market M [--horizon 20] [--top 10] [--ledger-dir PATH]` — reads the ledger
   and prints realized rank-IC / top-k forward return / per-rating hit rate; see `core/ledger`.
+- `kuroshio mcp` — runs `mcp_server.run()` (a stdio MCP server); exits 2 with an install hint if
+  the optional `mcp` extra is missing. See "Session mode (MCP)" below.
 
 `holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
 `candidates.yml`: list of {ticker, final_score?, verdict?, theme?} — same rule (`final_scores:` is a typo, not a request to fetch one).
+
+## Session mode (MCP)
+
+`kuroshio research` reasons over a paid LLM API (15-25 calls/name). TASK-10
+adds a second path with the same downstream shape but no API bill: the data
+stays in this repo, the reasoning moves into whatever session is asking for
+it.
+
+- **What runs where.** `kuroshio mcp` (`mcp_server.py`) is a stdio MCP server
+  that wraps `kuroshio.agents.engine.dataflows.interface.route_to_vendor` (the
+  same vendor-routed data calls the engine's analysts use) plus `screen` and
+  `propose` (the exact code paths `kuroshio screen`/`kuroshio propose` run,
+  via `cli.py`'s own helpers — no separate implementation to drift) as
+  read-only tools, and one write tool, `record_rating`. It never imports
+  `kuroshio.agents.engine.llm_clients` or `.graph` — the analyst/researcher/
+  trader/risk/PM *reasoning* happens entirely in the calling session (see
+  `.claude/skills/research/SKILL.md`), which pulls data through these tools
+  and writes the report tree itself.
+- **Cost control.** The skill's frontmatter routes the cheap roles (four
+  analysts, bull/bear, three risk views) to a cheap tier (Sonnet, or Codex's
+  Sol) and only the trader and portfolio manager to the session's own
+  (heavy) model, caps subagents/tool-calls/debate-rounds/retries per run, and
+  honours the facet-cache-style skip for a name already researched that day.
+- **`source`/`model` columns.** `record_rating` writes
+  `source="claude-session"` and `model=<the deciding tier's id>` alongside the
+  same row shape `kuroshio research` writes (`ratings.jsonl`); `evaluate`'s
+  `rating_table(..., by_source=True)` splits the per-rating hit-rate table by
+  source once more than one is present, so a cheap-tier/heavy-tier/paid-API
+  gap in hit rate is visible without a separate report.
 
 ## What deliberately does not exist yet (YAGNI)
 

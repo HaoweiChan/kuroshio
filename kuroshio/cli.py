@@ -1,4 +1,4 @@
-"""kuroshio CLI — screen | backtest | simulate | propose | ips-validate | research | evaluate.
+"""kuroshio CLI — screen | backtest | simulate | propose | ips-validate | research | evaluate | mcp.
 
 Stdlib argparse only (no click/typer/rich). Providers and yaml are imported
 lazily inside each command so ``kuroshio --help`` stays fast and never
@@ -6,6 +6,9 @@ touches the network. Network calls happen only in the ``screen``, ``backtest``,
 ``simulate``, ``research``, ``evaluate`` and — when a score is missing from the
 input files — ``propose``. ``research`` additionally requires the optional
 ``agents`` extra (LLM engine) and exits 2 with an install hint if it's missing.
+``mcp`` requires the optional ``mcp`` extra and exits 2 the same way; it runs a
+stdio MCP server exposing the engine's dataflows (and screen/propose/record_rating)
+as tools for a Claude Code session, with no LLM calls of its own (TASK-10).
 
 ``screen`` and ``research`` append to a plain-file ledger (``kuroshio.core.ledger``)
 by default — ``--no-ledger`` opts out; ``evaluate`` reads that ledger back and
@@ -542,7 +545,25 @@ def _score_missing(
     return kept, auto
 
 
-def cmd_propose(args: argparse.Namespace) -> int:
+def _run_propose(
+    ips_path: str,
+    holdings_path: str,
+    market: str,
+    *,
+    candidates_path: str | None = None,
+    universe_file: str | None = None,
+    swaps_this_week: int = 0,
+    provider_name: str | None = None,
+):
+    """Core of ``propose``: (cards, None) on success, (None, message_lines) on an
+    invalid IPS or a bad holdings/candidates/universe/provider input.
+
+    Shared by ``cmd_propose`` (CLI) and the MCP ``propose`` tool, so both take the
+    exact same path from an IPS + holdings file to proposal cards (TASK-10) — the
+    CLI prints ``message_lines`` (plain to stdout for IPS ``validate()`` problems,
+    ``error: ...``-prefixed to stderr for a file/provider problem) and exits 2; the
+    MCP tool just joins them into its returned string.
+    """
     from kuroshio.core.allocator import propose
     from kuroshio.core.allocator.engine import MONITORED_SETUPS, swap_hurdle
     from kuroshio.core.allocator.signals import book_vol as compute_book_vol
@@ -550,29 +571,26 @@ def cmd_propose(args: argparse.Namespace) -> int:
     from kuroshio.core.ips import parse_ips, validate
     from kuroshio.providers import get_provider
 
-    ips = parse_ips(args.ips)
+    ips = parse_ips(ips_path)
     problems = validate(ips)
     if problems:
-        for p in problems:
-            print(p)
-        return 2
+        return None, problems
 
     challengers, verdicts, themes, auto_scored = [], {}, {}, {}
     universe: list[str] | None = None
     try:
-        holdings = _holdings_from_yaml(args.holdings)
-        if args.candidates:
-            challengers, verdicts, themes = _candidates_from_yaml(args.candidates)
-        if args.universe_file:
-            universe = _load_universe(args.universe_file)
+        holdings = _holdings_from_yaml(holdings_path)
+        if candidates_path:
+            challengers, verdicts, themes = _candidates_from_yaml(candidates_path)
+        if universe_file:
+            universe = _load_universe(universe_file)
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return None, [f"error: {exc}"]
 
     # TASK-7: with a universe, an auto-filled score is a percentile of that cross-section
     # rather than of "your own files" — the SWAP card names which pool it came from.
     pool_name = (
-        f"the universe in {Path(args.universe_file).name}" if args.universe_file
+        f"the universe in {Path(universe_file).name}" if universe_file
         else "your own files"
     )
 
@@ -592,8 +610,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
     monitored = any(h.setup_type in MONITORED_SETUPS or h.entry_price for h in holdings)
     vol_targeted = ips.caps.book_vol_target_pct is not None
     if need_scores or monitored or vol_targeted:
-        profile = get_profile(args.market)
-        provider_name = args.provider or profile.default_provider
+        profile = get_profile(market)
+        provider_name = provider_name or profile.default_provider
         if universe is not None:
             # first: providers/yf.py filters the panel to its first resolved ticker
             fetch_tickers = [profile.benchmark] if profile.benchmark else []
@@ -612,18 +630,16 @@ def cmd_propose(args: argparse.Namespace) -> int:
             provider = get_provider(provider_name)
             panel = provider.fetch_panel(fetch_tickers, profile.lookback_days)
         except ImportError:
-            print(
+            return None, [
                 f'error: the {provider_name!r} provider is not installed. '
-                f'Run: pip install "kuroshio[{provider_name}]"',
-                file=sys.stderr,
-            )
-            return 2
+                f'Run: pip install "kuroshio[{provider_name}]"'
+            ]
         # ponytail: latest session only, and no sector_map for `us-leadership` (that
         # factor renormalizes away) — add --asof/--sector-map here when propose needs to
         # reproduce a `kuroshio screen` number exactly. See tasks/TODO.md T25/T30.
         if need_scores:
             challengers, auto_scored = _score_missing(
-                holdings, challengers, profile, panel, swap_hurdle(ips, args.market)[0],
+                holdings, challengers, profile, panel, swap_hurdle(ips, market)[0],
                 universe=universe,
             )
         # the monitoring seam: prices enter here, never inside the allocator.
@@ -631,11 +647,26 @@ def cmd_propose(args: argparse.Namespace) -> int:
         book_vol = compute_book_vol(panel, holdings)
 
     cards = propose(
-        holdings, challengers, ips, args.market,
-        verdicts=verdicts, swaps_this_week=args.swaps_this_week, themes=themes,
+        holdings, challengers, ips, market,
+        verdicts=verdicts, swaps_this_week=swaps_this_week, themes=themes,
         auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
         pool_name=pool_name, book_vol=book_vol,
     )
+    return cards, None
+
+
+def cmd_propose(args: argparse.Namespace) -> int:
+    cards, problems = _run_propose(
+        args.ips, args.holdings, args.market,
+        candidates_path=args.candidates, universe_file=args.universe_file,
+        swaps_this_week=args.swaps_this_week, provider_name=args.provider,
+    )
+    if problems is not None:
+        # IPS validate() problems are plain (stdout, no prefix, ips-validate style);
+        # a file/provider problem is "error: ..." (stderr) — see _run_propose.
+        for p in problems:
+            print(p, file=sys.stderr if p.startswith("error:") else sys.stdout)
+        return 2
 
     if not cards:
         print("No proposals — portfolio is within policy.")
@@ -744,6 +775,28 @@ def cmd_research(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- mcp -----------------------------------------------------------------------
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    # `from kuroshio.mcp_server import run` (not `from kuroshio import mcp_server`):
+    # a dotted from-import always resolves the full module path through
+    # sys.modules, so a test that monkeypatches sys.modules["kuroshio.mcp_server"]
+    # to None reliably raises ImportError here — a bare `from kuroshio import X`
+    # can short-circuit via getattr(kuroshio, "X") if X was already imported
+    # elsewhere in the process (see tests/test_cli.py::test_mcp_missing_extra_exits_2).
+    try:
+        from kuroshio.mcp_server import run
+    except ImportError:
+        print(
+            'error: the MCP server needs the mcp extra. Run: pip install "kuroshio[mcp]"',
+            file=sys.stderr,
+        )
+        return 2
+    run()
+    return 0
+
+
 # --- evaluate ------------------------------------------------------------------
 
 
@@ -783,7 +836,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         return 2
 
     summary = ledger.realized(scores, panel.close, args.horizon, profile.benchmark, args.top)
-    rating_stats = ledger.rating_table(ratings, panel.close, args.horizon)
+    rating_stats = ledger.rating_table(ratings, panel.close, args.horizon, by_source=True)
     print(ledger.to_markdown(summary, rating_stats))
     return 0
 
@@ -910,6 +963,11 @@ def main(argv: list[str] | None = None) -> int:
         "--ledger-dir", help="override $KUROSHIO_LEDGER_DIR / ~/.kuroshio/ledger for this run"
     )
     p_evaluate.set_defaults(func=cmd_evaluate)
+
+    p_mcp = sub.add_parser(
+        "mcp", help="run a stdio MCP server exposing the engine's dataflows for a Claude Code session"
+    )
+    p_mcp.set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     return args.func(args)

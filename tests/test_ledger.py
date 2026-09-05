@@ -175,6 +175,23 @@ def test_rating_table_hit_rates_pinned():
     assert table["Hold"]["hit_rate"] == pytest.approx(1.0)
 
 
+def test_rating_table_by_source_splits_only_when_more_than_one_source_present():
+    # one source (or none at all) -> grouping unchanged, even with by_source=True
+    same_source = [{**row, "source": "claude-session"} for row in _RATING_ROWS]
+    assert set(ledger.rating_table(same_source, _RATING_CLOSE, horizon=5, by_source=True)) == {
+        "Buy", "Sell", "Hold",
+    }
+
+    # two sources present -> keys split as "<rating> (<source>)"
+    mixed = [
+        {**_RATING_ROWS[0], "source": "openrouter"},   # Buy, BUYHIT, +0.20
+        {**_RATING_ROWS[1], "source": "claude-session"},  # Buy, BUYMISS, -0.10
+    ]
+    split = ledger.rating_table(mixed, _RATING_CLOSE, horizon=5, by_source=True)
+    assert split["Buy (openrouter)"] == {"n": 1, "mean_fwd": pytest.approx(0.20), "hit_rate": 1.0}
+    assert split["Buy (claude-session)"] == {"n": 1, "mean_fwd": pytest.approx(-0.10), "hit_rate": 0.0}
+
+
 # --- to_markdown smoke test -------------------------------------------------------
 
 

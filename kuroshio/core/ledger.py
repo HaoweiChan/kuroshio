@@ -24,11 +24,16 @@ names::
 with any key the provider didn't return set to ``None``; ``asof`` is the screen
 run's date, not a fetch timestamp.
 
-``ratings.jsonl`` (``RATINGS``) — one row per ``kuroshio research`` run::
+``ratings.jsonl`` (``RATINGS``) — one row per ``kuroshio research`` run, or per
+``record_rating`` call from a ``kuroshio mcp`` session::
 
-    {"date", "market", "ticker", "rating", "stop_loss", "price_target", "close"}
+    {"date", "market", "ticker", "rating", "stop_loss", "price_target", "close",
+     "source", "model"}
 
 ``stop_loss``/``price_target``/``close`` are ``None`` when unavailable.
+``source``/``model`` are ``None`` for the paid ``kuroshio research`` path (or
+absent on rows written before TASK-10) and ``"claude-session"``/the session's
+model id for a session-mode run — see ``rating_table(..., by_source=True)``.
 
 This module is pure file IO plus the realized-performance math (rank-IC, top-k
 forward return, per-rating hit rate) — no provider imports, stdlib + pandas only.
@@ -204,13 +209,22 @@ def realized(
     }
 
 
-def rating_table(rating_rows: list[dict], close: pd.DataFrame, horizon: int) -> dict[str, dict]:
+def rating_table(
+    rating_rows: list[dict], close: pd.DataFrame, horizon: int, by_source: bool = False
+) -> dict[str, dict]:
     """Per-rating {n, mean_fwd, hit_rate} off logged ratings vs. realized forward return.
 
     Hit is a first cut, not a calibrated definition: Buy/Overweight hits on a
     positive forward return, Sell/Underweight on a negative one, Hold on staying
     within +-5%. A rating not in that vocabulary gets n/mean_fwd but hit_rate=None.
+
+    ``by_source``: when True and more than one distinct ``source`` appears among
+    ``rating_rows`` (e.g. ``kuroshio research``'s paid path vs. a session's
+    ``claude-session``), each rating's bucket is split by source — key becomes
+    ``"<rating> (<source>)"`` — so a cheap-tier/heavy-tier hit-rate gap is visible.
+    A single source, or by_source=False, groups exactly as before.
     """
+    split = by_source and len({r.get("source") for r in rating_rows}) > 1
     by_rating: dict[str, list[float]] = {}
     for row in rating_rows:
         i = _positional_index(close.index, row["date"])
@@ -221,13 +235,14 @@ def rating_table(rating_rows: list[dict], close: pd.DataFrame, horizon: int) -> 
         if pd.isna(c0) or pd.isna(c1):
             continue
         rating = row.get("rating") or "unknown"
-        by_rating.setdefault(rating, []).append(float(c1 / c0 - 1.0))
+        key = f"{rating} ({row.get('source', 'unknown')})" if split else rating
+        by_rating.setdefault(key, []).append(float(c1 / c0 - 1.0))
 
     out = {}
-    for rating, fwds in by_rating.items():
-        rule = _HIT_RULES.get(rating.lower())
+    for key, fwds in by_rating.items():
+        rule = _HIT_RULES.get(key.split(" (")[0].lower())
         hit_rate = float(sum(1 for f in fwds if rule(f)) / len(fwds)) if rule else None
-        out[rating] = {"n": len(fwds), "mean_fwd": float(sum(fwds) / len(fwds)), "hit_rate": hit_rate}
+        out[key] = {"n": len(fwds), "mean_fwd": float(sum(fwds) / len(fwds)), "hit_rate": hit_rate}
     return out
 
 

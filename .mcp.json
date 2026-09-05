@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kuroshio": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "kuroshio.cli", "mcp"]
+    }
+  }
+}

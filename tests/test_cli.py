@@ -5,6 +5,7 @@ by design (no network in this repo's test suite)."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -1057,3 +1058,23 @@ def test_load_universe_rejects_empty_file(tmp_path):
 def test_load_universe_missing_file_is_a_value_error(tmp_path):
     with pytest.raises(ValueError):
         _load_universe(str(tmp_path / "nope.txt"))
+
+
+# --- mcp (TASK-10) -----------------------------------------------------------
+
+
+def test_mcp_help_parses(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["mcp", "--help"])
+    assert exc.value.code == 0
+    assert "mcp" in capsys.readouterr().out
+
+
+def test_mcp_missing_extra_exits_2(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "kuroshio.mcp_server", None)
+
+    code = main(["mcp"])
+    err = capsys.readouterr().err
+
+    assert code == 2
+    assert 'pip install "kuroshio[mcp]"' in err
