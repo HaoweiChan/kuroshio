@@ -226,3 +226,10 @@ def test_theme_caps_parse_default_and_validate():
     bad = parse_ips("---\ncaps:\n  theme_caps:\n    ai: 0\n    x: yes\n---\nbody")
     problems = validate(bad)
     assert any("theme_caps['ai']" in p for p in problems) and any("theme_caps['x']" in p for p in problems)
+
+
+def test_theme_caps_that_is_not_a_mapping_is_a_validate_problem_not_a_silent_default():
+    # R1: the YAML-list typo (`- space: 15`) and a bare number used to collapse to {} and pass
+    for text in ("---\ncaps:\n  theme_caps:\n    - space: 15\n---\nbody", "---\ncaps:\n  theme_caps: 15\n---\nbody"):
+        problems = validate(parse_ips(text))
+        assert any("caps.theme_caps" in p and "mapping" in p for p in problems), (text, problems)
