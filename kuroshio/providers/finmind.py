@@ -19,18 +19,21 @@ BASE_URL = "https://api.finmindtrade.com/api/v4/data"
 _INSTITUTIONAL_NAMES = ("Foreign_Investor", "Investment_Trust")
 
 
-def _price_frames(records_by_ticker: dict[str, list[dict]]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """TaiwanStockPrice records -> wide close/volume frames. Pure — no network."""
-    closes, volumes = {}, {}
+def _price_frames(records_by_ticker: dict[str, list[dict]]) -> tuple[pd.DataFrame, ...]:
+    """TaiwanStockPrice records -> wide close/volume/high/low frames. Pure — no network.
+
+    FinMind spells the session extremes ``max``/``min``. A ticker whose records omit a
+    field is simply absent from that frame, rather than having one invented from close."""
+    fields = ("close", "Trading_Volume", "max", "min")
+    cols: dict[str, dict[str, pd.Series]] = {f: {} for f in fields}
     for ticker, records in records_by_ticker.items():
         if not records:
             continue
         df = pd.DataFrame(records).set_index("date")
-        closes[ticker] = df["close"]
-        volumes[ticker] = df["Trading_Volume"]
-    close = pd.DataFrame(closes).sort_index()
-    volume = pd.DataFrame(volumes).sort_index()
-    return close, volume
+        for f in fields:
+            if f in df.columns:
+                cols[f][ticker] = df[f]
+    return tuple(pd.DataFrame(cols[f]).sort_index() for f in fields)
 
 
 def _institutional_frame(records_by_ticker: dict[str, list[dict]]) -> pd.DataFrame:
@@ -55,9 +58,9 @@ def _institutional_frame(records_by_ticker: dict[str, list[dict]]) -> pd.DataFra
 def _shape_panel(
     price_by_ticker: dict[str, list[dict]], institutional_by_ticker: dict[str, list[dict]]
 ) -> Panel:
-    close, volume = _price_frames(price_by_ticker)
+    close, volume, high, low = _price_frames(price_by_ticker)
     institutional = _institutional_frame(institutional_by_ticker)
-    return Panel(close=close, volume=volume, institutional=institutional)
+    return Panel(close=close, volume=volume, institutional=institutional, high=high, low=low)
 
 
 class FinMindProvider(MarketDataProvider):
