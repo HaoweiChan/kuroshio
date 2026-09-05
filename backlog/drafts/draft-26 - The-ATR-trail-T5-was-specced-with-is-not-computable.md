@@ -1,17 +1,23 @@
 ---
 id: DRAFT-26
 title: The ATR trail T5 was specced with is not computable
-status: Draft
+status: Superseded
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
   - debt
 dependencies: []
+superseded_by: TASK-11
 references:
+  - TASK-11
   - TODO.md T38
   - T5
 priority: low
 ---
+
+## Resolution
+
+Superseded by TASK-11. `Panel` now carries high/low from both providers and `propose` step 3a trails a `trend_add`'s stop at `caps.trail_atr_mult` x ATR14 below the running high since entry, so both halves of this draft shipped.
 
 ## Description
 
