@@ -22,7 +22,9 @@ names::
      "next_earnings_date", "last_surprise_pct", "insider_net_shares_90d", "asof"}
 
 with any key the provider didn't return set to ``None``; ``asof`` is the screen
-run's date, not a fetch timestamp.
+run's date, not a fetch timestamp. ``forward_pe`` is yfinance's next-fiscal-year multiple
+(see ``providers/yf.py:fetch_fundamentals``), so the earnings-yield IC in ``realized`` is on
+``+1y`` earnings, not current-year.
 
 ``ratings.jsonl`` (``RATINGS``) — one row per ``kuroshio research`` run, or per
 ``record_rating`` call from a ``kuroshio mcp`` session::

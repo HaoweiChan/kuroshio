@@ -142,6 +142,15 @@ class YFinanceProvider(MarketDataProvider):
         return _shape_panel(close, volume, tickers)
 
     def fetch_fundamentals(self, ticker: str) -> dict | None:
+        """yfinance ``info`` plus the estimate/insider/calendar tables.
+
+        ``forward_pe`` / ``forward_eps`` are yfinance's ``forwardPE`` / ``forwardEps``, which
+        use the **next-fiscal-year** consensus (the ``+1y`` row of ``earnings_estimate``), not
+        the current fiscal year — for STLD on 2026-09-05 that was 12.8x on $18.95 against
+        ~14.4x on the current-year $16.85. Divide close by ``earnings_estimate`` ``0y`` avg
+        when the current-year multiple is what you mean. ``pegRatio`` from ``info`` is not
+        exposed at all: it does not reconcile with the estimate table often enough to trust.
+        """
         import yfinance as yf
 
         t = yf.Ticker(ticker)
