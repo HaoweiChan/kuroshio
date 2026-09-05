@@ -216,3 +216,13 @@ Philosophy body.
     for bad in (0, "1"):
         ips.caps.risk_budget_pct = bad
         assert any("risk_budget_pct" in p for p in validate(ips))
+
+
+def test_theme_caps_parse_default_and_validate():
+    ips = parse_ips("---\ncaps:\n  theme_pct: 20\n  theme_caps:\n    太空/衛星: 16\n    ai: 30\n---\nbody")
+    assert ips.caps.theme_caps == {"太空/衛星": 16, "ai": 30}
+    assert validate(ips) == []
+    assert parse_ips("---\ncaps:\n  theme_pct: 20\n---\nbody").caps.theme_caps == {}
+    bad = parse_ips("---\ncaps:\n  theme_caps:\n    ai: 0\n    x: yes\n---\nbody")
+    problems = validate(bad)
+    assert any("theme_caps['ai']" in p for p in problems) and any("theme_caps['x']" in p for p in problems)

@@ -41,6 +41,11 @@ class Caps:
     position_pct: float = 10
     position_hard_pct: float = 25
     theme_pct: float = 20
+    # Per-theme budgets that replace `theme_pct` for the themes they name (percent of NAV,
+    # effective exposure). A theme not listed keeps `theme_pct`. This is the owner's way of
+    # writing "this one theme may hold X%" into policy — e.g. a locked position the book does
+    # not resize — without moving the budget every other theme lives under.
+    theme_caps: dict[str, float] = field(default_factory=dict)
     # What one position may lose before its invalidation price stops it, as a percent of
     # NAV. Not a ceiling on weight like its neighbours — it is the input the allocator's
     # percent-risk cap turns *into* one, over the entry-to-invalidation distance
