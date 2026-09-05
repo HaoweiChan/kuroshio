@@ -1,7 +1,7 @@
 ---
 id: TASK-11
 title: 'Trailing stop: Panel high/low, ATR ratchet on invalidation_price, MAE on the minimum close'
-status: To Do
+status: PR
 assignee: []
 created_date: '2026-09-06 01:00'
 labels: []
@@ -43,9 +43,9 @@ any holding whose running high has cleared entry + 2R, and none for the others.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `Panel` carries high/low from both providers; existing screen and backtest tests pass.
-- [ ] #2 `trend_add` and cleared `pullback_add` holdings get `invalidation_price = max(recorded, running_high − caps.trail_atr_mult × ATR14)`, never lowered — one test per setup_type and one for the never-lower rule.
-- [ ] #3 every ratchet move is appended to the ledger with date, ticker, old and new; `evaluate` reads the live stop at each date.
-- [ ] #4 `caps.max_adverse_excursion_pct` compares the minimum close since `entry_date`; the −25% then −5% case still gets a DECIDE card.
-- [ ] #5 DRAFT-26, DRAFT-28 and DRAFT-37 are closed as superseded by this task.
+- [x] #1 `Panel` carries high/low from both providers; existing screen and backtest tests pass.
+- [x] #2 `trend_add` and cleared `pullback_add` holdings get `invalidation_price = max(recorded, running_high − caps.trail_atr_mult × ATR14)`, never lowered — one test per setup_type and one for the never-lower rule.
+- [x] #3 every ratchet move is appended to the ledger with date, ticker, old and new; `evaluate` reads the live stop at each date.
+- [x] #4 `caps.max_adverse_excursion_pct` compares the minimum close since `entry_date`; the −25% then −5% case still gets a DECIDE card.
+- [x] #5 DRAFT-26, DRAFT-28 and DRAFT-37 are closed as superseded by this task (status: Superseded, `superseded_by: TASK-11`, with a Resolution section each).
 <!-- AC:END -->

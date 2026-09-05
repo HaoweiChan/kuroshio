@@ -259,3 +259,38 @@ def test_fetch_fundamentals_wraps_each_table_independently(monkeypatch):
     assert snap["next_earnings_date"] is None
     assert snap["last_surprise_pct"] is None
     assert snap["insider_net_shares_90d"] is None
+
+
+def test_yf_shape_panel_carries_high_and_low(tmp_path):
+    """TASK-11 #1: the OHLC bars yf already downloads reach the Panel, on the same
+    index and columns as close — an ATR needs the true range, not just the close."""
+    dates = pd.to_datetime(["2024-01-01", "2024-01-02", "2024-01-03"])
+    frame = lambda vals: pd.DataFrame(  # noqa: E731
+        {"AAPL": vals, "DELISTED": [float("nan")] * 3}, index=dates
+    )
+    panel = yf_shape_panel(
+        frame([100.0, 101.0, float("nan")]),
+        frame([1000.0, 1100.0, 1200.0]),
+        tickers=["AAPL", "DELISTED"],
+        raw_high=frame([102.0, 103.0, 104.0]),
+        raw_low=frame([99.0, 98.0, 97.0]),
+    )
+    assert list(panel.high.columns) == ["AAPL"]
+    assert list(panel.high.index) == ["2024-01-01", "2024-01-02"]
+    assert panel.high.loc["2024-01-02", "AAPL"] == 103.0
+    assert panel.low.loc["2024-01-02", "AAPL"] == 98.0
+
+
+def test_finmind_shape_panel_carries_high_and_low():
+    """TASK-11 #1: FinMind's `max`/`min` are the session high/low."""
+    price_by_ticker = {
+        "2330": [
+            {"date": "2024-01-02", "close": 590.0, "max": 595.0, "min": 585.0,
+             "Trading_Volume": 30000000},
+            {"date": "2024-01-03", "close": 595.0, "max": 600.0, "min": 588.0,
+             "Trading_Volume": 31000000},
+        ],
+    }
+    panel = finmind_shape_panel(price_by_ticker, {})
+    assert panel.high.loc["2024-01-03", "2330"] == 600.0
+    assert panel.low.loc["2024-01-02", "2330"] == 585.0

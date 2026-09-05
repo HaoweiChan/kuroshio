@@ -20,21 +20,39 @@ def _iso_index(index: pd.Index) -> pd.Index:
     return index.astype(str)
 
 
-def _shape_panel(raw_close: pd.DataFrame, raw_volume: pd.DataFrame, tickers: list[str]) -> Panel:
-    """Turn a raw yf.download() close/volume pair into a Panel. Pure — no network."""
+def _shape_panel(
+    raw_close: pd.DataFrame,
+    raw_volume: pd.DataFrame,
+    tickers: list[str],
+    raw_high: pd.DataFrame | None = None,
+    raw_low: pd.DataFrame | None = None,
+) -> Panel:
+    """Turn a raw yf.download() OHLCV set into a Panel. Pure — no network.
+
+    high/low are optional so a caller (or a test) with close/volume alone still builds a
+    panel; every frame given is filtered, sorted and re-indexed with close, so the four
+    always share one index and one column set."""
     close = raw_close.dropna(axis=1, how="all")  # unresolved tickers -> all-NaN column
-    volume = raw_volume.reindex(columns=close.columns)
+    others = [raw_volume, raw_high, raw_low]
+    others = [None if f is None else f.reindex(columns=close.columns) for f in others]
 
     ref = next((t for t in tickers if t in close.columns), None)
     if ref is not None:
         keep = close[ref].notna()  # still-forming partial bar for the reference ticker
-        close, volume = close.loc[keep], volume.loc[keep]
+        close = close.loc[keep]
 
     close = close.sort_index()
-    volume = volume.reindex(close.index)
+    shaped = []
+    for frame in others:
+        if frame is None:
+            shaped.append(None)
+            continue
+        frame = frame.reindex(close.index)
+        frame.index = _iso_index(frame.index)
+        shaped.append(frame)
     close.index = _iso_index(close.index)
-    volume.index = _iso_index(volume.index)
-    return Panel(close=close, volume=volume, institutional=None)
+    volume, high, low = shaped
+    return Panel(close=close, volume=volume, institutional=None, high=high, low=low)
 
 
 def _eps_revisions_fields(table) -> tuple[int | None, int | None]:
@@ -136,10 +154,11 @@ class YFinanceProvider(MarketDataProvider):
             progress=False,
             threads=True,
         )
-        close, volume = raw["Close"], raw["Volume"]
+        close, volume, high, low = raw["Close"], raw["Volume"], raw["High"], raw["Low"]
         if isinstance(close, pd.Series):  # single ticker: no ticker level in the columns
             close, volume = close.to_frame(tickers[0]), volume.to_frame(tickers[0])
-        return _shape_panel(close, volume, tickers)
+            high, low = high.to_frame(tickers[0]), low.to_frame(tickers[0])
+        return _shape_panel(close, volume, tickers, raw_high=high, raw_low=low)
 
     def fetch_fundamentals(self, ticker: str) -> dict | None:
         """yfinance ``info`` plus the estimate/insider/calendar tables.

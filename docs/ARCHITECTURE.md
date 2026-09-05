@@ -139,7 +139,11 @@ caps:
   theme_pct: 20                # per-theme effective-exposure budget
   risk_budget_pct: 1           # % of NAV one position may lose to its invalidation price;
                                # the allocator's percent-risk cap turns it into a weight
-  max_adverse_excursion_pct: -15  # loss from entry that forces a DECIDE card; negative percent
+  max_adverse_excursion_pct: -15  # worst close since entry_date that forces a DECIDE card;
+                               # negative percent
+  trail_atr_mult: 3            # ATR14s below the running high since entry the stop ratchet
+                               # parks a trend_add's (and a cleared pullback_add's) live
+                               # invalidation price at; a multiple, not a percent
   book_vol_target_pct: null    # annualized trailing-20-session book vol target; null = off (opt-in).
                                # docs/backtest-2026-09.md §E: through propose() on 12-1 top-20, 15%
                                # bought 13pts of 2021-2026 drawdown for 54pts of return and nothing
@@ -205,9 +209,32 @@ Pure function. v1 logic:
    because `propose` takes no panel (rules 3, 5). MA50 averages each ticker's last 50 *traded*
    sessions, not the last 50 rows: panel columns carry NaN holes wherever a ticker did not
    trade on a day another did, and `rolling().mean()` would void the average over one hole.
-   No ATR trail: `Panel` has no high/low (tasks/TODO.md T38).
-3b. **Max adverse excursion**: a position whose *latest* price is at or past
-   `caps.max_adverse_excursion_pct` from its `entry_price` gets a DECIDE card — kill it, add
+   The ATR trail ships as step 3a's stop ratchet (below), off `Panel.high`/`Panel.low`.
+
+3a. **The stop ratchet** (TASK-11): before the dispatch above reads a level, a `trend_add`
+   always — and a `pullback_add` once its running high has cleared `entry + 2R`, R being the
+   entry-to-recorded-invalidation distance — has its live invalidation price moved up to
+   `max(recorded, last logged, running_high_since_entry - caps.trail_atr_mult x ATR14)`. It
+   is never moved down: that is what makes it a ratchet — and "never" spans runs, so the
+   comparison is against the newest `stops.jsonl` level as well as the recorded one
+   (`last_stop`, read back by `cli.py:_logged_stops` and passed in like the panel-derived
+   inputs; `core/allocator` imports no ledger). Without that read-back an ATR14 that widened
+   under an unchanged high walked the stop back down. A move — and only a move — is an ALERT
+   card and a `stops.jsonl` row (`{date, market, ticker, old, new, reason}`), so a repeat run
+   on an unmoved stop logs nothing and `evaluate` can read back the level that was live on a
+   date instead of the final one. The inputs — running
+   high since `entry_date`, ATR14 (mean true range over 14 sessions), and minimum close
+   since `entry_date` for 3b — come from `allocator/signals.py:trail_inputs(panel, holdings)`
+   and arrive as `running_high` / `atr14` / `min_close`, same seam as `monitor_inputs`. A
+   holding with no `entry_date`, or a panel with no high/low, simply does not trail: the
+   recorded level stands. So does one whose `entry_date` predates the panel's first row —
+   "since entry" over a shorter panel is the fetch window under another name, so
+   `cli.py:_lookback_days` extends the fetch back to the oldest `entry_date` in the book
+   (plus the profile's window as warm-up) and `trail_inputs` drops any ticker the provider
+   still came up short on. A trailed stop the price is at or below is itself a break, which
+   is the drawdown trigger a `trend_add` had lacked.
+3b. **Max adverse excursion**: a position whose *worst close since `entry_date`* is at or
+   past `caps.max_adverse_excursion_pct` from its `entry_price` gets a DECIDE card — kill it, add
    to it per the plan, or rewrite the thesis; holding it unchanged is not one of the three
    (Freeman-Shor). This rule reads no `setup_type`: any position with an entry price can be
    far enough under water. The comparison is `engine._past_threshold`: exact decimal
@@ -263,7 +290,7 @@ work. `core/ledger.py` is a dependency-free JSONL append log under
 IO plus the realized-performance math — stdlib + pandas only, no provider
 imports.
 
-Two files, one JSON object per line:
+Three files, one JSON object per line:
 - `scores.jsonl` (`SCORES`) — one row per gated candidate (the whole pool, not the printed
   top — a rank-IC needs breadth) on a `kuroshio screen` run:
   `{date, market, profile, ticker, rank, final_score, scores, factors, close,
@@ -280,6 +307,11 @@ Two files, one JSON object per line:
 - `ratings.jsonl` (`RATINGS`) — one row per `kuroshio research` run: `{date,
   market, ticker, rating, stop_loss, price_target, close}`, levels `None` when
   unavailable.
+- `stops.jsonl` (`STOPS`) — one row per stop the allocator's ratchet moved on a
+  `kuroshio propose` run: `{date, market, ticker, old, new, reason}`, `old` `None` when the
+  position had no invalidation price before the move. `live_stop(rows, ticker, date)` reads
+  back the level live on a date, and `rating_table(..., stop_rows=...)` scores each rating
+  against the stop that was live when it was made rather than the final one.
 
 `append(path, rows)` / `load(path)` are the whole IO surface (`load` returns
 `[]` for a missing file and skips a malformed line with a `logging.warning`
