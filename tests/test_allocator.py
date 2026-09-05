@@ -924,3 +924,16 @@ def test_an_invalidation_at_or_above_entry_leaves_the_base_cap_binding(invalidat
 
     assert trim.details["target_weight"] == pytest.approx(0.10)
     assert trim.details["binding_cap"] == "caps.position_pct"
+
+
+def test_theme_caps_override_replaces_theme_pct_for_the_named_theme_only():
+    ips = make_ips()
+    ips.caps.theme_caps = {"space": 15}  # tighter than the 20% theme_pct
+    holdings = [
+        Holding(ticker="SPCX", weight=0.16, theme="space", score=0.5),   # over its own 15% budget
+        Holding(ticker="AAA", weight=0.16, theme="ai", score=0.5),      # under the 20% default
+    ]
+    cards = propose(holdings, [], ips, "us")
+    alerts = [c for c in cards if c.action == "ALERT" and c.details.get("theme")]
+    assert [c.details["theme"] for c in alerts] == ["space"]
+    assert alerts[0].details["cap"] == 0.15 and alerts[0].ips_clauses == ["caps.theme_caps.space"]

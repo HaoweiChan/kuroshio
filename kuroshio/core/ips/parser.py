@@ -75,6 +75,13 @@ def _parse_text(text: str) -> IPS:
             position_pct=caps_raw.get("position_pct", 10),
             position_hard_pct=caps_raw.get("position_hard_pct", 25),
             theme_pct=caps_raw.get("theme_pct", 20),
+            # kept as written when it is not a mapping, so validate can name the mistake
+            # instead of the parser quietly dropping the owner's budget
+            theme_caps=(
+                {str(k): v for k, v in caps_raw["theme_caps"].items()}
+                if isinstance(caps_raw.get("theme_caps"), dict)
+                else (caps_raw.get("theme_caps") if caps_raw.get("theme_caps") is not None else {})
+            ),
             risk_budget_pct=caps_raw.get("risk_budget_pct", 1),
             max_adverse_excursion_pct=caps_raw.get("max_adverse_excursion_pct", -15),
             book_vol_target_pct=caps_raw.get("book_vol_target_pct"),
@@ -115,6 +122,15 @@ def validate(ips: IPS) -> list[str]:
         )
     if not (0 < c.theme_pct <= 100):
         problems.append(f"caps.theme_pct ({c.theme_pct}) must be in (0, 100]")
+    if not isinstance(c.theme_caps, dict):
+        problems.append(
+            f"caps.theme_caps ({c.theme_caps!r}) must be a mapping of theme -> percent, "
+            "e.g. `theme_caps: {space: 15}`, not a list or a number"
+        )
+    else:
+        for theme, v in c.theme_caps.items():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not (0 < v <= 100):
+                problems.append(f"caps.theme_caps[{theme!r}] ({v!r}) must be a percent in (0, 100]")
 
     # The allocator divides by the entry-to-invalidation distance with this on top, so a
     # bad value doesn't just look wrong: 0 or negative sizes every position at nothing or

@@ -169,18 +169,24 @@ def propose(
         if h.theme is None or h.ticker in theme_pct_exempt:
             continue
         exposures[h.theme] = exposures.get(h.theme, 0.0) + h.weight * h.leverage
-    breached = {t for t, exp in exposures.items() if exp > theme_cap}
+    # a theme named in caps.theme_caps lives under its own budget; the rest under theme_pct
+    def cap_for(theme: str) -> tuple[float, str]:
+        if theme in ips.caps.theme_caps:
+            return ips.caps.theme_caps[theme] / 100, f"caps.theme_caps.{theme}"
+        return theme_cap, "caps.theme_pct"
+    breached = {t for t, exp in exposures.items() if exp > cap_for(t)[0]}
     for theme in sorted(breached):
         exp = exposures[theme]
+        cap, clause = cap_for(theme)
         alerts.append(ProposalCard(
             action="ALERT",
             reason=(
                 f"Theme '{theme}' effective exposure is {exp:.1%}, above your IPS theme "
-                f"budget of {theme_cap:.1%}. Challengers tagged to this theme may only "
+                f"budget of {cap:.1%}. Challengers tagged to this theme may only "
                 f"swap against incumbents in the same theme until it's back under budget."
             ),
-            ips_clauses=["caps.theme_pct"],
-            details={"theme": theme, "exposure": exp, "cap": theme_cap},
+            ips_clauses=[clause],
+            details={"theme": theme, "exposure": exp, "cap": cap},
         ))
 
     # 2. hard-cap breaches -> TRIM, unless explicitly exempted.
