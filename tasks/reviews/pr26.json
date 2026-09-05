@@ -1,0 +1,39 @@
+{
+ "pr": 26,
+ "task": "TASK-11",
+ "call": 1,
+ "result": "REQUEST_CHANGES",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "HIGH",
+   "claim": "The ratchet is recomputed from the recorded invalidation on every run and never reads back the stop ledger it writes, so the live stop drops whenever ATR14 expands faster than the running high; the ALERT asserts it cannot.",
+   "evidence": "kuroshio/core/allocator/engine.py:263-265 seeds live_stop from h.invalidation_price; the never-lower guard at :283 compares against the recorded level, not the previously ratcheted one. Trigger: trend_add entry 100 / recorded 90, running high 151; ATR14 3.5 -> stop 140.50 logged; later ATR14 10 -> 'ratchets up to 121.00' logged; ATR14 28 -> trail under recorded, run silently watches 90 and a close at 130 raises no breach.",
+   "repro": "propose() three times with running_high 151 and atr14 3.5 / 10 / 28: prints 140.5, 121.0, then no move",
+   "acceptance": "With the running high unchanged and ATR14 widened between two runs, the second run's live stop and any stops.jsonl row are >= the level the first run ratcheted to (read back via ledger.live_stop or equivalent), and a close below the earlier ratcheted stop still raises the breach ALERT; one test asserting run B's stop is not below run A's.",
+   "blocking": true
+  },
+  {
+   "id": "R2",
+   "severity": "MEDIUM",
+   "claim": "AC #4's window is silently the provider fetch window, not entry_date: a drawdown before the panel starts is not seen, and the DECIDE card still says 'lowest close since <entry_date>'.",
+   "evidence": "signals.py:113 slices close.index >= entry_date over whatever the panel holds; cli.py:634 fetches only profile.lookback_days (320 us / 120 tw) with no check that the panel reaches entry_date. tw holding opened 2026-01-05 at 100, closed 75 in February, back at 94.60 in September: 120-day panel starts 2026-05-11, min_close 93 -> no DECIDE.",
+   "repro": "scratchpad repro_window.py: min_close {'T': 93.0}, DECIDE cards []",
+   "acceptance": "Either the fetch reaches the oldest holding entry_date, or a holding whose entry_date predates the panel is reported as a gap on the 'not fully monitored' line instead of being scored on a partial window and described as 'since <entry_date>'; one test with entry_date before the panel's first row.",
+   "blocking": true
+  },
+  {
+   "id": "R3",
+   "severity": "LOW",
+   "claim": "Every propose run re-appends a stops.jsonl row for a stop that has not moved, so the ledger records non-moves and stderr reports '1 stop move(s)' when nothing moved.",
+   "evidence": "cli.py:674-690 logs every card with details['ratchet']; engine.py:283 compares only against the recorded level, never the last logged stop.",
+   "repro": "scratchpad test_dup.py: two identical rows after calling main(propose) twice on the same tape and date",
+   "acceptance": "A row is appended only when the level differs from the newest one already in stops.jsonl for that ticker; a repeat run on the same session adds nothing.",
+   "blocking": true
+  }
+ ],
+ "gate": "ruff 0 · pytest 285/285 · 1ccea45",
+ "probe": [
+  "propose on the live book, 10.4 s, no ratchet expected, exit 0"
+ ]
+}
