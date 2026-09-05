@@ -9,3 +9,6 @@ dist/
 /data/
 /facets/
 *.env
+
+# kuroshio research output (paid or session mode) lands here when run from the checkout root
+reports/
