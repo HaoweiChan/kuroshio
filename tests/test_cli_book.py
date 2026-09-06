@@ -100,3 +100,13 @@ def test_site_lang_option_overrides_the_ips_language(tmp_path, no_network):
     assert cli.main(["site", "--book", str(book), "--out", str(site), "--lang", "zh"]) == 0
     assert "持倉" in (site / "index.html").read_text()
     assert (site / "reports.html").exists()  # a site with no reports still gets the page
+
+
+def test_site_unknown_lang_falls_back_to_english_instead_of_exiting(tmp_path, no_network):
+    """AC #3: an unrecognized `--lang` renders English, matching `book`'s own fallback —
+    it must not be an argparse `choices` list that rejects the language outright."""
+    book, site = tmp_path / "book", tmp_path / "site"
+    assert cli.main(_book_argv(book)) == 0
+    assert cli.main(["site", "--book", str(book), "--out", str(site), "--lang", "ja"]) == 0
+    index = (site / "index.html").read_text()
+    assert "Holdings" in index and "持倉" not in index

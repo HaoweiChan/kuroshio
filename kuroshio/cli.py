@@ -1109,7 +1109,7 @@ def main(argv: list[str] | None = None) -> int:
     p_site.add_argument("--book", required=True, help="a `kuroshio book --out` directory")
     p_site.add_argument("--reports", help="a `kuroshio research --out` tree (<TICKER>/<date>/)")
     p_site.add_argument("--out", required=True, help="output directory (swapped in atomically)")
-    p_site.add_argument("--lang", choices=["en", "zh"], help="default: the book's IPS `lang` field")
+    p_site.add_argument("--lang", help="default: the book's IPS `lang` field; unknown -> en")
     p_site.set_defaults(func=cmd_site)
 
     p_mcp = sub.add_parser(
