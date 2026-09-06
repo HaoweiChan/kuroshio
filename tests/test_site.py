@@ -22,7 +22,7 @@ ROOT = Path(__file__).parent.parent
 FIX = ROOT / "tests" / "fixtures"
 SYNTHETIC = {"AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH", "III", "QQQ", "ZZZ"}
 # words that are legitimately upper-case in a fixture and are not ticker symbols
-FIXTURE_WORDS = {"NAV", "PM", "EQUITY", "ETF", "R"}
+FIXTURE_WORDS = {"NAV", "PM", "EQUITY", "ETF", "R", "US"}
 
 
 def _book_dir(tmp_path: Path) -> Path:
@@ -193,3 +193,6 @@ def test_gitignore_covers_the_default_output_directories_only_at_the_repo_root()
     lines = (ROOT / ".gitignore").read_text().splitlines()
     assert "/book/" in lines and "/site/" in lines
     assert "book/" not in lines and "site/" not in lines
+    # and `reports/` unanchored swallowed tests/fixtures/reports, the site tests' input
+    assert "/reports/" in lines and "reports/" not in lines
+    assert (FIX / "reports" / "AAA" / "2026-01-02" / "complete_report.md").exists()

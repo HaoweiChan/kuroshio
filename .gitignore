@@ -10,8 +10,9 @@ dist/
 /facets/
 *.env
 
-# kuroshio research output (paid or session mode) lands here when run from the checkout root
-reports/
+# kuroshio research output (paid or session mode) lands here when run from the checkout root.
+# Anchored: unanchored, `reports/` would also swallow tests/fixtures/reports.
+/reports/
 
 # `kuroshio book --out book/` and `kuroshio site --out site/` defaults — user data, never
 # committed. Anchored: unanchored, `site/` would also swallow the `kuroshio/site/` package.
