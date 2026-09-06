@@ -106,6 +106,52 @@ def test_both_languages_render_every_page(tmp_path):
             assert "None" not in re.findall(r">([^<]*)<", text)
 
 
+def test_a_locked_position_with_no_average_price_renders_na_instead_of_raising(tmp_path):
+    """R1: `average_price` is empty for a locked row whenever the broker export carries none
+    (a transferred-in position, a DRIP lot, etc) — book.py already carries that through as
+    `avg_cost: None`; the site must render the same n/a label book.md/alloc.md already use,
+    not TypeError on `None:,.2f`."""
+    positions = bk.load_positions(FIX / "positions.csv") + [{
+        "symbol": "III", "quantity": 100.0, "market_value": 9000.0,
+        "average_price": None, "asset_type": "EQUITY",
+    }]
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"),
+        bk.load_jsonl(FIX / "ratings.jsonl"),
+        parse_ips(str(ROOT / "examples" / "ips-balanced.md")),
+        meta=json.loads((FIX / "meta.json").read_text()),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+        positions=positions,
+        nav=100000.0,
+        pm_size=json.loads((FIX / "pm_size.json").read_text()),
+        locked={"III": {"theme": "locked-theme", "note": "no cost basis on file"}},
+        ips_name="ips-balanced.md",
+    )
+    out = tmp_path / "book"
+    bk.write_book(book, out)
+    site = tmp_path / "site"
+    render.render_site(out, FIX / "reports", site)  # must not raise TypeError
+    index = (site / "index.html").read_text()
+    alloc = (site / "alloc.html").read_text()
+    assert "III" in index and "n/a" in index
+    assert "III" in alloc and "n/a" in alloc
+
+
+def test_a_failed_build_removes_the_new_directory(tmp_path, monkeypatch):
+    """R1: the build happens in `<out>.new` before the atomic swap — a failure partway through
+    must not leave that directory on disk."""
+    out = tmp_path / "site"
+
+    def boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(render, "_report_pages", boom)
+    with pytest.raises(RuntimeError):
+        render.render_site(_book_dir(tmp_path), FIX / "reports", out)
+    assert not list(tmp_path.glob("site.*"))
+    assert not out.exists()
+
+
 def test_the_output_directory_is_swapped_not_edited_in_place(tmp_path):
     out = tmp_path / "site"
     out.mkdir()

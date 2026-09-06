@@ -82,6 +82,10 @@ def _pct(x, sign: bool = False, na: str = "n/a") -> str:
     return f"{x:+.0%}" if sign else f"{x:.1%}"
 
 
+def _money(x, na: str = "n/a") -> str:
+    return f"{x:,.2f}" if x is not None else na
+
+
 def _flag(rating: str) -> str:
     cls = rating if rating in RATINGS else "na"
     return f"<span class='flag {esc(cls)}'>{esc(rating)}</span>"
@@ -209,7 +213,7 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
             f"<td class='bar' data-v='{x['weight']}'><i style='width:{x['weight'] * 600:.0f}%'></i>"
             f"<span>{x['weight']:.1%}</span></td>"
             f"<td style='text-align:left'><span class='meta'>{esc(lb['locked_not_resized'])}</span></td>"
-            f"<td>{x['avg_cost']:,.2f}</td>" + f"<td>{lb['na']}</td>" * 6 + "</tr>"
+            f"<td>{_money(x['avg_cost'], lb['na'])}</td>" + f"<td>{lb['na']}</td>" * 6 + "</tr>"
         )
     heads = ["rank", "ticker", "sleeve", "industry", "rating", "weight", "cap", "entry", "stop",
              "stop_dist", "target", "rr", "mom", "vol"]
@@ -345,7 +349,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     locked_rows = "".join(
         f"<tr><td class='tk'>{esc(x['ticker'])}</td><td style='text-align:left'>{esc(x['theme'])}</td>"
         f"<td>{x['qty']:.0f}</td><td>{x['market_value']:,.0f}</td><td>{x['weight']:.1%}</td>"
-        f"<td>{x['avg_cost']:,.2f}</td></tr>"
+        f"<td>{_money(x['avg_cost'], lb['na'])}</td></tr>"
         for x in book["locked"]
     )
     lheads = ["symbol", "theme", "qty", "market_value", "weight", "avg_cost"]
@@ -472,42 +476,46 @@ def render_site(
     shutil.rmtree(build, ignore_errors=True)
     (build / "reports").mkdir(parents=True)
 
-    (build / "index.html").write_text(
-        _shell(f"{lb['book_page_title']} {book['asof']}",
-               _book_page(book, propose, reports, lb, link), css, lb, active="book"),
-        encoding="utf-8",
-    )
-    alloc_body = _alloc_page(book, lb, link)
-    if alloc_body:
-        (build / "alloc.html").write_text(
-            _shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, css, lb, active="alloc"),
+    # a failure anywhere in here must not leave `<out>.new` behind
+    try:
+        (build / "index.html").write_text(
+            _shell(f"{lb['book_page_title']} {book['asof']}",
+                   _book_page(book, propose, reports, lb, link), css, lb, active="book"),
             encoding="utf-8",
         )
-    held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}
-    rows = _report_pages(reports, reports_dir, held, lb, build, css)
-    heads = ("ticker", "date", "rating", "last_close", "stop", "target", "in_book")
-    panel = (
-        "<div class='panel'><div class='toolbar'>"
-        + _chips([("all", lb["all"])] + [(r, r) for r in RATINGS], "r")
-        + f"<span class='spacer'></span><span class='meta'>"
-        f"{esc(lb['reports_count'].format(reports=rows.count('<tr'), names=len(reports)))}</span></div>"
-        "<div class='tablebox'><table><thead><tr>"
-        + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
-        + f"</tr></thead><tbody>{rows}</tbody></table></div></div>"
-    )
-    (build / "reports.html").write_text(
-        _shell(lb["reports_page_title"],
-               f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
-               f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
-               css, lb, active="reports"),
-        encoding="utf-8",
-    )
+        alloc_body = _alloc_page(book, lb, link)
+        if alloc_body:
+            (build / "alloc.html").write_text(
+                _shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, css, lb, active="alloc"),
+                encoding="utf-8",
+            )
+        held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}
+        rows = _report_pages(reports, reports_dir, held, lb, build, css)
+        heads = ("ticker", "date", "rating", "last_close", "stop", "target", "in_book")
+        panel = (
+            "<div class='panel'><div class='toolbar'>"
+            + _chips([("all", lb["all"])] + [(r, r) for r in RATINGS], "r")
+            + f"<span class='spacer'></span><span class='meta'>"
+            f"{esc(lb['reports_count'].format(reports=rows.count('<tr'), names=len(reports)))}</span></div>"
+            "<div class='tablebox'><table><thead><tr>"
+            + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
+            + f"</tr></thead><tbody>{rows}</tbody></table></div></div>"
+        )
+        (build / "reports.html").write_text(
+            _shell(lb["reports_page_title"],
+                   f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
+                   f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
+                   css, lb, active="reports"),
+            encoding="utf-8",
+        )
 
-    # swap: a server or a mount never sees a half-built tree
-    old = out_dir.with_name(out_dir.name + ".old")
-    shutil.rmtree(old, ignore_errors=True)
-    if out_dir.exists():
-        out_dir.rename(old)
-    build.rename(out_dir)
-    shutil.rmtree(old, ignore_errors=True)
+        # swap: a server or a mount never sees a half-written tree
+        old = out_dir.with_name(out_dir.name + ".old")
+        shutil.rmtree(old, ignore_errors=True)
+        if out_dir.exists():
+            out_dir.rename(old)
+        build.rename(out_dir)
+        shutil.rmtree(old, ignore_errors=True)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)  # no-op once build.rename(out_dir) succeeded
     return sorted(out_dir.rglob("*.html"))
