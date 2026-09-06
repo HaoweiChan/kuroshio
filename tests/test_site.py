@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -176,6 +177,15 @@ def test_fixtures_carry_no_real_nav_broker_symbols_or_absolute_paths():
     for row in bk.load_positions(FIX / "positions.csv"):
         for field in ("quantity", "market_value", "average_price"):
             assert row[field] == int(row[field]), f"positions.csv: {row['symbol']}.{field} looks real"
+
+
+def test_markdown_is_in_the_dev_extra_so_the_gate_covers_this_renderer():
+    """R2: `pytest tests/ -q` runs these markdown-dependent tests, but CI and the documented
+    dev install only run `pip install -e ".[agents,yfinance,dev]"` — `markdown` must be listed
+    under `dev`, not only under the `site` extra a plain dev install never touches."""
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    dev_deps = pyproject["project"]["optional-dependencies"]["dev"]
+    assert any(dep.split(">=")[0].split("==")[0].strip() == "markdown" for dep in dev_deps), dev_deps
 
 
 def test_gitignore_covers_the_default_output_directories_only_at_the_repo_root():

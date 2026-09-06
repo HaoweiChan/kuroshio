@@ -13,7 +13,10 @@ dependencies = [
 [project.optional-dependencies]
 yfinance = ["yfinance>=0.2.40"]
 finmind = ["requests>=2.31"]
-dev = ["pytest>=8.0", "ruff>=0.4"]
+
+# markdown is also the renderer `kuroshio site` uses at runtime (the `site` extra below);
+# it's duplicated into `dev` so `pytest tests/ -q` covers that renderer on a plain dev install.
+dev = ["pytest>=8.0", "ruff>=0.4", "markdown>=3.5"]
 # `kuroshio site` — markdown -> HTML for the static book site (TASK-13).
 site = ["markdown>=3.5"]
 # `kuroshio mcp` — stdio MCP server for session-mode research (TASK-10).
