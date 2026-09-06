@@ -1,0 +1,11 @@
+[
+ {"ticker": "AAA", "date": "2026-01-05", "rank": 1, "final_score": 1.0, "scores": {"mom_12_1": 1.0}, "factors": {"close": 100.0, "mom_12_1_raw": 0.50}, "flags": {}},
+ {"ticker": "BBB", "date": "2026-01-05", "rank": 2, "final_score": 0.9, "scores": {"mom_12_1": 0.9}, "factors": {"close": 50.0, "mom_12_1_raw": 0.40}, "flags": {}},
+ {"ticker": "CCC", "date": "2026-01-05", "rank": 3, "final_score": 0.8, "scores": {"mom_12_1": 0.8}, "factors": {"close": 20.0, "mom_12_1_raw": 0.35}, "flags": {}},
+ {"ticker": "DDD", "date": "2026-01-05", "rank": 4, "final_score": 0.7, "scores": {"mom_12_1": 0.7}, "factors": {"close": 10.0, "mom_12_1_raw": 0.30}, "flags": {}},
+ {"ticker": "EEE", "date": "2026-01-05", "rank": 5, "final_score": 0.6, "scores": {"mom_12_1": 0.6}, "factors": {"close": 200.0, "mom_12_1_raw": 0.28}, "flags": {}},
+ {"ticker": "FFF", "date": "2026-01-05", "rank": 6, "final_score": 0.5, "scores": {"mom_12_1": 0.5}, "factors": {"close": 40.0, "mom_12_1_raw": 0.25}, "flags": {}},
+ {"ticker": "GGG", "date": "2026-01-05", "rank": 7, "final_score": 0.4, "scores": {"mom_12_1": 0.4}, "factors": {"close": 80.0, "mom_12_1_raw": 0.20}, "flags": {}},
+ {"ticker": "HHH", "date": "2026-01-05", "rank": 8, "final_score": 0.3, "scores": {"mom_12_1": 0.3}, "factors": {"close": 30.0, "mom_12_1_raw": 0.15}, "flags": {}},
+ {"ticker": "III", "date": "2026-01-05", "rank": 9, "final_score": 0.2, "scores": {"mom_12_1": 0.2}, "factors": {"close": 25.0, "mom_12_1_raw": 0.12}, "flags": {}}
+]

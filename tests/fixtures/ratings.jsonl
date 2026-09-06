@@ -1,0 +1,8 @@
+{"date": "2026-01-02", "market": "us", "ticker": "AAA", "rating": "Buy", "stop_loss": 90.0, "price_target": 130.0}
+{"date": "2026-01-02", "market": "us", "ticker": "BBB", "rating": "Overweight", "stop_loss": null, "price_target": 60.0}
+{"date": "2026-01-02", "market": "us", "ticker": "CCC", "rating": "Sell", "stop_loss": null, "price_target": null}
+{"date": "2026-01-02", "market": "us", "ticker": "DDD", "rating": "Buy", "stop_loss": 5.0, "price_target": 15.0}
+{"date": "2025-10-01", "market": "us", "ticker": "EEE", "rating": "Buy", "stop_loss": 180.0, "price_target": 260.0}
+{"date": "2026-01-02", "market": "us", "ticker": "FFF", "rating": "Buy", "stop_loss": 36.0, "price_target": 52.0}
+{"date": "2026-01-02", "market": "us", "ticker": "GGG", "rating": "Hold", "stop_loss": 70.0, "price_target": 95.0}
+{"date": "2026-01-02", "market": "us", "ticker": "III", "rating": "Buy", "stop_loss": null, "price_target": 33.0}
