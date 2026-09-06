@@ -1,7 +1,7 @@
 ---
 id: TASK-11
 title: 'Trailing stop: Panel high/low, ATR ratchet on invalidation_price, MAE on the minimum close'
-status: PR
+status: Done
 assignee: []
 created_date: '2026-09-06 01:00'
 labels: []
