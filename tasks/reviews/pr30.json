@@ -1,0 +1,53 @@
+{
+ "pr": 30,
+ "task": "TASK-14",
+ "calls": [
+  {
+   "call": 1,
+   "mode": "full",
+   "head": "40ba20c",
+   "result": "APPROVED",
+   "findings": [],
+   "notes": [
+    "_panelized splits at a ## line inside a fenced code block",
+    "negative R:R when stop > close",
+    "market grab leaks the header remainder without the \u00b7 separator",
+    "rating outside RATINGS gets no tone class",
+    "AC #5 byte identity does not hold: pages grow by the inlined site.css; markup identical"
+   ]
+  },
+  {
+   "call": 2,
+   "mode": "delta",
+   "head": "c555fc7",
+   "result": "APPROVED",
+   "owner_findings": [
+    {
+     "id": "R1",
+     "claim": "a grid content block with a markdown table overflowed its column (Key levels and readings)",
+     "resolution": "wide class spans the grid; .md table scrolls",
+     "status": "VERIFIED"
+    },
+    {
+     "id": "R2",
+     "claim": "every role body repeated the file's own H1 above the card",
+     "resolution": "one leading H1 stripped before panelizing; Raw untouched",
+     "status": "VERIFIED"
+    },
+    {
+     "id": "R3",
+     "claim": "single-section card bodies had 0 6px padding, text flush to the card edge",
+     "resolution": "single bodies and grid blocks share 14px 20px 18px; first h2 gets top room",
+     "status": "VERIFIED"
+    },
+    {
+     "id": "R4",
+     "claim": "fifth tab appeared not to switch in an automated click",
+     "resolution": "no defect (dataset-keyed toggle); verification test added",
+     "status": "VERIFIED"
+    }
+   ],
+   "new_findings": []
+  }
+ ]
+}

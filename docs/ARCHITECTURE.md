@@ -27,15 +27,17 @@ kuroshio/
 │   ├── screening/        # Stage-1 gates + cross-sectional pctrank scoring, per-market profiles
 │   ├── ips/              # IPS schema, parser, presets
 │   ├── allocator/        # swap proposals + per-setup_type thesis monitoring
+│   ├── book.py           # the mechanical book: screen + ratings + IPS -> weights (`kuroshio book`)
 │   ├── backtest.py       # walk-forward harness (top-k fwd, rank-IC, quintiles)
 │   ├── simulate.py       # walk-forward sim that runs propose() (sizing/swap/trim/MAE), vs. EW + benchmark
 │   └── ledger.py         # plain-file score/rating ledger + realized-performance math (`kuroshio evaluate`)
 ├── agents/
 │   └── engine/           # LLM research pipeline (TradingAgents-derived) + facet TTL cache
+├── site/                 # static-site renderer + the label table + style.css (`kuroshio site`)
 ├── providers/            # data-source plugins: base ABC, yfinance (default), finmind (TW)
 ├── integrations/         # edge adapters: discord webhook notifier
 ├── mcp_server.py         # stdio MCP server: engine dataflows + screen/propose/record_rating (session mode)
-└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research|evaluate|mcp`
+└── cli.py                # `kuroshio screen|backtest|simulate|propose|ips-validate|research|evaluate|book|site|mcp`
 ```
 
 ## Shared types (`kuroshio/types.py`)
@@ -415,6 +417,25 @@ argparse subcommands:
   when the run produced one); a ledger failure prints a warning to stderr and never fails the run.
 - `kuroshio evaluate --market M [--horizon 20] [--top 10] [--ledger-dir PATH]` — reads the ledger
   and prints realized rank-IC / top-k forward return / per-rating hit rate; see `core/ledger`.
+- `kuroshio book --screen s.json --ratings r.jsonl --ips ips.md --out DIR [--scores s.jsonl]
+  [--meta meta.json] [--nav N] [--positions p.csv] [--pm-size m.json] [--locked l.json]
+  [--provider yfinance] [--core-n 15 ...]` — the mechanical book (`core/book.py`): the screen
+  ranking walked under a per-theme cap, the rating veto (day TTL, plus the earnings expiry when
+  `--scores` supplies `fundamentals.next_earnings_date`), `min(base, caps.position_pct,
+  percent-risk)` weights times the PM multiplier, the attack-budget overflow sleeve, and
+  owner-locked positions at their live weight. Writes holdings.yml, book.json, book.md,
+  alloc.md and propose.out; propose runs in-process through the same `_run_propose` the
+  `propose` subcommand uses, and a propose that cannot run is recorded in propose.out rather
+  than losing the book. No network unless `--provider` asks for the MA50 / book-vol columns.
+  Every path is an option and every rule a flag: user data lives wherever the user keeps it.
+  The output is mechanical, not advice.
+- `kuroshio site --book DIR [--reports DIR] --out DIR [--lang en|zh]` — the static site
+  (`kuroshio/site/render.py`): book, allocation, report index and one page per report, in
+  `docs/index.html`'s design system. `docs/style.css` is the single stylesheet source and
+  `kuroshio/site/style.css` ships the same bytes as package data (a test fails if they drift);
+  `site.css` adds what only the generated pages need. Relative links only, atomic swap of the
+  output directory, every string through `kuroshio/site/labels.py` (unknown language -> en).
+  Needs the optional `site` extra (`markdown`).
 - `kuroshio mcp` — runs `mcp_server.run()` (a stdio MCP server); exits 2 with an install hint if
   the optional `mcp` extra is missing. See "Session mode (MCP)" below.
 

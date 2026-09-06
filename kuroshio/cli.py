@@ -919,6 +919,113 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- book / site -----------------------------------------------------------------
+
+
+def _price_columns(book, provider_name: str):
+    """(ma50 strings, book vol, window) for the book's names — only when --provider is given,
+    so the default run touches no network and those columns say n/a."""
+    from kuroshio.core.allocator.signals import BOOK_VOL_WINDOW
+    from kuroshio.core.allocator.signals import book_vol as compute_book_vol
+    from kuroshio.providers import get_provider
+
+    holdings = [
+        Holding(ticker=x["ticker"], weight=x["weight"], theme=x.get("theme", x["industry"]))
+        for x in book["core"] + book["attack"]
+    ]
+    panel = get_provider(provider_name).fetch_panel(
+        [h.ticker for h in holdings], 90, end=book["asof"]
+    )
+    close = panel.close
+    ma50 = close.rolling(50).mean()
+    out = {}
+    for t in close.columns:
+        last, avg = close[t].dropna(), ma50[t].dropna()
+        if len(last) and len(avg):
+            out[t] = f"{float(last.iloc[-1]) / float(avg.iloc[-1]) - 1:+.0%}"
+    vol = compute_book_vol(panel, holdings)
+    return out, vol, BOOK_VOL_WINDOW
+
+
+def cmd_book(args: argparse.Namespace) -> int:
+    from kuroshio.core import book as bookmod
+    from kuroshio.core.ips import parse_ips
+
+    rules = bookmod.BookRules(
+        core_n=args.core_n, core_per_theme=args.core_per_theme, attack_n=args.attack_n,
+        base_pct=args.base_pct, attack_budget_pct=args.attack_budget_pct,
+        ttl_days=args.ttl_days, review_days=args.review_days,
+        earnings_warn_days=args.earnings_warn_days,
+    )
+    try:
+        book = bookmod.build_book(
+            bookmod.load_screen(args.screen),
+            bookmod.load_jsonl(args.ratings),
+            parse_ips(args.ips),
+            meta=bookmod.load_json(args.meta),
+            scores_rows=bookmod.load_jsonl(args.scores),
+            positions=bookmod.load_positions(args.positions),
+            nav=args.nav,
+            pm_size=bookmod.load_json(args.pm_size),
+            locked=bookmod.load_json(args.locked),
+            market=args.market,
+            rules=rules,
+            ips_name=Path(args.ips).name,
+        )
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    holdings_path = out / "holdings.yml"
+    holdings_path.write_text(bookmod.holdings_yaml(book), encoding="utf-8")
+
+    # the same code path `kuroshio propose` takes, in-process — a propose that cannot run
+    # (no provider, no network) is written to propose.out rather than losing the whole book.
+    try:
+        cards, problems = _run_propose(
+            args.ips, str(holdings_path), args.market,
+            universe_file=args.universe_file, provider_name=args.provider,
+        )
+        if problems is not None:
+            propose_text = "\n".join(problems)
+        else:
+            propose_text = "\n\n".join(c.to_markdown() for c in cards) if cards else ""
+    except Exception as exc:  # noqa: BLE001 — a failed propose must not lose the book
+        propose_text = f"propose failed: {exc}"
+        print(f"warning: propose failed: {exc}", file=sys.stderr)
+
+    ma50, vol, window = {}, None, None
+    if args.provider:
+        try:
+            ma50, vol, window = _price_columns(book, args.provider)
+        except Exception as exc:  # noqa: BLE001 — the price columns are decoration
+            print(f"warning: price panel unavailable: {exc}", file=sys.stderr)
+
+    bookmod.write_book(
+        book, out, propose_text=propose_text, lang=args.lang,
+        ma50=ma50, book_vol=vol, vol_window=window,
+    )
+    print(
+        f"{book['asof']}: core {len(book['core'])} · attack {len(book['attack'])} · "
+        f"skipped {len(book['skipped'])} · gross {book['gross']:.1%} -> {out}"
+    )
+    return 0
+
+
+def cmd_site(args: argparse.Namespace) -> int:
+    from kuroshio.site.render import render_site
+
+    try:
+        pages = render_site(args.book, args.reports, args.out, lang=args.lang)
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"site: {len(pages)} page(s) -> {Path(args.out) / 'index.html'}")
+    return 0
+
+
 # --- entry point -------------------------------------------------------------
 
 
@@ -1041,6 +1148,47 @@ def main(argv: list[str] | None = None) -> int:
         "--ledger-dir", help="override $KUROSHIO_LEDGER_DIR / ~/.kuroshio/ledger for this run"
     )
     p_evaluate.set_defaults(func=cmd_evaluate)
+
+    p_book = sub.add_parser(
+        "book", help="build a mechanical book from a screen, ratings and an IPS (no network by default)"
+    )
+    p_book.add_argument("--screen", required=True, help="`kuroshio screen --json` output")
+    p_book.add_argument("--ratings", required=True, help="ratings ledger (JSONL, newest wins)")
+    p_book.add_argument("--ips", required=True)
+    p_book.add_argument("--out", required=True, help="output directory (created if missing)")
+    p_book.add_argument("--market", choices=sorted(PROFILES), default="us")
+    p_book.add_argument(
+        "--scores", help="scores ledger (JSONL); adds the earnings expiry to the rating TTL"
+    )
+    p_book.add_argument("--meta", help="JSON of {ticker: {sector, industry, vol}} for the theme cap")
+    p_book.add_argument("--nav", type=float, help="account NAV the dollar allocation is sized on")
+    p_book.add_argument(
+        "--positions",
+        help="symbol,quantity,market_value,average_price[,asset_type] table (CSV or JSON)",
+    )
+    p_book.add_argument("--pm-size", help="JSON of {ticker: multiplier} to size a name down")
+    p_book.add_argument("--locked", help="JSON of {ticker: {theme, note}} the book must not resize")
+    p_book.add_argument("--universe-file", help="cross-section for propose's auto-filled scores")
+    p_book.add_argument(
+        "--provider", help="price provider for the MA50 and book-vol columns (default: no fetch)"
+    )
+    p_book.add_argument("--lang", help="label language; default: the IPS `lang` field")
+    p_book.add_argument("--core-n", type=int, default=15)
+    p_book.add_argument("--core-per-theme", type=int, default=3)
+    p_book.add_argument("--attack-n", type=int, default=3)
+    p_book.add_argument("--base-pct", type=float, default=5.0)
+    p_book.add_argument("--attack-budget-pct", type=float, default=15.0)
+    p_book.add_argument("--ttl-days", type=int, default=45)
+    p_book.add_argument("--review-days", type=int, default=21)
+    p_book.add_argument("--earnings-warn-days", type=int, default=7)
+    p_book.set_defaults(func=cmd_book)
+
+    p_site = sub.add_parser("site", help="render a book directory as a static site")
+    p_site.add_argument("--book", required=True, help="a `kuroshio book --out` directory")
+    p_site.add_argument("--reports", help="a `kuroshio research --out` tree (<TICKER>/<date>/)")
+    p_site.add_argument("--out", required=True, help="output directory (swapped in atomically)")
+    p_site.add_argument("--lang", help="default: the book's IPS `lang` field; unknown -> en")
+    p_site.set_defaults(func=cmd_site)
 
     p_mcp = sub.add_parser(
         "mcp", help="run a stdio MCP server exposing the engine's dataflows for a Claude Code session"

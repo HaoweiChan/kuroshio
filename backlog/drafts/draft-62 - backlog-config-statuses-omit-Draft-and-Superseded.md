@@ -1,6 +1,6 @@
 ---
-id: DRAFT-55
-title: 'ledger.live_stop matches on ticker only and ignores market'
+id: DRAFT-62
+title: 'backlog config statuses omit Draft and Superseded'
 status: Draft
 assignee: []
 created_date: '2026-09-06'
@@ -9,13 +9,13 @@ labels:
 dependencies: []
 references:
   - PR #26 (TASK-11)
-ordinal: 55000
+ordinal: 62000
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-`kuroshio/core/ledger.py` `live_stop` keys stop rows by ticker, so the same symbol held in a `us` and a `tw` book would share one stop history; rows already carry `market`.
+`backlog/config.yml` lists `statuses: [To Do, In Progress, Done]`; `backlog/drafts/*` now carry `Draft` and `Superseded` (TASK-11 closed drafts 26/28/37), so the Backlog.md CLI's status vocabulary and the files disagree.
 
 Reported by the TASK-11 implementer/verifier as adjacent to the trailing-stop work and left out of PR #26 by the debt rule.
 
@@ -24,5 +24,5 @@ Probe: none — library change, ruff + pytest are the whole truth
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 case test_live_stop_is_keyed_by_market_and_ticker green
+- [ ] #1 run `backlog task list --plain` lists no status warnings
 <!-- AC:END -->

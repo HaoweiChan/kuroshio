@@ -1,0 +1,4 @@
+symbol,quantity,market_value,average_price,asset_type
+AAA,50,5000,95,EQUITY
+ZZZ,100,9000,80,EQUITY
+QQQ,10,2000,190,ETF

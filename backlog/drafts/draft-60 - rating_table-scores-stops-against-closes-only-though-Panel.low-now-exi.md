@@ -1,6 +1,6 @@
 ---
-id: DRAFT-49
-title: 'target_weight sizes on the recorded invalidation, not the live ratcheted stop'
+id: DRAFT-60
+title: 'rating_table scores stops against closes only, though Panel.low now exists'
 status: Draft
 assignee: []
 created_date: '2026-09-06'
@@ -9,13 +9,13 @@ labels:
 dependencies: []
 references:
   - PR #26 (TASK-11)
-ordinal: 49000
+ordinal: 60000
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-`kuroshio/core/allocator/engine.py` `target_weight` reads `h.invalidation_price`, the recorded level, while step 3a now watches a ratcheted stop; a SWAP or TRIM card can quote a target weight computed over a wider risk distance than the run is actually monitoring.
+`kuroshio/core/ledger.py` `rating_table` marks a rating stopped only on a close below the stop; an intraday low that pierced the stop and closed above it reads as not stopped, though `Panel.low` (TASK-11) can now answer that.
 
 Reported by the TASK-11 implementer/verifier as adjacent to the trailing-stop work and left out of PR #26 by the debt rule.
 
@@ -24,5 +24,5 @@ Probe: none — library change, ruff + pytest are the whole truth
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 case test_target_weight_sizes_on_the_live_stop green
+- [ ] #1 case test_rating_table_uses_the_intraday_low_when_present green
 <!-- AC:END -->

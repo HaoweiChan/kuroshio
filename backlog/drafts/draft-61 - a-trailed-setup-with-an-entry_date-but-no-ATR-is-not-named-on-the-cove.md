@@ -1,5 +1,5 @@
 ---
-id: DRAFT-53
+id: DRAFT-61
 title: 'a trailed setup with an entry_date but no ATR is not named on the coverage card'
 status: Draft
 assignee: []
@@ -9,7 +9,7 @@ labels:
 dependencies: []
 references:
   - PR #26 (TASK-11)
-ordinal: 53000
+ordinal: 61000
 ---
 
 ## Description

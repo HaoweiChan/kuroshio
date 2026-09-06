@@ -1,6 +1,6 @@
 ---
-id: DRAFT-51
-title: 'ATR14 in trail_inputs averages the last 14 rows and does not skip suspension holes'
+id: DRAFT-58
+title: 'propose has no --no-ledger flag, so every stop move writes to the ledger with no opt-out'
 status: Draft
 assignee: []
 created_date: '2026-09-06'
@@ -9,13 +9,13 @@ labels:
 dependencies: []
 references:
   - PR #26 (TASK-11)
-ordinal: 51000
+ordinal: 58000
 ---
 
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-`kuroshio/core/allocator/signals.py` `_atr` is a plain rolling mean over rows, so a long-suspended ticker averages a stale range — the same gap the MA50 ponytail comment names in `monitor_inputs`.
+`kuroshio/cli.py` `propose` appends ratchet rows to `stops.jsonl` on every run; `screen` and `research` have `--no-ledger`, `propose` does not, so a dry run or a probe cannot avoid writing state.
 
 Reported by the TASK-11 implementer/verifier as adjacent to the trailing-stop work and left out of PR #26 by the debt rule.
 
@@ -24,5 +24,5 @@ Probe: none — library change, ruff + pytest are the whole truth
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 case test_atr14_skips_suspension_holes green
+- [ ] #1 case test_propose_no_ledger_skips_the_stop_ledger green
 <!-- AC:END -->
