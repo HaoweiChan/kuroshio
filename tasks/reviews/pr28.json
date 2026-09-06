@@ -1,0 +1,70 @@
+{
+ "pr": 28,
+ "task": "TASK-13",
+ "calls": [
+  {
+   "call": 1,
+   "mode": "full",
+   "head": "54bc027",
+   "result": "REQUEST_CHANGES",
+   "findings": [
+    {
+     "id": "R1",
+     "severity": "HIGH",
+     "claim": "kuroshio site raises TypeError when a locked position has no average_price and leaves <out>.new behind",
+     "evidence": "kuroshio/site/render.py:212 and :348 format None with :,.2f; core/book.py sets avg_cost None on an empty average_price",
+     "repro": "positions CSV with ZZZ,100,9000,,EQUITY + --locked tests/fixtures/locked.json, then kuroshio site",
+     "acceptance": "site exits 0 and renders the n/a label; test for a locked row with empty average_price; .new removed on failure",
+     "resolution": "fixed 4dec35b"
+    },
+    {
+     "id": "R2",
+     "severity": "MEDIUM",
+     "claim": "six new tests need the optional site extra (markdown) that CI's .[agents,yfinance,dev] install lacks, so the gate is red on a clean checkout",
+     "evidence": ".github/workflows/ci.yml, pyproject.toml dev extra, render.py lazy import SystemExit",
+     "repro": "meta_path finder blocking markdown + pytest tests/test_site.py tests/test_cli_book.py -> 3 failed 3 errors",
+     "acceptance": "gate green under the documented install; markdown in the dev extra; test asserting it",
+     "resolution": "fixed da75de5"
+    },
+    {
+     "id": "R3",
+     "severity": "LOW",
+     "claim": "kuroshio site --lang ja exits 2 (argparse choices) instead of falling back to en",
+     "evidence": "kuroshio/cli.py p_site --lang choices; labels() fallback only reachable from book",
+     "repro": "kuroshio site --book /tmp/b --out /tmp/s3 --lang ja -> exit 2",
+     "acceptance": "renders the English site, exit 0, CLI-level test",
+     "resolution": "fixed afcfa92"
+    }
+   ],
+   "notes": [
+    "--provider price columns untested (off by default)",
+    "attack top-up charges a full base per raise when position_pct < 2*base",
+    "test_site.py placeholder assertion inspects only <head>"
+   ]
+  },
+  {
+   "call": 2,
+   "mode": "delta",
+   "head": "afcfa92",
+   "result": "APPROVED",
+   "verifications": [
+    {
+     "id": "R1",
+     "status": "VERIFIED",
+     "evidence": "_money(x, na) at both locked rows; try/finally removes the build dir; both new tests red at 54bc027, green at afcfa92"
+    },
+    {
+     "id": "R2",
+     "status": "VERIFIED",
+     "evidence": "markdown>=3.5 in the dev extra; test asserts it via tomllib; no skip/xfail introduced; gate 299 passed"
+    },
+    {
+     "id": "R3",
+     "status": "VERIFIED",
+     "evidence": "choices removed from site --lang; CLI test exits 2 at 54bc027, exits 0 with English at afcfa92"
+    }
+   ],
+   "new_findings": []
+  }
+ ]
+}
