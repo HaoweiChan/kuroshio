@@ -3,8 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request:  # every PR, so a stacked PR (base = another task branch) is tested before it reaches main
 
 jobs:
   lint:
