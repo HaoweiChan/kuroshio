@@ -196,3 +196,29 @@ def test_gitignore_covers_the_default_output_directories_only_at_the_repo_root()
     # and `reports/` unanchored swallowed tests/fixtures/reports, the site tests' input
     assert "/reports/" in lines and "reports/" not in lines
     assert (FIX / "reports" / "AAA" / "2026-01-02" / "complete_report.md").exists()
+
+
+# TASK-14: every string the report page adds, in both languages
+REPORT_LABELS = (
+    "synthesis", "committee_rating", "executive_thesis", "no_summary", "coverage",
+    "included", "not_included", "final_posture", "reference_close", "rr_from_close",
+    "sizing_dates", "rating_date", "analyst_lenses", "lenses_lede", "lens", "research_desk",
+    "bull_vs_bear", "risk_committee", "risk_postures", "decision_trail", "decision_lede",
+    "stage", "research_plan", "trader_decision", "final_decision", "tab_overview",
+    "tab_research", "tab_debates", "tab_decision", "tab_raw", "empty_head", "empty_lede",
+) + tuple(
+    f"role_{role}" for role in (
+        "market", "sentiment", "news", "fundamentals", "bull", "bear", "manager",
+        "trader", "aggressive", "neutral", "conservative", "decision",
+    )
+)
+# a role whose Chinese name is the English one on purpose
+SAME_IN_BOTH = {"role_decision"}
+
+
+def test_every_report_page_label_is_defined_and_translated():
+    for key in REPORT_LABELS:
+        for lang in ("en", "zh"):
+            assert LABELS[lang].get(key), f"{lang}: missing label {key}"
+        if key not in SAME_IN_BOTH:
+            assert LABELS["zh"][key] != LABELS["en"][key], f"zh.{key} is still the English string"
