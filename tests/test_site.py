@@ -222,3 +222,61 @@ def test_every_report_page_label_is_defined_and_translated():
             assert LABELS[lang].get(key), f"{lang}: missing label {key}"
         if key not in SAME_IN_BOTH:
             assert LABELS["zh"][key] != LABELS["en"][key], f"zh.{key} is still the English string"
+
+
+def _report(site: Path, ticker: str = "AAA", date: str = "2026-01-02") -> str:
+    return (site / "reports" / ticker / f"{date}.html").read_text()
+
+
+def _body(page: str) -> str:
+    """The page without the inlined stylesheet — the markup this repo generates."""
+    return page.split("</style>", 1)[1]
+
+
+def test_the_report_page_has_the_hero_five_tabs_and_twelve_coverage_tiles(site):
+    """AC #1: the tabbed layout, built from the role files a full report tree carries."""
+    body = _body(_report(site))
+    assert "report-hero" in body and "hero-verdict" in body
+    assert body.count("class='tab-btn") == 5
+    assert body.count("class='tab-body") == 5
+    assert "thesis-card" in body and "Half a position at the close" in body
+    assert body.count("coverage-tile") == 12
+    assert body.count("coverage-tile on") == 12  # the fixture carries every role file
+    assert body.count("group-heading") == 2  # research desk + risk committee
+    assert "verdict-card" in body and "signal-strip" in body and "decision-layout" in body
+
+
+def test_a_report_with_only_the_complete_report_renders_raw_plus_empty_states(site):
+    """AC #1: no role files -> the raw tab still renders, the other three say so."""
+    body = _body(_report(site, "BBB", "2026-01-02"))
+    assert body.count("class='tab-btn") == 5
+    assert "coverage-tile on" not in body
+    assert body.count("empty-panel") == 3  # research, debates, decision
+    assert "nothing but this file" in body  # complete_report.md still renders
+
+
+def test_the_report_page_carries_no_hex_colours_outside_the_shared_stylesheet(site):
+    """AC #2: every colour is a docs/style.css token."""
+    hexes = re.compile(r"#[0-9a-fA-F]{3,6}")
+    site_css = (Path(render.__file__).parent / "site.css").read_text()
+    assert not hexes.findall(site_css), hexes.findall(site_css)
+    for ticker, date in (("AAA", "2026-01-02"), ("BBB", "2026-01-02")):
+        found = hexes.findall(_body(_report(site, ticker, date)))
+        assert not found, f"{ticker} {date}: {found}"
+
+
+def test_a_role_file_with_two_sections_becomes_one_content_block_per_section(site):
+    """AC #3: PanelizedMarkdown — two or more `## ` sections grid, otherwise one block."""
+    body = _body(_report(site))
+    assert body.count("report-body-grid") == 8  # 4 analysts + bull/bear/manager (manager twice)
+    assert body.count("content-block") == 16
+    assert body.count("report-body-single") == 6  # 3 risk views + trader + decision (twice)
+
+
+def test_the_other_pages_carry_no_report_layout_markup(site):
+    """AC #5: index, alloc and reports are task-13's pages — the layout is report-only."""
+    for name in ("index.html", "alloc.html", "reports.html"):
+        body = _body((site / name).read_text())
+        for cls in ("report-hero", "tab-btn", "coverage-tile", "report-card", "verdict-card",
+                    "signal-strip", "decision-layout", "empty-panel", "showTab("):
+            assert cls not in body, f"{name}: {cls}"
