@@ -43,6 +43,7 @@ from kuroshio.agents.engine.agents.utils.structured import (
 from kuroshio.agents.engine.dataflows.reddit import fetch_reddit_posts
 from kuroshio.agents.engine.dataflows.stocktwits import fetch_stocktwits_messages
 from kuroshio.agents.engine.dataflows.tw.ptt import fetch_ptt_stock_posts
+from kuroshio.agents.engine.dataflows.tw.tinboker import fetch_tinboker_mentions
 
 
 def _seven_days_back(trade_date: str) -> str:
@@ -74,11 +75,11 @@ def create_sentiment_analyst(llm):
         # PTT (Taiwan's dominant BBS) is the retail-sentiment venue for TW
         # tickers, where Reddit/StockTwits are structurally near-empty —
         # US tickers are unaffected, ptt_block stays None.
-        ptt_block = (
-            fetch_ptt_stock_posts(ticker)
-            if ticker.upper().endswith((".TW", ".TWO"))
-            else None
-        )
+        is_tw = ticker.upper().endswith((".TW", ".TWO"))
+        ptt_block = fetch_ptt_stock_posts(ticker) if is_tw else None
+        # TinBoker: what the tracked TW finance podcasts said about this name
+        # in the last 30 days, plus each show's forward-return track record.
+        tinboker_block = fetch_tinboker_mentions(ticker, end_date) if is_tw else None
 
         system_message = _build_system_message(
             ticker=ticker,
@@ -88,6 +89,7 @@ def create_sentiment_analyst(llm):
             stocktwits_block=stocktwits_block,
             reddit_block=reddit_block,
             ptt_block=ptt_block,
+            tinboker_block=tinboker_block,
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -138,8 +140,31 @@ def _build_system_message(
     stocktwits_block: str,
     reddit_block: str,
     ptt_block: str | None = None,
+    tinboker_block: str | None = None,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
+    tinboker_section = ""
+    tinboker_guidance = ""
+    if tinboker_block is not None:
+        tinboker_section = f"""
+
+### TinBoker 播客提及 — 台灣財經 podcast 對這檔的論點與各節目的過往命中率 (過去 30 天)
+
+<start_of_tinboker>
+{tinboker_block}
+<end_of_tinboker>"""
+        tinboker_guidance = (
+            "\n\n10. **For TW tickers, the TinBoker block is the informed-opinion layer"
+            " between institutional news and PTT retail chatter.** Each line is one"
+            " show's thesis with its stated horizon and the reasons/risks it gave;"
+            " weight a show by its track record on this name (directional hit rate"
+            " and mean forward return), not by how confident it sounds. Name the"
+            " shows and quote the theses in the narrative — 'three shows turned"
+            " bullish this month, the one with the best record on this name among"
+            " them' is the read the trader needs. Silence from every tracked show"
+            " is real information for a large-cap TW name; a FETCH FAILED or DATA"
+            " UNAVAILABLE marker is not."
+        )
     ptt_section = ""
     ptt_guidance = ""
     if ptt_block is not None:
@@ -185,7 +210,7 @@ Community discussion. Engagement signal via upvote score and comment count. Subr
 
 <start_of_reddit>
 {reddit_block}
-<end_of_reddit>{ptt_section}
+<end_of_reddit>{ptt_section}{tinboker_section}
 
 ## How to analyze this data (best practices)
 
@@ -203,7 +228,7 @@ Community discussion. Engagement signal via upvote score and comment count. Subr
 
 7. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
 
-8. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.{ptt_guidance}
+8. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.{ptt_guidance}{tinboker_guidance}
 
 ## Output fields
 

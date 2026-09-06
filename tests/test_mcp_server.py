@@ -24,6 +24,7 @@ _EXPECTED_TOOLS = {
     "get_stock_data", "get_indicators", "get_fundamentals", "get_balance_sheet",
     "get_cashflow", "get_income_statement", "get_analyst_estimates",
     "get_insider_transactions", "get_news", "get_global_news", "get_macro_indicators",
+    "get_podcast_mentions",
     "screen", "propose", "record_rating",
 }
 

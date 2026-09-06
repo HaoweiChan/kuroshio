@@ -25,6 +25,7 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 from kuroshio.agents.engine.dataflows.interface import route_to_vendor
+from kuroshio.agents.engine.dataflows.tw.tinboker import fetch_tinboker_mentions
 from kuroshio.core import ledger
 from kuroshio.core.screening import get_profile
 
@@ -102,6 +103,14 @@ def build_server() -> MCPServer:
         'unemployment', 'yield_curve', 'real_gdp', 'vix', ...) or a raw FRED series ID.
         Degrades to a DATA_UNAVAILABLE sentinel (not an error) without FRED_API_KEY set."""
         return route_to_vendor("get_macro_indicators", indicator, curr_date, look_back_days)
+
+    @server.tool()
+    def get_podcast_mentions(ticker: str, end_date: str, lookback_days: int = 30) -> str:
+        """TW only. What the Taiwanese finance podcasts TinBoker tracks said about a
+        ticker in the trailing window (thesis, sentiment, horizon, reasons/risks per show)
+        plus each show's forward-return track record on that name. Keyless public API;
+        degrades to a DATA UNAVAILABLE marker, never an error."""
+        return fetch_tinboker_mentions(ticker, end_date, lookback_days)
 
     # --- read-only tools over the allocator's own screen/propose code paths ---
 
