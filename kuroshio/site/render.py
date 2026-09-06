@@ -58,6 +58,36 @@ function chipFilter(btn, attr){
 document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => sortTable(th)));
 </script>"""
 
+REPORT_JS = """
+<script>
+function showTab(btn, id){
+  const page = btn.closest('.report');
+  page.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  page.querySelectorAll('.tab-body').forEach(s => s.classList.toggle('on', s.dataset.tab === id));
+}
+function toggleCard(btn){
+  const off = btn.closest('.report-card').classList.toggle('collapsed');
+  btn.querySelector('.chev').textContent = off ? '\u2192' : '\u2193';
+}
+</script>"""
+# the report tree `kuroshio research` writes, in reading order: the coverage grid is this list
+ROLES = (
+    ("market", "1_analysts/market.md"),
+    ("sentiment", "1_analysts/sentiment.md"),
+    ("news", "1_analysts/news.md"),
+    ("fundamentals", "1_analysts/fundamentals.md"),
+    ("bull", "2_research/bull.md"),
+    ("bear", "2_research/bear.md"),
+    ("manager", "2_research/manager.md"),
+    ("trader", "3_trading/trader.md"),
+    ("aggressive", "4_risk/aggressive.md"),
+    ("neutral", "4_risk/neutral.md"),
+    ("conservative", "4_risk/conservative.md"),
+    ("decision", "5_portfolio/decision.md"),
+)
+TONE = {"Buy": "tone-buy", "Overweight": "tone-buy", "Hold": "tone-hold",
+        "Underweight": "tone-sell", "Sell": "tone-sell"}
+
 esc = html.escape
 
 
@@ -152,6 +182,7 @@ def _decision_meta(report_dir: Path) -> dict:
         "rating": grab(r"\*\*Rating\*\*:\s*(\w+)"),
         "stop": grab(r"\*\*Stop Loss\*\*:\s*([\d.]+)"),
         "target": grab(r"\*\*Price Target\*\*:\s*([\d.]+)"),
+        "market": grab(r"\*\*Market:\*\*\s*([^·\n]+)"),
         "close": grab(r"Last close:\*\*\s*\$([\d.,]+)"),
         "earnings": grab(r"Next earnings:\*\*\s*([^·\n]+)"),
         "summary": grab(r"\*\*Executive Summary\*\*:\s*(.+)"),
@@ -398,6 +429,194 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     )
 
 
+# --- one report page ----------------------------------------------------------
+
+
+def _rr(close, stop, target) -> float | None:
+    """Reward-to-risk measured from the reference close; None when a leg is missing."""
+    try:
+        ref = float(str(close).replace(",", ""))
+        return (float(target) - ref) / (ref - float(stop))
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _strip_leading_h1(text: str) -> str:
+    """Drop a role file's own `# Title` line (and any blank lines right after it) — the card
+    header already shows the eyebrow and role title, so the body repeating it as an h1 is
+    redundant. A body with no leading `# ` line is returned unchanged."""
+    lines = text.split("\n")
+    if not lines or not lines[0].startswith("# "):
+        return text
+    i = 1
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def _is_wide(part: str) -> bool:
+    """A markdown table or fenced code block runs wider than a 260px grid column."""
+    return bool(re.search(r"^\s*\|.*\|\s*$", part, re.M)) or "```" in part
+
+
+def _panelized(text: str) -> str:
+    """The viewer's PanelizedMarkdown: two or more `## ` sections become a grid of blocks."""
+    text = _strip_leading_h1(text)
+    parts = [p for p in re.split(r"^(?=## )", text, flags=re.M) if p.strip()]
+    if len(parts) > 1 and not parts[0].startswith("## "):
+        parts[:2] = [parts[0] + parts[1]]  # a lead-in rides along with the first section
+    if len(parts) > 1:
+        blocks = "".join(
+            f"<div class='content-block{' wide' if _is_wide(p) else ''} md'>{_markdown(p)}</div>"
+            for p in parts
+        )
+        return f"<div class='report-body-grid'>{blocks}</div>"
+    return f"<div class='report-body-single md'>{_markdown(text)}</div>"
+
+
+def _report_card(eyebrow: str, title: str, body: str, tone: str = "") -> str:
+    return (
+        f"<div class='report-card {tone}'><div class='card-header'>"
+        "<button class='card-toggle' onclick='toggleCard(this)'>"
+        f"<span class='eyebrow'>{esc(eyebrow)}</span><strong>{esc(title)}</strong>"
+        "<span class='chev'>↓</span></button></div>"
+        f"<div class='card-body'>{body}</div></div>"
+    )
+
+
+def _role_card(files: dict, key: str, eyebrow: str, lb: dict, tone: str = "") -> str:
+    return _report_card(eyebrow, lb[f"role_{key}"], _panelized(files[key]), tone)
+
+
+def _intro(num: str, title: str, lede: str) -> str:
+    return (f"<div class='section-intro'><span class='badge-num'>{esc(num)}</span>"
+            f"<div><h2>{esc(title)}</h2><p>{esc(lede)}</p></div></div>")
+
+
+def _empty(lb: dict) -> str:
+    return ("<div class='panel empty-panel'><div class='glyph'>◇</div>"
+            f"<h3>{esc(lb['empty_head'])}</h3><p>{esc(lb['empty_lede'])}</p></div>")
+
+
+def _overview_tab(ticker: str, date: str, meta: dict, files: dict, held: set[str],
+                  lb: dict, extra: str) -> str:
+    rating = meta.get("rating") or "?"
+    close, stop, target = meta.get("close"), meta.get("stop"), meta.get("target")
+    rr = _rr(close, stop, target)
+    summary = meta.get("summary")
+    thesis = (f"<div class='md'>{_markdown(summary)}</div>" if summary
+              else f"<p class='no-summary'>{esc(lb['no_summary'])}</p>")
+    tiles = "".join(
+        f"<div class='coverage-tile{' on' if key in files else ''}'>"
+        f"<span class='idx mono'>{i:02d}</span><strong>{esc(lb[f'role_{key}'])}</strong>"
+        f"<small>{esc(lb['included'] if key in files else lb['not_included'])}</small></div>"
+        for i, (key, _) in enumerate(ROLES, 1)
+    )
+    main = (
+        f"<div class='panel thesis-card'><div class='kicker'>{esc(lb['executive_thesis'])}</div>"
+        f"{thesis}</div>"
+        f"<div class='panel coverage-panel'><div class='kicker'>{esc(lb['coverage'])}</div>"
+        f"<div class='coverage-grid'>{tiles}</div></div>"
+    )
+    cells = "".join(
+        f"<div class='cell'><strong>{esc(value)}</strong><small>{esc(label)}</small></div>"
+        for label, value in ((lb["stop"], stop or lb["na"]), (lb["target"], target or lb["na"]),
+                             (lb["rr_from_close"], f"{rr:.1f}" if rr else lb["na"]))
+    )
+    rail = (
+        f"<div class='verdict-card'><small>{esc(lb['final_posture'])}</small>"
+        f"<strong class='{TONE.get(rating, '')}'>{esc(rating)}</strong>"
+        f"<span class='mono'>{esc(ticker)} · {esc(date)}</span>"
+        f"<span class='mono'>{esc(lb['reference_close'])}: {esc(close or lb['na'])}</span></div>"
+        f"<div class='signal-strip'>{cells}</div>"
+        + _kv_panel(lb["sizing_dates"], [
+            (lb["next_earnings"], esc(meta.get("earnings") or lb["na"])),
+            (lb["rating_date"], esc(date)),
+            (lb["in_book"], "✔" if ticker in held else "—"),
+        ])
+        + extra
+    )
+    return f"<div class='overview-layout'><div>{main}</div><div>{rail}</div></div>"
+
+
+def _research_tab(files: dict, lb: dict) -> str:
+    keys = [k for k in ("market", "sentiment", "news", "fundamentals") if k in files]
+    if not keys:
+        return _empty(lb)
+    cards = "".join(_role_card(files, k, f"{lb['lens']} {i:02d}", lb)
+                    for i, k in enumerate(keys, 1))
+    return (_intro("01", lb["analyst_lenses"], lb["lenses_lede"])
+            + f"<div class='report-stack'>{cards}</div>")
+
+
+def _debates_tab(files: dict, lb: dict) -> str:
+    groups = ""
+    for num, kicker, title, members in (
+        ("01", lb["research_desk"], lb["bull_vs_bear"],
+         (("bull", "tone-bull"), ("bear", "tone-bear"), ("manager", "tone-decision"))),
+        ("02", lb["risk_committee"], lb["risk_postures"],
+         (("aggressive", "tone-bull"), ("neutral", "tone-neutral"),
+          ("conservative", "tone-bear"), ("decision", "tone-decision"))),
+    ):
+        cards = "".join(_role_card(files, key, f"{kicker} {i:02d}", lb, tone)
+                        for i, (key, tone) in enumerate(members, 1) if key in files)
+        if not cards:
+            continue
+        groups += (
+            f"<div><div class='group-heading'><span class='badge-num sm'>{esc(num)}</span>"
+            f"<div><small>{esc(kicker)}</small><h2>{esc(title)}</h2></div></div>"
+            f"<div class='report-stack'>{cards}</div></div>"
+        )
+    return f"<div class='debate-layout'>{groups}</div>" if groups else _empty(lb)
+
+
+def _decision_tab(files: dict, lb: dict) -> str:
+    stages = (("manager", lb["research_plan"], ""), ("trader", lb["trader_decision"], ""),
+              ("decision", lb["final_decision"], "tone-decision"))
+    cards = "".join(
+        _report_card(f"{lb['stage']} {i:02d}", title, _panelized(files[key]), tone)
+        for i, (key, title, tone) in enumerate(stages, 1) if key in files
+    )
+    if not cards:
+        return _empty(lb)
+    return (_intro("01", lb["decision_trail"], lb["decision_lede"])
+            + f"<div class='decision-layout'>{cards}</div>")
+
+
+def _report_body(ticker: str, date: str, meta: dict, files: dict, complete: str,
+                 held: set[str], lb: dict, extra: str) -> str:
+    """The hero, the five tabs and their bodies — the whole page inside `_shell`'s wrap."""
+    rating = meta.get("rating") or "?"
+    kicker = " · ".join(x for x in (meta.get("market"), lb["synthesis"]) if x)
+    hero = (
+        f"<div class='report-hero'><div><div class='kicker'>{esc(kicker)}</div>"
+        f"<h1>{esc(ticker)}</h1>"
+        f"<div class='mono path'>reports/{esc(ticker)}/{esc(date)}</div></div>"
+        f"<div class='hero-verdict'><small>{esc(lb['committee_rating'])}</small>"
+        f"<strong class='{TONE.get(rating, '')}'>{esc(rating)}</strong>"
+        f"<span class='mono'>{esc(date)}</span></div></div>"
+    )
+    tabs = (
+        ("overview", lb["tab_overview"],
+         _overview_tab(ticker, date, meta, files, held, lb, extra)),
+        ("research", lb["tab_research"], _research_tab(files, lb)),
+        ("debates", lb["tab_debates"], _debates_tab(files, lb)),
+        ("decision", lb["tab_decision"], _decision_tab(files, lb)),
+        ("raw", lb["tab_raw"],
+         f"<div class='panel'><div class='md'>{_markdown(complete)}</div></div>"),
+    )
+    bar = "".join(
+        f"<button class='tab-btn{' active' if i == 0 else ''}' "
+        f"onclick=\"showTab(this,'{key}')\">{esc(label)}</button>"
+        for i, (key, label, _) in enumerate(tabs)
+    )
+    bodies = "".join(
+        f"<div class='tab-body{' on' if i == 0 else ''}' data-tab='{key}'>{inner}</div>"
+        for i, (key, _, inner) in enumerate(tabs)
+    )
+    return f"<div class='report'>{hero}<div class='tabs'>{bar}</div>{bodies}</div>{REPORT_JS}"
+
+
 def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, out: Path, css: str) -> str:
     """Write one page per report and return the rows of the report index."""
     rows = []
@@ -405,34 +624,19 @@ def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, ou
         for date, meta in dated:
             rating = meta.get("rating") or "?"
             close, stop, target = meta.get("close"), meta.get("stop"), meta.get("target")
-            try:
-                rr = ((float(target) - float(close.replace(",", "")))
-                      / (float(close.replace(",", "")) - float(stop))) if close and stop and target else None
-            except (ValueError, ZeroDivisionError, AttributeError):
-                rr = None
-            side = _kv_panel(f"{ticker} · {date}", [
-                (lb["rating"], _flag(rating)),
-                (lb["last_close"], esc(close or lb["na"])),
-                (lb["stop"], esc(stop or lb["na"])),
-                (lb["target"], esc(target or lb["na"])),
-                (lb["rr"], f"{rr:.1f}" if rr else lb["na"]),
-                (lb["next_earnings"], esc(meta.get("earnings") or lb["na"])),
-                (lb["in_book"], "✔" if ticker in held else "—"),
-            ])
+            report_dir = reports_dir / ticker / date
+            files = {key: (report_dir / rel).read_text()
+                     for key, rel in ROLES if (report_dir / rel).exists()}
             others = "".join(
                 f"<div class='kv'><span>{esc(other)}</span>"
                 f"<span><a href='{esc(other)}.html'>{_flag(m.get('rating') or '?')}</a></span></div>"
                 for other, m in dated if other != date
             )
-            if others:
-                side += f"<div class='panel'><h4>{esc(lb['other_dates'])}</h4>{others}</div>"
-            body = (
-                f"<div class='hero small'><h1>{esc(ticker)} <span class='meta'>{esc(date)}</span></h1>"
-                f"<p class='lede'>{esc(lb['report_lede'])}</p></div>"
-                f"<div class='two'><div>{side}</div><div class='panel'><div class='md'>"
-                f"{_markdown((reports_dir / ticker / date / 'complete_report.md').read_text())}"
-                "</div></div></div>"
-            )
+            extra = (f"<div class='panel'><h4>{esc(lb['other_dates'])}</h4>{others}</div>"
+                     if others else "")
+            body = _report_body(ticker, date, meta, files,
+                                (report_dir / "complete_report.md").read_text(),
+                                held, lb, extra)
             page = out / "reports" / ticker / f"{date}.html"
             page.parent.mkdir(parents=True, exist_ok=True)
             page.write_text(

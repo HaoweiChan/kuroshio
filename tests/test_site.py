@@ -196,3 +196,164 @@ def test_gitignore_covers_the_default_output_directories_only_at_the_repo_root()
     # and `reports/` unanchored swallowed tests/fixtures/reports, the site tests' input
     assert "/reports/" in lines and "reports/" not in lines
     assert (FIX / "reports" / "AAA" / "2026-01-02" / "complete_report.md").exists()
+
+
+# TASK-14: every string the report page adds, in both languages
+REPORT_LABELS = (
+    "synthesis", "committee_rating", "executive_thesis", "no_summary", "coverage",
+    "included", "not_included", "final_posture", "reference_close", "rr_from_close",
+    "sizing_dates", "rating_date", "analyst_lenses", "lenses_lede", "lens", "research_desk",
+    "bull_vs_bear", "risk_committee", "risk_postures", "decision_trail", "decision_lede",
+    "stage", "research_plan", "trader_decision", "final_decision", "tab_overview",
+    "tab_research", "tab_debates", "tab_decision", "tab_raw", "empty_head", "empty_lede",
+) + tuple(
+    f"role_{role}" for role in (
+        "market", "sentiment", "news", "fundamentals", "bull", "bear", "manager",
+        "trader", "aggressive", "neutral", "conservative", "decision",
+    )
+)
+# a role whose Chinese name is the English one on purpose
+SAME_IN_BOTH = {"role_decision"}
+
+
+def test_every_report_page_label_is_defined_and_translated():
+    for key in REPORT_LABELS:
+        for lang in ("en", "zh"):
+            assert LABELS[lang].get(key), f"{lang}: missing label {key}"
+        if key not in SAME_IN_BOTH:
+            assert LABELS["zh"][key] != LABELS["en"][key], f"zh.{key} is still the English string"
+
+
+def _report(site: Path, ticker: str = "AAA", date: str = "2026-01-02") -> str:
+    return (site / "reports" / ticker / f"{date}.html").read_text()
+
+
+def _body(page: str) -> str:
+    """The page without the inlined stylesheet — the markup this repo generates."""
+    return page.split("</style>", 1)[1]
+
+
+def test_the_report_page_has_the_hero_five_tabs_and_twelve_coverage_tiles(site):
+    """AC #1: the tabbed layout, built from the role files a full report tree carries."""
+    body = _body(_report(site))
+    assert "report-hero" in body and "hero-verdict" in body
+    assert body.count("class='tab-btn") == 5
+    assert body.count("class='tab-body") == 5
+    assert "thesis-card" in body and "Half a position at the close" in body
+    assert body.count("coverage-tile") == 12
+    assert body.count("coverage-tile on") == 12  # the fixture carries every role file
+    assert body.count("group-heading") == 2  # research desk + risk committee
+    assert "verdict-card" in body and "signal-strip" in body and "decision-layout" in body
+
+
+def test_a_report_with_only_the_complete_report_renders_raw_plus_empty_states(site):
+    """AC #1: no role files -> the raw tab still renders, the other three say so."""
+    body = _body(_report(site, "BBB", "2026-01-02"))
+    assert body.count("class='tab-btn") == 5
+    assert "coverage-tile on" not in body
+    assert body.count("empty-panel") == 3  # research, debates, decision
+    assert "nothing but this file" in body  # complete_report.md still renders
+
+
+def test_the_report_page_carries_no_hex_colours_outside_the_shared_stylesheet(site):
+    """AC #2: every colour is a docs/style.css token."""
+    hexes = re.compile(r"#[0-9a-fA-F]{3,6}")
+    site_css = (Path(render.__file__).parent / "site.css").read_text()
+    assert not hexes.findall(site_css), hexes.findall(site_css)
+    for ticker, date in (("AAA", "2026-01-02"), ("BBB", "2026-01-02")):
+        found = hexes.findall(_body(_report(site, ticker, date)))
+        assert not found, f"{ticker} {date}: {found}"
+
+
+def test_a_role_file_with_two_sections_becomes_one_content_block_per_section(site):
+    """AC #3: PanelizedMarkdown — two or more `## ` sections grid, otherwise one block."""
+    body = _body(_report(site))
+    assert body.count("report-body-grid") == 8  # 4 analysts + bull/bear/manager (manager twice)
+    assert body.count("content-block") == 16
+    assert body.count("report-body-single") == 6  # 3 risk views + trader + decision (twice)
+
+
+def test_the_other_pages_carry_no_report_layout_markup(site):
+    """AC #5: index, alloc and reports are task-13's pages — the layout is report-only."""
+    for name in ("index.html", "alloc.html", "reports.html"):
+        body = _body((site / name).read_text())
+        for cls in ("report-hero", "tab-btn", "coverage-tile", "report-card", "verdict-card",
+                    "signal-strip", "decision-layout", "empty-panel", "showTab("):
+            assert cls not in body, f"{name}: {cls}"
+
+
+# --- owner review fixes (PR #30 REPAIR) ---------------------------------------
+
+
+def test_a_section_with_a_table_gets_a_wide_content_block_the_others_dont():
+    """R1: a table (590px of columns) spills out of a 329px grid block with no padding —
+    the block housing it spans the full grid row instead; siblings without a table stay put."""
+    text = (
+        "# Title\n\n"
+        "## Key levels\n\n"
+        "| level | value |\n| --- | --- |\n| close | 100.00 |\n\n"
+        "## Trend\n\nplain prose, no table\n\n"
+        "## Momentum\n\nmore plain prose\n"
+    )
+    body = render._panelized(text)
+    assert body.count("content-block wide") == 1
+    assert body.count("content-block md'>") == 2  # Trend and Momentum, unmarked
+
+
+def test_a_fenced_code_block_also_gets_the_wide_class():
+    text = "## One\n\n```\ncode here\n```\n\n## Two\n\nprose\n"
+    body = render._panelized(text)
+    assert body.count("content-block wide") == 1
+
+
+def test_wide_content_blocks_span_the_grid_and_overflowing_tables_scroll():
+    css = (Path(render.__file__).parent / "site.css").read_text()
+    assert ".report-body-grid .content-block.wide" in css
+    assert "grid-column: 1 / -1" in css
+    table_rule = re.search(r"\.md table\s*\{([^}]*)\}", css)
+    assert table_rule, "no `.md table` overflow rule"
+    assert "overflow-x: auto" in table_rule.group(1) and "max-width: 100%" in table_rule.group(1)
+
+
+def test_strip_leading_h1_removes_the_role_title_but_leaves_untitled_bodies_alone():
+    """R2: every role file starts with its own `# Title` line the card header already shows.
+    Only the very first `# ` line (plus any blank lines after it) is stripped — a body with no
+    leading H1, or a title line glued straight to the next line (no blank line), both behave."""
+    assert render._strip_leading_h1("# Title\n\nbody text") == "body text"
+    assert render._strip_leading_h1("# Title\n**Date:** x") == "**Date:** x"  # no blank line
+    assert render._strip_leading_h1("## Not a title\n\nbody") == "## Not a title\n\nbody"
+    assert render._strip_leading_h1("no title at all") == "no title at all"
+
+
+def test_a_role_card_body_renders_no_h1_but_the_raw_tab_keeps_its_own(site):
+    """R2: the card header already carries eyebrow + role title, so the panelized body must
+    not repeat it as an oversized h1 — but the Raw tab renders complete_report.md untouched."""
+    body = _body(_report(site))
+    assert body.count("<h1>") == 2  # the hero's <h1>AAA</h1> and the raw tab's own title
+    assert "<h1>AAA</h1>" in body
+    assert "<h1>Trading Analysis Report: AAA</h1>" in body
+    assert "<h1>Market Analyst" not in body
+
+
+def test_single_body_and_grid_blocks_share_inner_padding_and_headings_get_room():
+    """R3: `.report-body-single` ran text flush to the card edge (`padding: 0 6px`) while grid
+    blocks had their own padding via `.md`; normalise both, and give a block's first heading
+    a smaller top margin so it doesn't collapse into a big padding+margin gap."""
+    css = (Path(render.__file__).parent / "site.css").read_text()
+    single = re.search(r"\.report-body-single\s*\{([^}]*)\}", css)
+    block = re.search(r"\.content-block\s*\{([^}]*)\}", css)
+    assert single and block
+    assert "0 6px" not in single.group(1)
+    assert "padding:" in single.group(1) and "padding:" in block.group(1)
+    assert re.search(r"\.md h2:first-child\s*\{\s*margin-top:\s*4px", css)
+
+
+def test_the_raw_tab_toggle_is_keyed_by_data_tab_not_position(site):
+    """R4: the owner's automated click on the fifth tab appeared to leave Decision visible —
+    verify the markup: exactly five `.tab-body` elements, matching `data-tab` keys, only the
+    first `on`; and the JS swap keys off `dataset.tab`, not array position."""
+    body = _body(_report(site))
+    tabs = re.findall(r"<div class='tab-body( on)?' data-tab='(\w+)'>", body)
+    assert [key for _, key in tabs] == ["overview", "research", "debates", "decision", "raw"]
+    assert [on for on, _ in tabs] == [" on", "", "", "", ""]
+    assert "s.dataset.tab === id" in render.REPORT_JS
