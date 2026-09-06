@@ -6,11 +6,12 @@
 .md h2 { font-size: 17px; margin: 22px 0 8px; }
 .md h3 { font-size: 14.5px; margin: 16px 0 6px; }
 .md p, .md li { color: var(--fg); }
-.md table { font-size: 12.5px; }
+.md table { font-size: 12.5px; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { text-align: left; }
 .md code { font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
 .md blockquote { border-left: 3px solid var(--line); margin: 0; padding: 2px 14px; color: var(--muted); }
+.md h2:first-child { margin-top: 4px; }
 .flag.Buy, .flag.Overweight { color: var(--buy); border-color: var(--buy); background: var(--accent-soft); }
 .flag.Hold { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
 .flag.Underweight, .flag.Sell { color: var(--sell); border-color: var(--sell); }
@@ -117,8 +118,9 @@ tr.hide { display: none; }
 .card-toggle .chev { margin-left: auto; color: var(--muted); }
 .report-card.collapsed .card-body { display: none; }
 .report-body-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; padding: 14px; }
-.content-block { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
-.report-body-single { padding: 0 6px; }
+.report-body-grid .content-block.wide { grid-column: 1 / -1; }
+.content-block { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 20px 18px; }
+.report-body-single { padding: 14px 20px 18px; }
 
 .debate-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
 @media (max-width: 900px) { .debate-layout { grid-template-columns: 1fr; } }

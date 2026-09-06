@@ -441,13 +441,35 @@ def _rr(close, stop, target) -> float | None:
         return None
 
 
+def _strip_leading_h1(text: str) -> str:
+    """Drop a role file's own `# Title` line (and any blank lines right after it) — the card
+    header already shows the eyebrow and role title, so the body repeating it as an h1 is
+    redundant. A body with no leading `# ` line is returned unchanged."""
+    lines = text.split("\n")
+    if not lines or not lines[0].startswith("# "):
+        return text
+    i = 1
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def _is_wide(part: str) -> bool:
+    """A markdown table or fenced code block runs wider than a 260px grid column."""
+    return bool(re.search(r"^\s*\|.*\|\s*$", part, re.M)) or "```" in part
+
+
 def _panelized(text: str) -> str:
     """The viewer's PanelizedMarkdown: two or more `## ` sections become a grid of blocks."""
+    text = _strip_leading_h1(text)
     parts = [p for p in re.split(r"^(?=## )", text, flags=re.M) if p.strip()]
     if len(parts) > 1 and not parts[0].startswith("## "):
         parts[:2] = [parts[0] + parts[1]]  # a lead-in rides along with the first section
     if len(parts) > 1:
-        blocks = "".join(f"<div class='content-block md'>{_markdown(p)}</div>" for p in parts)
+        blocks = "".join(
+            f"<div class='content-block{' wide' if _is_wide(p) else ''} md'>{_markdown(p)}</div>"
+            for p in parts
+        )
         return f"<div class='report-body-grid'>{blocks}</div>"
     return f"<div class='report-body-single md'>{_markdown(text)}</div>"
 

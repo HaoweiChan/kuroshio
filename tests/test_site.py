@@ -280,3 +280,80 @@ def test_the_other_pages_carry_no_report_layout_markup(site):
         for cls in ("report-hero", "tab-btn", "coverage-tile", "report-card", "verdict-card",
                     "signal-strip", "decision-layout", "empty-panel", "showTab("):
             assert cls not in body, f"{name}: {cls}"
+
+
+# --- owner review fixes (PR #30 REPAIR) ---------------------------------------
+
+
+def test_a_section_with_a_table_gets_a_wide_content_block_the_others_dont():
+    """R1: a table (590px of columns) spills out of a 329px grid block with no padding —
+    the block housing it spans the full grid row instead; siblings without a table stay put."""
+    text = (
+        "# Title\n\n"
+        "## Key levels\n\n"
+        "| level | value |\n| --- | --- |\n| close | 100.00 |\n\n"
+        "## Trend\n\nplain prose, no table\n\n"
+        "## Momentum\n\nmore plain prose\n"
+    )
+    body = render._panelized(text)
+    assert body.count("content-block wide") == 1
+    assert body.count("content-block md'>") == 2  # Trend and Momentum, unmarked
+
+
+def test_a_fenced_code_block_also_gets_the_wide_class():
+    text = "## One\n\n```\ncode here\n```\n\n## Two\n\nprose\n"
+    body = render._panelized(text)
+    assert body.count("content-block wide") == 1
+
+
+def test_wide_content_blocks_span_the_grid_and_overflowing_tables_scroll():
+    css = (Path(render.__file__).parent / "site.css").read_text()
+    assert ".report-body-grid .content-block.wide" in css
+    assert "grid-column: 1 / -1" in css
+    table_rule = re.search(r"\.md table\s*\{([^}]*)\}", css)
+    assert table_rule, "no `.md table` overflow rule"
+    assert "overflow-x: auto" in table_rule.group(1) and "max-width: 100%" in table_rule.group(1)
+
+
+def test_strip_leading_h1_removes_the_role_title_but_leaves_untitled_bodies_alone():
+    """R2: every role file starts with its own `# Title` line the card header already shows.
+    Only the very first `# ` line (plus any blank lines after it) is stripped — a body with no
+    leading H1, or a title line glued straight to the next line (no blank line), both behave."""
+    assert render._strip_leading_h1("# Title\n\nbody text") == "body text"
+    assert render._strip_leading_h1("# Title\n**Date:** x") == "**Date:** x"  # no blank line
+    assert render._strip_leading_h1("## Not a title\n\nbody") == "## Not a title\n\nbody"
+    assert render._strip_leading_h1("no title at all") == "no title at all"
+
+
+def test_a_role_card_body_renders_no_h1_but_the_raw_tab_keeps_its_own(site):
+    """R2: the card header already carries eyebrow + role title, so the panelized body must
+    not repeat it as an oversized h1 — but the Raw tab renders complete_report.md untouched."""
+    body = _body(_report(site))
+    assert body.count("<h1>") == 2  # the hero's <h1>AAA</h1> and the raw tab's own title
+    assert "<h1>AAA</h1>" in body
+    assert "<h1>Trading Analysis Report: AAA</h1>" in body
+    assert "<h1>Market Analyst" not in body
+
+
+def test_single_body_and_grid_blocks_share_inner_padding_and_headings_get_room():
+    """R3: `.report-body-single` ran text flush to the card edge (`padding: 0 6px`) while grid
+    blocks had their own padding via `.md`; normalise both, and give a block's first heading
+    a smaller top margin so it doesn't collapse into a big padding+margin gap."""
+    css = (Path(render.__file__).parent / "site.css").read_text()
+    single = re.search(r"\.report-body-single\s*\{([^}]*)\}", css)
+    block = re.search(r"\.content-block\s*\{([^}]*)\}", css)
+    assert single and block
+    assert "0 6px" not in single.group(1)
+    assert "padding:" in single.group(1) and "padding:" in block.group(1)
+    assert re.search(r"\.md h2:first-child\s*\{\s*margin-top:\s*4px", css)
+
+
+def test_the_raw_tab_toggle_is_keyed_by_data_tab_not_position(site):
+    """R4: the owner's automated click on the fifth tab appeared to leave Decision visible —
+    verify the markup: exactly five `.tab-body` elements, matching `data-tab` keys, only the
+    first `on`; and the JS swap keys off `dataset.tab`, not array position."""
+    body = _body(_report(site))
+    tabs = re.findall(r"<div class='tab-body( on)?' data-tab='(\w+)'>", body)
+    assert [key for _, key in tabs] == ["overview", "research", "debates", "decision", "raw"]
+    assert [on for on, _ in tabs] == [" on", "", "", "", ""]
+    assert "s.dataset.tab === id" in render.REPORT_JS
