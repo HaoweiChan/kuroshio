@@ -141,3 +141,19 @@ def test_book_md_and_alloc_md_render_in_both_languages(built):
         assert "AAA" in md and "10.0%" in md and "{" not in md
         alloc = bk.render_alloc_md(built, lang=lang)
         assert "100,000" in alloc and "QQQ" in alloc and "{" not in alloc
+
+
+def test_nav_alone_still_allocates_it_is_positions_that_add_the_diff():
+    """`--nav` without a positions file: the dollar allocation is a pure NAV x weight sizing,
+    with nothing held to diff against (the probe's shape)."""
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"),
+        bk.load_jsonl(FIX / "ratings.jsonl"),
+        parse_ips(str(IPS)),
+        meta=json.loads((FIX / "meta.json").read_text()),
+        nav=100000.0,
+    )
+    alloc = book["alloc"]
+    assert alloc["nav"] == 100000.0 and alloc["cash"] is None and alloc["sells"] == []
+    row = next(r for r in alloc["rows"] if r["ticker"] == "AAA")
+    assert row["shares"] == 100 and row["have"] == 0

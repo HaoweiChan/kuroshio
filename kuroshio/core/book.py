@@ -228,8 +228,9 @@ def build_book(
                 })
     gross = sum(x["weight"] for x in core + attack + locked_recs)
 
+    # NAV alone is enough to size the book in money; positions only add the "held now" diff
     alloc = None
-    if positions and nav:
+    if nav:
         held = {p["symbol"]: p for p in positions}
         rows, invested = [], 0.0
         for sleeve, lst in (("core", core), ("attack", attack)):
@@ -248,7 +249,8 @@ def build_book(
             for p in positions if p["symbol"] not in book_tickers
         ]
         alloc = {
-            "nav": nav, "cash": nav - sum(p["market_value"] for p in positions),
+            "nav": nav,
+            "cash": nav - sum(p["market_value"] for p in positions) if positions else None,
             "rows": rows, "invested": invested, "sells": sorted(sells, key=lambda z: -z[1]),
         }
 
