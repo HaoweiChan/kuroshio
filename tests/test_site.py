@@ -132,6 +132,8 @@ def test_fixtures_carry_no_real_nav_broker_symbols_or_absolute_paths():
             assert row[field] == int(row[field]), f"positions.csv: {row['symbol']}.{field} looks real"
 
 
-def test_gitignore_covers_the_default_output_directories():
-    ignored = (ROOT / ".gitignore").read_text()
-    assert "\nbook/\n" in ignored and "\nsite/\n" in ignored
+def test_gitignore_covers_the_default_output_directories_only_at_the_repo_root():
+    """`book/` and `site/` unanchored would also ignore `kuroshio/site/` — the package itself."""
+    lines = (ROOT / ".gitignore").read_text().splitlines()
+    assert "/book/" in lines and "/site/" in lines
+    assert "book/" not in lines and "site/" not in lines

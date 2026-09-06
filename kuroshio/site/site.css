@@ -1,0 +1,34 @@
+/* Rules the generated site adds to the docs design system (style.css): rendered
+   markdown, rating colours, sortable/filterable tables. Kept apart from style.css so
+   that file stays byte-identical to docs/style.css (tests/test_site.py). */
+.md { padding: 6px 18px 14px; font-size: 14.5px; }
+.md h1 { font-size: 22px; margin: 18px 0 8px; letter-spacing: -.01em; }
+.md h2 { font-size: 17px; margin: 22px 0 8px; }
+.md h3 { font-size: 14.5px; margin: 16px 0 6px; }
+.md p, .md li { color: var(--fg); }
+.md table { font-size: 12.5px; }
+.md th, .md td { text-align: left; }
+.md code { font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
+.md blockquote { border-left: 3px solid var(--line); margin: 0; padding: 2px 14px; color: var(--muted); }
+.flag.Buy, .flag.Overweight { color: var(--buy); border-color: var(--buy); background: var(--accent-soft); }
+.flag.Hold { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.flag.Underweight, .flag.Sell { color: var(--sell); border-color: var(--sell); }
+.flag.na { opacity: .6; }
+td.neg { color: var(--sell); } td.pos { color: var(--buy); }
+.card.Overweight, .card.Buy { border-left-color: var(--buy); }
+.card.Hold { border-left-color: var(--warn); }
+.card.Underweight, .card.Sell { border-left-color: var(--sell); }
+.card .act a { color: inherit; text-decoration: none; }
+.hero.small { padding: 40px 0 26px; }
+.hero.small h1 { font-size: clamp(26px, 4vw, 38px); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; }
+.chips .chip { cursor: default; }
+header nav a.on { color: var(--fg); }
+header nav a { white-space: nowrap; }
+@media (max-width: 520px) {
+  header nav { gap: 10px; font-size: 13px; }
+  .brand { font-size: 12px; letter-spacing: .1em; }
+  .hero.small h1 { font-size: 26px; }
+}
+tr.hide { display: none; }
