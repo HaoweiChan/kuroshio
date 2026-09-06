@@ -1,7 +1,7 @@
 ---
 id: TASK-13
 title: '`kuroshio book` and `kuroshio site`: the book builder and the static site as generic CLI, user data outside the repo'
-status: PR
+status: Done
 assignee: []
 created_date: '2026-09-06 03:10'
 labels: []

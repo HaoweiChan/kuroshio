@@ -1,7 +1,7 @@
 ---
 id: TASK-14
 title: 'Report page after the TradingAgents viewer: hero, tabs, lenses, debates, decision trail'
-status: PR
+status: Done
 assignee: []
 created_date: '2026-09-06 21:40'
 labels: []
