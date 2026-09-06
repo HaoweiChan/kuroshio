@@ -104,6 +104,28 @@ limit suppressed:
 
 Full walkthrough (including the LLM research pipeline): [examples/quickstart.md](examples/quickstart.md).
 
+`kuroshio book` turns files you already have into a mechanical book: a screen
+ranking (`kuroshio screen --json`), your ratings ledger, and your IPS become
+`holdings.yml`, `book.json`, `book.md`, `alloc.md` and `propose.out` in the
+directory you name. It walks the ranking under a per-theme cap, drops names a
+rating vetoed or a TTL/earnings print expired, sizes each one at
+`min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends an
+attack budget on the theme-cap overflow, and — with `--nav` and an optional
+`symbol,quantity,market_value,average_price` positions export — sizes the whole
+thing in money against what you already hold. Every input is an option and every
+rule is a flag; nothing is read from a fixed location, so your holdings, NAV and
+reports stay outside the repo. **The output is a mechanical consequence of your
+files, not investment advice, and the engine still never places an order.**
+
+`kuroshio site --book <dir> --reports <dir> --out <dir>` renders that book
+directory, plus any `kuroshio research` report tree, as a static site in this
+project's design system: a book page, an allocation page, a report index and one
+page per report, relative links only, output directory swapped in atomically so a
+server never serves a half-built tree. Labels come from a table keyed by
+`--lang` (`en` or `zh`, defaulting to your IPS `lang` field), and the stylesheet
+is the same `docs/style.css` this project's own page uses. Needs
+`pip install -e ".[site]"`. **Same disclaimer: mechanical output, not advice.**
+
 `kuroshio research` reasons over a paid LLM API. `kuroshio mcp` (`pip install
 -e ".[mcp]"`) is the free alternative: a stdio MCP server that exposes the
 engine's data tools plus `screen`/`propose`/`record_rating`, wired up via
