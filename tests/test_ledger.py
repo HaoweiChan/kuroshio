@@ -219,3 +219,40 @@ def test_a_non_session_date_resolves_to_the_next_session():
     assert out["Buy"]["n"] == 1 and abs(out["Buy"]["mean_fwd"] - 0.2) < 1e-9
     # a date past the last session resolves to nothing
     assert ledger.rating_table([{"date": "2026-02-01", "ticker": "AAA", "rating": "Buy"}], close, 1) == {}
+
+
+# --- stops.jsonl: the ratchet log evaluate scores against (TASK-11 #3) -----------
+
+_STOP_ROWS = [
+    {"date": _DATES[0], "ticker": "BUYHIT", "market": "us", "old": 80.0, "new": 95.0,
+     "reason": "trend_add trail"},
+    {"date": _DATES[8], "ticker": "BUYHIT", "market": "us", "old": 95.0, "new": 130.0,
+     "reason": "trend_add trail"},
+    {"date": _DATES[0], "ticker": "BUYMISS", "market": "us", "old": None, "new": 95.0,
+     "reason": "trend_add trail"},
+]
+
+
+def test_live_stop_is_the_newest_move_at_or_before_the_date():
+    assert ledger.STOPS == "stops.jsonl"
+    assert ledger.live_stop(_STOP_ROWS, "BUYHIT", _DATES[0]) == 95.0
+    assert ledger.live_stop(_STOP_ROWS, "BUYHIT", _DATES[7]) == 95.0   # not the 130 yet
+    assert ledger.live_stop(_STOP_ROWS, "BUYHIT", _DATES[9]) == 130.0
+    assert ledger.live_stop(_STOP_ROWS, "BUYHIT", "2023-01-01") is None  # before any move
+    assert ledger.live_stop(_STOP_ROWS, "NOSUCH", _DATES[9]) is None
+
+
+def test_rating_table_scores_the_stop_that_was_live_on_the_rating_date():
+    """The point of the ledger: BUYHIT's stop was 95.00 on the rating date and 130.00
+    later. Its worst close over the horizon is 100.00 — not stopped. Scoring it against
+    the final 130.00 would call it stopped, which is the bug this file prevents."""
+    rows = [
+        {**_RATING_ROWS[0], "stop_loss": 80.0},   # BUYHIT, ratcheted to 95.00
+        {**_RATING_ROWS[1], "stop_loss": None},   # BUYMISS, ratcheted to 95.00, low 90.00
+    ]
+    table = ledger.rating_table(rows, _RATING_CLOSE, horizon=5, stop_rows=_STOP_ROWS)
+    assert table["Buy"]["n_stops"] == 2
+    assert table["Buy"]["stop_hit_rate"] == pytest.approx(0.5)
+
+    # no stop ledger -> the table is exactly what it always was
+    assert "stop_hit_rate" not in ledger.rating_table(rows, _RATING_CLOSE, horizon=5)["Buy"]

@@ -19,6 +19,7 @@ from kuroshio.types import Holding, Panel
 
 MA_TREND = 50  # the trend_add break window; see engine.propose step 3
 BOOK_VOL_WINDOW = 20  # trailing-session window book_vol() and engine.propose step 2b share
+ATR_WINDOW = 14  # the ATR the stop ratchet trails by; see engine.propose step 3
 
 
 def monitor_inputs(panel: Panel) -> tuple[dict[str, float], dict[str, float], str]:
@@ -76,3 +77,71 @@ def book_vol(panel: Panel, holdings: list[Holding], window: int = BOOK_VOL_WINDO
         return None
     book = sum(rets[h.ticker].fillna(0.0) * (h.weight / total_weight) for h in usable)
     return float(book.std() * (252**0.5)) * 100
+
+
+def trail_inputs(
+    panel: Panel, holdings: list[Holding]
+) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+    """Per-ticker (running high since entry, ATR14, minimum close since entry) for the
+    allocator's stop ratchet and its max-adverse-excursion rule (TASK-11).
+
+    "Since entry" is ``entry_date`` inclusive, so a position opened today is measured
+    from its own session. A holding without an ``entry_date`` has no such window and is
+    absent from all three dicts: the panel's whole lookback is not "since entry", and
+    trailing a stop from a high the user never held through is worse than not trailing.
+
+    So is a window the panel does not cover: a holding whose ``entry_date`` predates the
+    panel's first row is absent from all three too, because everything read off it would
+    be the provider's fetch window under the name "since entry" — the drawdown or high
+    before the first row is simply unread. ``cli.py`` fetches back to the oldest
+    ``entry_date`` in the book, so this is the provider coming up short, not the default.
+
+    ATR is the mean true range over the last ``ATR_WINDOW`` sessions of the *panel*, not
+    of the holding period — it is a volatility estimate, not a since-entry statistic. It
+    needs high/low, so it is absent for every ticker on a panel without them, which is
+    what stops the ratchet on a hand-built or pre-TASK-11 panel. The running high falls
+    back to the closes there, since a close is a session extreme the panel does have.
+    """
+    close, high, low = panel.close, panel.high, panel.low
+    running_high: dict[str, float] = {}
+    atr14: dict[str, float] = {}
+    min_close: dict[str, float] = {}
+    if close.empty:
+        return running_high, atr14, min_close
+
+    have_range = high is not None and low is not None
+    seen: set[str] = set()
+    for holding in holdings:
+        ticker, entry_date = holding.ticker, holding.entry_date
+        if not entry_date or ticker in seen or ticker not in close.columns:
+            continue
+        seen.add(ticker)
+        if pd.Timestamp(close.index[0]) > pd.Timestamp(entry_date):
+            continue
+        since = close[ticker].loc[close.index >= entry_date].dropna()
+        peaks = since
+        if have_range and ticker in high.columns:
+            highs = high[ticker].loc[high.index >= entry_date].dropna()
+            peaks = highs if not highs.empty else since
+        if not since.empty:
+            min_close[ticker] = float(since.min())
+        if not peaks.empty:
+            running_high[ticker] = float(peaks.max())
+        if not have_range or ticker not in high.columns or ticker not in low.columns:
+            continue
+        atr = _atr(high[ticker], low[ticker], close[ticker])
+        if atr is not None:
+            atr14[ticker] = atr
+    return running_high, atr14, min_close
+
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series) -> float | None:
+    """Mean true range over the last ``ATR_WINDOW`` sessions, or None when the panel is
+    shorter than the window or the last value is a hole. Plain mean (`rolling`), not
+    Wilder's smoothing: one window, no seeding, and nothing here needs the exponential
+    version's memory of a range that fell out of the window."""
+    frame = pd.concat([high, low, close.shift(1)], axis=1).dropna(how="all")
+    hi, lo, prev = frame.iloc[:, 0], frame.iloc[:, 1], frame.iloc[:, 2]
+    true_range = pd.concat([hi - lo, (hi - prev).abs(), (lo - prev).abs()], axis=1).max(axis=1)
+    atr = true_range.rolling(ATR_WINDOW).mean()
+    return None if atr.empty or pd.isna(atr.iloc[-1]) else float(atr.iloc[-1])

@@ -1,17 +1,23 @@
 ---
 id: DRAFT-28
 title: 'Drawdown-from-entry, T5''s second trend_add trigger, is not implemented'
-status: Draft
+status: Superseded
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
   - debt
 dependencies: []
+superseded_by: TASK-11
 references:
+  - TASK-11
   - TODO.md T41
   - 'PR #9 R4'
 priority: medium
 ---
+
+## Resolution
+
+Superseded by TASK-11. The open question — whether a `trend_add` should have an ALERT of its own below the DECIDE card — is answered by the ratchet: a `trend_add` at or below its trailed stop is alerted on the break, and the stop is the drawdown trigger.
 
 ## Description
 

@@ -1,17 +1,23 @@
 ---
 id: DRAFT-37
 title: 'The MAE key measures this session''s loss, not the worst one'
-status: Draft
+status: Superseded
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
   - debt
 dependencies: []
+superseded_by: TASK-11
 references:
+  - TASK-11
   - TODO.md T52
   - T6
 priority: medium
 ---
+
+## Resolution
+
+Superseded by TASK-11. `caps.max_adverse_excursion_pct` now compares the minimum close since `entry_date` (`signals.trail_inputs`), so a position that fell to -25% and recovered to -5% still gets its DECIDE card, and the card names the low it measured.
 
 ## Description
 

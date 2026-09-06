@@ -235,3 +235,17 @@ def test_theme_caps_that_is_not_a_mapping_is_a_validate_problem_not_a_silent_def
     for text in (as_list, as_number):
         problems = validate(parse_ips(text))
         assert any("caps.theme_caps" in p and "mapping" in p for p in problems), (text, problems)
+
+
+def test_trail_atr_mult_defaults_to_three_parses_and_is_validated():
+    """TASK-11 #2: the ATR multiple the allocator's stop ratchet trails by."""
+    assert parse_ips("---\ncaps:\n  position_pct: 10\n---\nbody").caps.trail_atr_mult == 3
+    ips = parse_ips("---\nversion: 1\ncaps:\n  trail_atr_mult: 2.5\n---\nbody")
+    assert ips.caps.trail_atr_mult == 2.5
+    assert validate(ips) == []
+
+    # 0 puts the stop on the running high itself; a non-number crashes the subtraction
+    # in the allocator rather than being rejected here.
+    for bad in (0, -1, "3", True):
+        ips.caps.trail_atr_mult = bad
+        assert any("trail_atr_mult" in p for p in validate(ips)), bad

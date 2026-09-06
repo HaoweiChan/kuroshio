@@ -14,11 +14,18 @@ import pandas as pd
 @dataclass
 class Panel:
     """Wide OHLCV panel. ``institutional`` is net-buy shares per (date, ticker);
-    None when the market has no such feed (e.g. US) — consumers must degrade gracefully."""
+    None when the market has no such feed (e.g. US) — consumers must degrade gracefully.
+
+    ``high``/``low`` are the session extremes on ``close``'s index and columns. They are
+    None on a panel built by hand or before TASK-11: the true range — and so the ATR the
+    allocator's stop ratchet trails by — is all that reads them, and that simply does not
+    run without them."""
 
     close: pd.DataFrame
     volume: pd.DataFrame
     institutional: pd.DataFrame | None = None
+    high: pd.DataFrame | None = None
+    low: pd.DataFrame | None = None
 
 
 @dataclass
