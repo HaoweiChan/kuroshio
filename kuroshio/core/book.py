@@ -112,6 +112,7 @@ def build_book(
     pm_size: dict | None = None,
     locked: dict | None = None,
     market: str = "us",
+    ips_name: str = "",
     rules: BookRules = BookRules(),
 ) -> dict:
     """Everything the outputs are rendered from: core/attack/locked/skipped + the alloc."""
@@ -265,6 +266,15 @@ def build_book(
         "asof": asof, "market": market, "core": core, "attack": attack, "locked": locked_recs,
         "skipped": skipped, "gross": gross, "cash": 1 - gross, "alloc": alloc, "review": review,
         "rules": vars(rules), "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
+        # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
+        "ips": {
+            "name": ips_name, "position_pct": ips.caps.position_pct,
+            "position_hard_pct": ips.caps.position_hard_pct, "theme_pct": ips.caps.theme_pct,
+            "theme_caps": dict(ips.caps.theme_caps), "risk_budget_pct": ips.caps.risk_budget_pct,
+            "max_adverse_excursion_pct": ips.caps.max_adverse_excursion_pct,
+            "hurdle": ips.turnover.hurdle, "verdict_floor": ips.turnover.verdict_floor,
+            "max_swaps_per_week": ips.turnover.max_swaps_per_week,
+        },
     }
 
 
@@ -457,3 +467,31 @@ def render_alloc_md(book: dict, lang: str | None = None) -> str:
             f"### {lb['review_head'].format(days=rules.review_days, warn=rules.earnings_warn_days)}", "",
             ", ".join(review) or lb["none"], ""]
     return "\n".join(out)
+
+
+def write_book(
+    book: dict,
+    out_dir: str | Path,
+    *,
+    propose_text: str = "",
+    lang: str | None = None,
+    ma50: dict[str, str] | None = None,
+    book_vol: float | None = None,
+    vol_window: int | None = None,
+) -> list[Path]:
+    """Write the five book files into `out_dir` (created if needed); returns what was written."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    written = [out / "holdings.yml", out / "book.json", out / "book.md", out / "propose.out"]
+    (out / "holdings.yml").write_text(holdings_yaml(book), encoding="utf-8")
+    (out / "book.json").write_text(json.dumps(book, indent=1, default=str), encoding="utf-8")
+    (out / "book.md").write_text(
+        render_book_md(book, lang, propose_text=propose_text, ma50=ma50,
+                       book_vol=book_vol, vol_window=vol_window),
+        encoding="utf-8",
+    )
+    (out / "propose.out").write_text(propose_text, encoding="utf-8")
+    if book["alloc"]:
+        (out / "alloc.md").write_text(render_alloc_md(book, lang), encoding="utf-8")
+        written.append(out / "alloc.md")
+    return written
