@@ -1,0 +1,20 @@
+{
+ "pr": 30,
+ "task": "TASK-14",
+ "calls": [
+  {
+   "call": 1,
+   "mode": "full",
+   "head": "40ba20c",
+   "result": "APPROVED",
+   "findings": [],
+   "notes": [
+    "_panelized splits at a ## line inside a fenced code block",
+    "negative R:R when stop > close",
+    "market grab leaks the header remainder without the \u00b7 separator",
+    "rating outside RATINGS gets no tone class",
+    "AC #5 byte identity does not hold: pages grow by the inlined site.css; markup identical"
+   ]
+  }
+ ]
+}

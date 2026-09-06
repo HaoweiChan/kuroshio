@@ -1,7 +1,7 @@
 ---
 id: TASK-14
 title: 'Report page after the TradingAgents viewer: hero, tabs, lenses, debates, decision trail'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-06 21:40'
 labels: []
@@ -56,9 +56,9 @@ status` shows nothing new.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 the report page has the hero, the five tabs and the four tab bodies described above, built from the role files; a fixture with all twelve role files renders twelve present tiles, a fixture with only complete_report.md renders Raw plus empty-state panels.
-- [ ] #2 tone rules use only existing tokens: bull/aggressive → --accent, bear/conservative → --sell, neutral → --warn, manager/PM/final → --fg; a test greps the page for hex colours and finds none outside the shared stylesheet.
-- [ ] #3 a role file with two or more `## ` sections renders as a grid of content blocks, one section each; a single-section file renders as one block.
-- [ ] #4 every new label exists in both `en` and `zh`; the existing label-parity test covers them.
-- [ ] #5 index, alloc and reports pages are byte-identical to task-13's output for the same inputs.
+- [x] #1 the report page has the hero, the five tabs and the four tab bodies described above, built from the role files; a fixture with all twelve role files renders twelve present tiles, a fixture with only complete_report.md renders Raw plus empty-state panels.
+- [x] #2 tone rules use only existing tokens: bull/aggressive → --accent, bear/conservative → --sell, neutral → --warn, manager/PM/final → --fg; a test greps the page for hex colours and finds none outside the shared stylesheet.
+- [x] #3 a role file with two or more `## ` sections renders as a grid of content blocks, one section each; a single-section file renders as one block.
+- [x] #4 every new label exists in both `en` and `zh`; the existing label-parity test covers them.
+- [x] #5 index, alloc and reports pages are byte-identical to task-13's output for the same inputs.
 <!-- AC:END -->
