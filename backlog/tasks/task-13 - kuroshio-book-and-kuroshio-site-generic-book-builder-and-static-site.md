@@ -1,7 +1,7 @@
 ---
 id: TASK-13
 title: '`kuroshio book` and `kuroshio site`: the book builder and the static site as generic CLI, user data outside the repo'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-06 03:10'
 labels: []
@@ -51,9 +51,9 @@ PYTHONPATH=. .venv/bin/python -m kuroshio.cli site --book /tmp/b --reports tests
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `kuroshio book` reproduces the owner's 2026-09-04 book (same 18 names, same weights) from the same screen, ratings, IPS, NAV and positions files, with every path passed as an option and nothing read from a fixed location.
-- [ ] #2 `kuroshio site` renders the four page types from a fixture book and a fixture report tree; the stylesheet is one packaged file that `docs/index.html` also uses.
-- [ ] #3 `--lang en` and `--lang zh` both render every label; unknown lang falls back to en.
-- [ ] #4 `.gitignore` covers the default output names, and a test asserts no fixture contains a real NAV, broker symbol list or absolute path.
-- [ ] #5 `docs/`/README document the two commands in one paragraph each, with the disclaimer that the output is mechanical, not advice.
+- [x] #1 `kuroshio book` reproduces the owner's 2026-09-04 book (same 18 names, same weights) from the same screen, ratings, IPS, NAV and positions files, with every path passed as an option and nothing read from a fixed location.
+- [x] #2 `kuroshio site` renders the four page types from a fixture book and a fixture report tree; the stylesheet is one packaged file that `docs/index.html` also uses.
+- [x] #3 `--lang en` and `--lang zh` both render every label; unknown lang falls back to en.
+- [x] #4 `.gitignore` covers the default output names, and a test asserts no fixture contains a real NAV, broker symbol list or absolute path.
+- [x] #5 `docs/`/README document the two commands in one paragraph each, with the disclaimer that the output is mechanical, not advice.
 <!-- AC:END -->
