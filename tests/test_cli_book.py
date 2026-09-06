@@ -1,0 +1,112 @@
+"""`kuroshio book` / `kuroshio site` end to end: files in, files out, no fixed locations."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from kuroshio import cli
+
+ROOT = Path(__file__).parent.parent
+FIX = ROOT / "tests" / "fixtures"
+IPS = str(ROOT / "examples" / "ips-balanced.md")
+
+
+@pytest.fixture
+def no_network(monkeypatch):
+    """propose is the only part of `book` that would fetch prices — stub it, not the network."""
+    calls = {}
+
+    def fake(ips_path, holdings_path, market, **kw):
+        calls["ips"], calls["holdings"], calls["market"] = ips_path, holdings_path, market
+        return [], None
+
+    monkeypatch.setattr(cli, "_run_propose", fake)
+    return calls
+
+
+def _book_argv(out: Path, *extra: str) -> list[str]:
+    return [
+        "book", "--screen", str(FIX / "screen.json"), "--ratings", str(FIX / "ratings.jsonl"),
+        "--ips", IPS, "--out", str(out), *extra,
+    ]
+
+
+def test_book_writes_its_five_files_and_nothing_else(tmp_path, no_network, capsys):
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(
+        out, "--scores", str(FIX / "scores.jsonl"), "--meta", str(FIX / "meta.json"),
+        "--nav", "100000", "--positions", str(FIX / "positions.csv"),
+        "--pm-size", str(FIX / "pm_size.json"), "--locked", str(FIX / "locked.json"),
+    )) == 0
+    assert sorted(p.name for p in out.iterdir()) == [
+        "alloc.md", "book.json", "book.md", "holdings.yml", "propose.out",
+    ]
+    book = json.loads((out / "book.json").read_text())
+    assert [r["ticker"] for r in book["core"]] == ["AAA", "BBB", "DDD", "GGG"]
+    assert book["alloc"]["nav"] == 100000.0
+    assert no_network["holdings"] == str(out / "holdings.yml")  # propose ran on the book's own file
+    assert "core 4 · attack 1" in capsys.readouterr().out
+
+
+def test_book_runs_without_positions_scores_or_a_meta_file(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out)) == 0
+    book = json.loads((out / "book.json").read_text())
+    assert book["alloc"] is None
+    assert not (out / "alloc.md").exists()
+    # no industries -> every name is its own theme, so the per-theme cap cuts nobody
+    assert {r["ticker"] for r in book["core"]} == {"AAA", "BBB", "DDD", "FFF", "GGG", "III"}
+
+
+def test_book_rules_are_cli_options(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(
+        out, "--meta", str(FIX / "meta.json"), "--scores", str(FIX / "scores.jsonl"),
+        "--core-n", "2", "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "0",
+    )) == 0
+    book = json.loads((out / "book.json").read_text())
+    assert [r["ticker"] for r in book["core"]] == ["AAA", "GGG"]
+    assert [r["ticker"] for r in book["attack"]] == ["BBB"]
+
+
+def test_book_survives_a_propose_that_cannot_run(tmp_path, monkeypatch):
+    def boom(*a, **kw):
+        raise RuntimeError("no network here")
+
+    monkeypatch.setattr(cli, "_run_propose", boom)
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out)) == 0
+    assert "no network here" in (out / "propose.out").read_text()
+
+
+def test_site_renders_the_book_directory(tmp_path, no_network):
+    book, site = tmp_path / "book", tmp_path / "site"
+    assert cli.main(_book_argv(
+        book, "--meta", str(FIX / "meta.json"), "--nav", "100000",
+        "--positions", str(FIX / "positions.csv"),
+    )) == 0
+    assert cli.main([
+        "site", "--book", str(book), "--reports", str(FIX / "reports"), "--out", str(site),
+    ]) == 0
+    assert (site / "index.html").exists() and (site / "reports" / "BBB" / "2026-01-02.html").exists()
+
+
+def test_site_lang_option_overrides_the_ips_language(tmp_path, no_network):
+    book, site = tmp_path / "book", tmp_path / "site"
+    assert cli.main(_book_argv(book)) == 0
+    assert cli.main(["site", "--book", str(book), "--out", str(site), "--lang", "zh"]) == 0
+    assert "持倉" in (site / "index.html").read_text()
+    assert (site / "reports.html").exists()  # a site with no reports still gets the page
+
+
+def test_site_unknown_lang_falls_back_to_english_instead_of_exiting(tmp_path, no_network):
+    """AC #3: an unrecognized `--lang` renders English, matching `book`'s own fallback —
+    it must not be an argparse `choices` list that rejects the language outright."""
+    book, site = tmp_path / "book", tmp_path / "site"
+    assert cli.main(_book_argv(book)) == 0
+    assert cli.main(["site", "--book", str(book), "--out", str(site), "--lang", "ja"]) == 0
+    index = (site / "index.html").read_text()
+    assert "Holdings" in index and "持倉" not in index

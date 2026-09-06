@@ -1,0 +1,10 @@
+{
+ "AAA": {"sector": "Industrials", "industry": "Widgets", "vol": 0.42},
+ "BBB": {"sector": "Industrials", "industry": "Widgets", "vol": 0.38},
+ "CCC": {"sector": "Industrials", "industry": "Widgets", "vol": 0.55},
+ "DDD": {"sector": "Industrials", "industry": "Widgets", "vol": 0.61},
+ "EEE": {"sector": "Technology", "industry": "Gadgets", "vol": 0.33},
+ "FFF": {"sector": "Technology", "industry": "Gadgets", "vol": 0.44},
+ "GGG": {"sector": "Technology", "industry": "Gizmos", "vol": 0.29},
+ "III": {"sector": "Industrials", "industry": "Widgets", "vol": 0.5}
+}
