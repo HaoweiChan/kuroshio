@@ -1,7 +1,7 @@
 ---
 id: DRAFT-62
 title: 'backlog config statuses omit Draft and Superseded'
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-06'
 labels:
@@ -26,3 +26,7 @@ Probe: none — library change, ruff + pytest are the whole truth
 <!-- AC:BEGIN -->
 - [ ] #1 run `backlog task list --plain` lists no status warnings
 <!-- AC:END -->
+
+## Resolution
+
+Fixed: `backlog/config.yml` statuses are now `["To Do", "In Progress", "Done", "Draft", "Superseded"]`, so the 59 `status: Draft` files and the Superseded ones are legal to the CLI.

@@ -62,6 +62,38 @@ def test_candidates_from_yaml_builds_verdicts_and_themes(tmp_path):
     assert themes == {"NEW": "ai"}
 
 
+# TASK-15 / DRAFT-8: `_candidates_from_yaml` had the unknown-key half of input hygiene
+# but not the missing-key half — bare `item["ticker"]` raised a context-free KeyError.
+def test_candidates_from_yaml_missing_ticker_names_the_key(tmp_path):
+    f = tmp_path / "candidates.yml"
+    f.write_text("- {final_score: 0.5}\n")
+    with pytest.raises(ValueError, match="missing required key 'ticker'"):
+        _candidates_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-8: `_load_yaml` assumed a top-level list — a file hand-written as a
+# mapping used to iterate as its own keys (strings) and die on `item.get`.
+def test_candidates_from_yaml_rejects_mapping_top_level(tmp_path):
+    f = tmp_path / "candidates.yml"
+    f.write_text("ticker: AAPL\nfinal_score: 0.5\n")
+    with pytest.raises(ValueError, match="expected a list"):
+        _candidates_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-12: same `item.get('ticker', '?')` gap on the candidates side.
+def test_candidates_from_yaml_null_ticker_reports_question_mark(tmp_path):
+    f = tmp_path / "candidates.yml"
+    f.write_text("- {ticker: null, bogus: 1}\n")
+    with pytest.raises(ValueError, match=r"\?: unknown key 'bogus'"):
+        _candidates_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-16: types.py declared `final_score: float` while this parser always
+# stores `item.get("final_score")`, i.e. None when the file omits it.
+def test_candidate_final_score_annotation_allows_none():
+    assert Candidate.__annotations__["final_score"] == "float | None"
+
+
 # --- screen: arg-parsing only, no network -----------------------------------
 
 
@@ -215,6 +247,82 @@ def test_holdings_from_yaml_rejects_unknown_setup_type(tmp_path):
     f = tmp_path / "holdings.yml"
     f.write_text("- {ticker: AAPL, weight: 0.08, setup_type: dip_buy}\n")
     with pytest.raises(ValueError, match="dip_buy"):
+        _holdings_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-9: a hand-edit that forgets `weight:` used to blow `Holding(**item)`
+# up with a bare TypeError (exit 1), not the exit-2 `error:` path unknown keys get.
+def test_holdings_from_yaml_missing_weight_names_the_key(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL}\n")
+    with pytest.raises(ValueError, match="weight"):
+        _holdings_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-8: `- AAPL` is a list of strings, not mappings — `item.get` on a
+# plain string used to raise a context-free AttributeError.
+def test_holdings_from_yaml_rejects_non_mapping_entry(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- AAPL\n")
+    with pytest.raises(ValueError, match="not a mapping"):
+        _holdings_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-41 + DRAFT-11: quoting a price is an ordinary YAML habit — it must
+# coerce to float, not stay `str` and blow up `_entry_price`'s `> 0` comparison later.
+def test_holdings_from_yaml_coerces_quoted_prices(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text('- {ticker: AAPL, weight: 0.1, entry_price: "100.0", invalidation_price: "90"}\n')
+    (h,) = _holdings_from_yaml(str(f))
+    assert (h.entry_price, h.invalidation_price) == (100.0, 90.0)
+    assert isinstance(h.entry_price, float) and isinstance(h.invalidation_price, float)
+
+
+# TASK-15 / DRAFT-11: a price that is not a number at all is a named ValueError, not a
+# traceback three frames downstream in the allocator.
+def test_holdings_from_yaml_rejects_non_numeric_entry_price(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_price: not-a-number}\n")
+    with pytest.raises(ValueError, match="entry_price"):
+        _holdings_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-10: entry_date is documented (types.py, docs/ARCHITECTURE.md) as an
+# ISO date; a value fromisoformat can't parse used to be stored verbatim.
+def test_holdings_from_yaml_rejects_non_iso_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_date: not-a-date}\n")
+    with pytest.raises(ValueError, match="entry_date"):
+        _holdings_from_yaml(str(f))
+
+
+# R1 (review pr33 call-1): fromisoformat is called for its exception only, then the
+# *raw* string is re-stored — so a form fromisoformat accepts but that is not
+# YYYY-MM-DD (ISO basic, e.g. `20250115`) is kept unnormalized. signals.trail_inputs
+# then string-compares it against `YYYY-MM-DD` index labels, where '-' (0x2D) sorts
+# below '0' (0x30), so the since-entry window comes out empty with no warning.
+def test_holdings_from_yaml_normalizes_iso_basic_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_date: 20250115}\n")
+    (h,) = _holdings_from_yaml(str(f))
+    assert h.entry_date == "2025-01-15"
+
+
+# DRAFT-10 pin: unquoted `entry_date: 2025-01-15 10:30:00` comes back from PyYAML as a
+# datetime.datetime, not a date — normalization must not start accepting it.
+def test_holdings_from_yaml_still_rejects_datetime_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_date: 2025-01-15 10:30:00}\n")
+    with pytest.raises(ValueError, match="entry_date"):
+        _holdings_from_yaml(str(f))
+
+
+# TASK-15 / DRAFT-12: `item.get('ticker', '?')` only covers an absent key — a null
+# ticker used to print the literal `None` in the error prefix.
+def test_holdings_from_yaml_null_ticker_reports_question_mark(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: null, weight: 0.1, bogus: 1}\n")
+    with pytest.raises(ValueError, match=r"\?: unknown key 'bogus'"):
         _holdings_from_yaml(str(f))
 
 

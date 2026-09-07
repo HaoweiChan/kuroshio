@@ -1,7 +1,7 @@
 ---
 id: DRAFT-38
 title: DECIDE's "add" option carries no size
-status: Draft
+status: Superseded
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
@@ -27,3 +27,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 T7's sizing also reaches the DECIDE card's add option, or the card says why it cannot size it; one test.
 <!-- AC:END -->
+
+## Resolution
+
+Closed as a duplicate of DRAFT-46, which records the same defect (a DECIDE card names an add with no target weight) with a reproduction. The bug is still open there; only this second copy of it is closed. Its T7 dependency is satisfied — TASK-1 shipped `target_weight` — so DRAFT-46 is now actionable.

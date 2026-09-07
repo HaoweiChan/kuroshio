@@ -1,7 +1,7 @@
 ---
 id: DRAFT-9
 title: Missing required holdings key still escapes as a bare TypeError
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:15'
 labels:
@@ -12,6 +12,13 @@ references:
   - 'PR #5 R1'
 priority: medium
 ---
+
+## Resolution
+
+Closed by TASK-15. `_holdings_from_yaml` now derives its required-key set from the
+dataclass fields with no default (`ticker`, `weight`) and raises a `ValueError` naming
+the missing key before calling `Holding(**item)`. Covered by
+`test_holdings_from_yaml_missing_weight_names_the_key` (tests/test_cli.py).
 
 ## Description
 
@@ -25,3 +32,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 a holdings item missing `ticker` or `weight` exits 2 with a message naming the file, the offending entry, and the missing key; covered by a test alongside test_propose_exits_2_on_unknown_holdings_key.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

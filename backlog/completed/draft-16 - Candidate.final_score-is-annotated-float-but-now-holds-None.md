@@ -1,7 +1,7 @@
 ---
 id: DRAFT-16
 title: Candidate.final_score is annotated float but now holds None
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
@@ -12,6 +12,12 @@ references:
   - 'PR #6 R8'
 priority: medium
 ---
+
+## Resolution
+
+Closed by TASK-15. `Candidate.final_score` is now annotated `float | None` (types.py),
+matching what `_candidates_from_yaml` has always stored. Covered by
+`test_candidate_final_score_annotation_allows_none` (tests/test_cli.py).
 
 ## Description
 
@@ -25,3 +31,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 `final_score: float | None` on the dataclass, or `_candidates_from_yaml` returns only scored candidates.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

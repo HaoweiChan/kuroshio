@@ -137,25 +137,63 @@ def _survivorship_caveat(members_file: str | None) -> str:
 def _load_yaml(path: str):
     import yaml
 
-    return yaml.safe_load(Path(path).read_text()) or []
+    doc = yaml.safe_load(Path(path).read_text())
+    if doc is None:
+        return []
+    if not isinstance(doc, list):
+        # a hand-written mapping (or a scalar) would otherwise iterate as its own keys
+        # (or characters) and die downstream on the first `item.get`.
+        raise ValueError(f"{path}: expected a list of entries, got {type(doc).__name__}")
+    return doc
 
 
 def _holdings_from_yaml(path: str) -> list[Holding]:
     known = {f.name for f in dataclasses.fields(Holding)}
+    # a field with no default is a required key — ticker/weight today, whatever the
+    # dataclass grows tomorrow.
+    required = {
+        f.name for f in dataclasses.fields(Holding)
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    }
     holdings = []
     for item in _load_yaml(path):
-        where = f"{path}: {item.get('ticker', '?')}"
+        if not isinstance(item, dict):
+            # `- AAPL` is a list of strings, not mappings — item.get would AttributeError.
+            raise ValueError(f"{path}: entry {item!r} is not a mapping (expected key: value pairs)")
+        where = f"{path}: {item.get('ticker') or '?'}"
         for key in item:
             if key not in known:
                 raise ValueError(f"{where}: unknown key {key!r} (expected one of {sorted(known)})")
+        missing = required - item.keys()
+        if missing:
+            raise ValueError(f"{where}: missing required key {sorted(missing)[0]!r}")
         if item.get("setup_type") is not None and item["setup_type"] not in SETUP_TYPES:
             raise ValueError(
                 f"{where}: unknown setup_type {item['setup_type']!r} "
                 f"(expected one of {list(SETUP_TYPES)})"
             )
+        for price_key in ("entry_price", "invalidation_price"):
+            if item.get(price_key) is not None:
+                # quoting a price is an ordinary YAML habit — coerce it, or name the
+                # ticker and field instead of letting `> 0` blow up downstream.
+                try:
+                    item[price_key] = float(item[price_key])
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        f"{where}: {price_key} must be a number, got {item[price_key]!r}"
+                    ) from None
         if item.get("entry_date") is not None:
             # unquoted `2025-01-15` comes back from PyYAML as a datetime.date; the field is ISO str
-            item["entry_date"] = str(item["entry_date"])
+            entry_date = str(item["entry_date"])
+            try:
+                # normalize, not just validate: fromisoformat also accepts ISO *basic*
+                # form (`20250115`) — re-storing the raw string would keep it in a form
+                # signals.trail_inputs' `close.index >= entry_date` string-compares wrong.
+                item["entry_date"] = datetime.date.fromisoformat(entry_date).isoformat()
+            except ValueError:
+                raise ValueError(
+                    f"{where}: entry_date {entry_date!r} is not an ISO date (YYYY-MM-DD)"
+                ) from None
         holdings.append(Holding(**item))
     return holdings
 
@@ -171,12 +209,17 @@ def _candidates_from_yaml(path: str) -> tuple[list[Candidate], dict[str, str], d
     verdicts: dict[str, str] = {}
     themes: dict[str, str] = {}
     for item in _load_yaml(path):
-        where = f"{path}: {item.get('ticker', '?')}"
+        if not isinstance(item, dict):
+            # `- AAPL` is a list of strings, not mappings — item.get would AttributeError.
+            raise ValueError(f"{path}: entry {item!r} is not a mapping (expected key: value pairs)")
+        where = f"{path}: {item.get('ticker') or '?'}"
         for key in item:
             if key not in _CANDIDATE_KEYS:
                 raise ValueError(
                     f"{where}: unknown key {key!r} (expected one of {sorted(_CANDIDATE_KEYS)})"
                 )
+        if "ticker" not in item:
+            raise ValueError(f"{where}: missing required key 'ticker'")
         ticker = item["ticker"]
         if item.get("verdict") is not None:
             verdicts[ticker] = item["verdict"]
