@@ -296,6 +296,27 @@ def test_holdings_from_yaml_rejects_non_iso_entry_date(tmp_path):
         _holdings_from_yaml(str(f))
 
 
+# R1 (review pr33 call-1): fromisoformat is called for its exception only, then the
+# *raw* string is re-stored — so a form fromisoformat accepts but that is not
+# YYYY-MM-DD (ISO basic, e.g. `20250115`) is kept unnormalized. signals.trail_inputs
+# then string-compares it against `YYYY-MM-DD` index labels, where '-' (0x2D) sorts
+# below '0' (0x30), so the since-entry window comes out empty with no warning.
+def test_holdings_from_yaml_normalizes_iso_basic_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_date: 20250115}\n")
+    (h,) = _holdings_from_yaml(str(f))
+    assert h.entry_date == "2025-01-15"
+
+
+# DRAFT-10 pin: unquoted `entry_date: 2025-01-15 10:30:00` comes back from PyYAML as a
+# datetime.datetime, not a date — normalization must not start accepting it.
+def test_holdings_from_yaml_still_rejects_datetime_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.1, entry_date: 2025-01-15 10:30:00}\n")
+    with pytest.raises(ValueError, match="entry_date"):
+        _holdings_from_yaml(str(f))
+
+
 # TASK-15 / DRAFT-12: `item.get('ticker', '?')` only covers an absent key — a null
 # ticker used to print the literal `None` in the error prefix.
 def test_holdings_from_yaml_null_ticker_reports_question_mark(tmp_path):

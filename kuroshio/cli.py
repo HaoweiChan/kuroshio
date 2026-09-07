@@ -186,12 +186,14 @@ def _holdings_from_yaml(path: str) -> list[Holding]:
             # unquoted `2025-01-15` comes back from PyYAML as a datetime.date; the field is ISO str
             entry_date = str(item["entry_date"])
             try:
-                datetime.date.fromisoformat(entry_date)
+                # normalize, not just validate: fromisoformat also accepts ISO *basic*
+                # form (`20250115`) — re-storing the raw string would keep it in a form
+                # signals.trail_inputs' `close.index >= entry_date` string-compares wrong.
+                item["entry_date"] = datetime.date.fromisoformat(entry_date).isoformat()
             except ValueError:
                 raise ValueError(
                     f"{where}: entry_date {entry_date!r} is not an ISO date (YYYY-MM-DD)"
                 ) from None
-            item["entry_date"] = entry_date
         holdings.append(Holding(**item))
     return holdings
 
