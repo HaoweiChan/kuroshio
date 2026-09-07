@@ -25,3 +25,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 numeric-string `entry_price`/`invalidation_price` either coerce to float or raise a message naming the ticker and the key; one test case.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

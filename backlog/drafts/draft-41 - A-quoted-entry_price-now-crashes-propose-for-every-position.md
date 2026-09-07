@@ -25,3 +25,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 either the holdings loader rejects a non-numeric entry_price with a message naming the ticker and key (folding in T22), or `_entry_price` treats a non-number as absent; one test on a quoted-price holdings file.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

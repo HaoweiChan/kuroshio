@@ -25,3 +25,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 the message reads `?` (or `<no ticker>`) when the ticker is absent or null.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

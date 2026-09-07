@@ -25,3 +25,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 a candidates.yml with a missing/misspelled key exits 2 with a message naming the file and the key; a non-list top-level document is rejected with a clear message — this covers `_holdings_from_yaml` too, whose `item.get` is the line that raises `AttributeError` on a non-mapping entry (`- AAPL`); covered by tests alongside the T3 holdings cases.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.

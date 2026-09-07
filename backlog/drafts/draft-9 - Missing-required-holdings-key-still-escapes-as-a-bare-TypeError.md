@@ -25,3 +25,8 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 a holdings item missing `ticker` or `weight` exits 2 with a message naming the file, the offending entry, and the missing key; covered by a test alongside test_propose_exits_2_on_unknown_holdings_key.
 <!-- AC:END -->
+
+## Scheduled
+
+Rolled into TASK-15 (input type validation for holdings.yml and candidates.yml) — do not
+fix separately; that task closes all seven together and moves this file on merge.
