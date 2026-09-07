@@ -1,7 +1,7 @@
 ---
 id: DRAFT-41
 title: A quoted entry_price now crashes propose for every position
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:17'
 labels:
@@ -12,6 +12,13 @@ references:
   - 'PR #10 R5'
 priority: medium
 ---
+
+## Resolution
+
+Closed by TASK-15. `_holdings_from_yaml` now coerces `entry_price` (and
+`invalidation_price`) to `float` at parse time, so `_entry_price`'s `h.entry_price > 0`
+gate always compares two numbers, never a `str` against an `int`. Covered by
+`test_holdings_from_yaml_coerces_quoted_prices` (tests/test_cli.py).
 
 ## Description
 

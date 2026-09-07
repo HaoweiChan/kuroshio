@@ -1,7 +1,7 @@
 ---
 id: DRAFT-11
 title: Quoted entry_price/invalidation_price stay strings in float fields
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:15'
 labels:
@@ -12,6 +12,13 @@ references:
   - 'PR #5 R4'
 priority: high
 ---
+
+## Resolution
+
+Closed by TASK-15. `_holdings_from_yaml` coerces `entry_price`/`invalidation_price` to
+`float` (numeric strings included) or raises a `ValueError` naming the ticker and field
+for a value that isn't a number. Covered by `test_holdings_from_yaml_coerces_quoted_prices`
+and `test_holdings_from_yaml_rejects_non_numeric_entry_price` (tests/test_cli.py).
 
 ## Description
 

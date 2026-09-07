@@ -1,7 +1,7 @@
 ---
 id: DRAFT-8
 title: candidates.yml gets none of the holdings.yml input hygiene
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:15'
 labels:
@@ -12,6 +12,15 @@ references:
   - T3
 priority: medium
 ---
+
+## Resolution
+
+Closed by TASK-15. `_load_yaml` now rejects a non-list top-level document by name, and
+both parsers reject a non-mapping entry (e.g. `- AAPL`) instead of AttributeError-ing
+out of `item.get`; `_candidates_from_yaml` now requires `ticker` instead of raising a
+bare `KeyError`. Covered by `test_candidates_from_yaml_missing_ticker_names_the_key`,
+`test_candidates_from_yaml_rejects_mapping_top_level`, and
+`test_holdings_from_yaml_rejects_non_mapping_entry` (tests/test_cli.py).
 
 ## Description
 

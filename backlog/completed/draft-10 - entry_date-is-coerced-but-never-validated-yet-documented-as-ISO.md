@@ -1,7 +1,7 @@
 ---
 id: DRAFT-10
 title: 'entry_date is coerced but never validated, yet documented as ISO'
-status: Draft
+status: Done
 assignee: []
 created_date: '2026-09-02 22:15'
 labels:
@@ -12,6 +12,14 @@ references:
   - 'PR #5 R3'
 priority: high
 ---
+
+## Resolution
+
+Closed by TASK-15. `_holdings_from_yaml` now runs `datetime.date.fromisoformat` on the
+coerced `entry_date` at parse time and raises a `ValueError` naming the ticker and the
+value it couldn't parse, instead of storing it verbatim for `_lookback_days` to swallow
+downstream. Covered by `test_holdings_from_yaml_rejects_non_iso_entry_date`
+(tests/test_cli.py).
 
 ## Description
 
