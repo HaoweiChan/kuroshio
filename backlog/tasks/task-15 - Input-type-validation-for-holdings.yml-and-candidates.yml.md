@@ -1,7 +1,7 @@
 ---
 id: TASK-15
 title: 'Input type validation for holdings.yml and candidates.yml'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-08'
 labels: []
