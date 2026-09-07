@@ -1,7 +1,7 @@
 ---
 id: TASK-12
 title: 'Per-theme budgets: caps.theme_caps overrides theme_pct for the themes it names'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-09-06 01:30'
 labels: []
