@@ -52,11 +52,11 @@ Probe: `printf -- '- {ticker: AAPL, weight: 0.1, entry_price: "100.0", invalidat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 quoted `entry_price` / `invalidation_price` parse to `float`; a value that is not a number is a `ValueError` naming the file, ticker and field, not a traceback (DRAFT-41, DRAFT-11).
-- [ ] #2 a holdings entry missing a required key exits 2 with an `error:` line naming the missing key, not a `TypeError` traceback (DRAFT-9).
-- [ ] #3 a candidates entry missing `ticker` exits 2 the same way, and a YAML file whose top level is a mapping rather than a list is rejected by name instead of dying on `item.get` (DRAFT-8).
-- [ ] #4 `entry_date` is validated as an ISO date at parse time and a non-ISO value is rejected there, not swallowed downstream (DRAFT-10).
-- [ ] #5 `- {ticker: null, ...}` reports `?` rather than `None` in the error prefix, in both parsers (DRAFT-12).
-- [ ] #6 `Candidate.final_score` is annotated `float | None`, matching what the parser stores (DRAFT-16).
-- [ ] #7 each of the seven drafts has a test that goes red without its fix; the seven draft files move to `backlog/completed/`.
+- [x] #1 quoted `entry_price` / `invalidation_price` parse to `float`; a value that is not a number is a `ValueError` naming the file, ticker and field, not a traceback (DRAFT-41, DRAFT-11).
+- [x] #2 a holdings entry missing a required key exits 2 with an `error:` line naming the missing key, not a `TypeError` traceback (DRAFT-9).
+- [x] #3 a candidates entry missing `ticker` exits 2 the same way, and a YAML file whose top level is a mapping rather than a list is rejected by name instead of dying on `item.get` (DRAFT-8).
+- [x] #4 `entry_date` is validated as an ISO date at parse time and a non-ISO value is rejected there, not swallowed downstream (DRAFT-10).
+- [x] #5 `- {ticker: null, ...}` reports `?` rather than `None` in the error prefix, in both parsers (DRAFT-12).
+- [x] #6 `Candidate.final_score` is annotated `float | None`, matching what the parser stores (DRAFT-16).
+- [x] #7 each of the seven drafts has a test that goes red without its fix; the seven draft files move to `backlog/completed/`.
 <!-- AC:END -->

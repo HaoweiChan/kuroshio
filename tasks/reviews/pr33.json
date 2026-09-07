@@ -1,19 +1,22 @@
 {
   "pr": 33,
   "task": "TASK-15",
-  "call": 1,
+  "call": 2,
   "mode": "focused",
-  "result": "REQUEST_CHANGES",
+  "result": "APPROVED",
   "findings": [
     {
       "id": "R1",
       "severity": "MEDIUM",
       "blocking": true,
       "claim": "The new entry_date check validates with date.fromisoformat but stores the raw string, so a value that passes validation (20250115) is kept in a non-YYYY-MM-DD form and silently disables the position's trailing-stop / max-adverse-excursion monitoring downstream.",
-      "evidence": "kuroshio/cli.py — fromisoformat is called for its exception only, then the raw string is re-stored. signals.py:121 compares `close.index >= entry_date` as strings against YYYY-MM-DD labels; '2025-01-20' >= '20250115' is False because '-' (0x2D) sorts below '0' (0x30), so the since-entry window is empty and the ticker vanishes from running_high/atr14/min_close with no warning. The error string the diff emits promises (YYYY-MM-DD).",
+      "evidence": "kuroshio/cli.py \u2014 fromisoformat is called for its exception only, then the raw string is re-stored. signals.py:121 compares `close.index >= entry_date` as strings against YYYY-MM-DD labels; '2025-01-20' >= '20250115' is False because '-' (0x2D) sorts below '0' (0x30), so the since-entry window is empty and the ticker vanishes from running_high/atr14/min_close with no warning. The error string the diff emits promises (YYYY-MM-DD).",
       "repro": "_holdings_from_yaml on `- {ticker: T, weight: 0.1, entry_date: 20250115, entry_price: 100.0}` stores '20250115'; trail_inputs over a 3-row panel then returns ({}, {}, {}) where entry_date '2025-01-15' returns ({'T': 150.0}, {}, {'T': 110.0}).",
       "acceptance": "entry_date is stored normalized (date.fromisoformat(...).isoformat()), or any form that is not YYYY-MM-DD is rejected to match the error text. A case asserting entry_date: 20250115 yields '2025-01-15' (or raises) that is red today.",
-      "orchestrator_note": "Repro reproduced independently by the orchestrator before dispatch. Blocks under question 3 (wrong output on realistic input) and question 1 (AC #4)."
+      "orchestrator_note": "Repro reproduced independently by the orchestrator before dispatch. Blocks under question 3 (wrong output on realistic input) and question 1 (AC #4).",
+      "status": "VERIFIED",
+      "resolution": "One line in _holdings_from_yaml: item['entry_date'] = datetime.date.fromisoformat(entry_date).isoformat(), replacing validate-then-store-raw.",
+      "delta_evidence": "Delta verifier confirmed the stored value is now '2025-01-15' for entry_date: 20250115, that a datetime string is still rejected per DRAFT-10, that entry_date was the last validate-but-store-raw field in the function, and that the other Holding(...) sites (cli.py:976, simulate.py:193/273/302) either omit entry_date or set it from asof, an already-YYYY-MM-DD panel label. Orchestrator separately derived the case red by reverse-applying only the cli.py hunk."
     },
     {
       "id": "R2",
@@ -23,7 +26,15 @@
       "evidence": "engine.py:191 `h.weight * h.leverage` raises TypeError on a quoted weight; engine.py:539 `c.final_score - incumbent.score` raises on a quoted final_score.",
       "repro": "printf -- '- {ticker: AAPL, weight: \"0.08\", theme: tech, score: 0.55}\\n' > /tmp/hw.yml && PYTHONPATH=. python -m kuroshio.cli propose --ips examples/ips-balanced.md --holdings /tmp/hw.yml --market us  # exit 1 + traceback",
       "acceptance": "The same float() coercion applied to weight and final_score, landing on the existing exit-2 path.",
-      "orchestrator_note": "Not blocking: orchestrator confirmed exit 1 both before (f4f85ce) and after (4372a22) the change, so it is pre-existing and not a regression, and no acceptance criterion names these two fields. Has a repro, so filed as debt (DRAFT-65)."
+      "orchestrator_note": "Not blocking: orchestrator confirmed exit 1 both before (f4f85ce) and after (4372a22) the change, so it is pre-existing and not a regression, and no acceptance criterion names these two fields. Has a repro, so filed as debt (DRAFT-65).",
+      "status": "DEBT",
+      "resolution": "Not repaired. Filed as DRAFT-65. Delta verifier confirmed the repair diff does not touch it."
     }
-  ]
+  ],
+  "call2": {
+    "result": "APPROVED",
+    "new_findings": [],
+    "mode": "verify",
+    "note": "Delta scope was 1d40e0b..b0a2b7d only; 80f4a21 on top is backlog markdown."
+  }
 }
