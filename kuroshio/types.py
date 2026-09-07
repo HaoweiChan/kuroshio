@@ -33,7 +33,9 @@ class Candidate:
     ticker: str
     date: str
     rank: int
-    final_score: float
+    # optional: _candidates_from_yaml stores item.get("final_score"), i.e. None, for a
+    # file that leaves the score for _score_missing to fill in later.
+    final_score: float | None
     scores: dict[str, float] = field(default_factory=dict)
     factors: dict[str, float] = field(default_factory=dict)
     flags: dict[str, bool] = field(default_factory=dict)
