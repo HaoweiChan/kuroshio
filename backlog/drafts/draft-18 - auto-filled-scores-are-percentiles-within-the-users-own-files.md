@@ -25,3 +25,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 an auto-filled score for a name is unchanged by adding an unrelated ticker to holdings.yml, and a 2-name portfolio gets a real universe distance instead of a refusal; the pool-size guard and the rank-distance disclosure can then go.
 <!-- AC:END -->
+
+## Still open, premise moved (2026-09-08 sweep)
+
+The fix this draft names shipped as TASK-7: `propose --universe-file` scores the cross-section against a universe snapshot instead of the user's own files, and the card names it ("the universe in <file>"). What is left is that it is opt-in — without the flag, cli.py:507's `need = floor(min_rank_weight / hurdle) + 2` guard and the rank-within-your-portfolio caveat still govern the default path. Rescope to "make the universe the default, or say on every card which cross-section was used" rather than the original "there is no universe".

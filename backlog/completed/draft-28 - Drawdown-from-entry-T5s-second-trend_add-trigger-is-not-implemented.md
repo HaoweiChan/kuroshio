@@ -33,3 +33,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 the drawdown trigger ships with a threshold owned by T6's IPS key; until then a trend_add at any loss above its MA50 is silent, and that is stated where the monitoring rules are documented. Update (T6 shipped): `caps.max_adverse_excursion_pct` exists and reads no setup_type, so that same trend_add now gets a DECIDE card — it is no longer silent, and T41 needs no second key. What is left is whether the *trend_add ALERT* should also fire on drawdown, i.e. whether one position deserves both cards at a threshold it already decided on.
 <!-- AC:END -->
+
+## Resolution
+
+Closed by the MAE card (`caps.max_adverse_excursion_pct`, allocator/engine.py step 3b), which is the drawdown-from-entry trigger this draft deferred to T6. Verified 2026-09-08.

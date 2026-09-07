@@ -25,3 +25,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 one helper (e.g. `_fetch_panel(profile, provider_name, tickers, ...)`) returning the panel or signalling the exit-2 path, used by all three commands, with the existing provider-missing tests still passing unchanged.
 <!-- AC:END -->
+
+## Still open, premise moved (2026-09-08 sweep)
+
+Not three copies any more — six. `grep -c "is not installed" kuroshio/cli.py` returns 6 (screen, backtest, simulate, propose, book, research). The argument for extracting it is stronger than when this was written; the title understates it.

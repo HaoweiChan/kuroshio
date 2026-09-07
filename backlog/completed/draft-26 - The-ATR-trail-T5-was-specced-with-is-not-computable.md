@@ -31,3 +31,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 `Panel` carries high/low from both providers, and the trend_add rule alerts on either the MA50 break or an ATR-multiple trail from the running high, with a test per trigger. Until then `core/allocator/engine.py` step 3 says MA50 only, in a `ponytail:` comment naming this task.
 <!-- AC:END -->
+
+## Resolution
+
+Closed by TASK-11. `Panel` now carries `high`/`low` (kuroshio/types.py), both providers populate them, and `signals._atr` computes ATR14 — the data-model change this draft said was needed. Verified 2026-09-08.

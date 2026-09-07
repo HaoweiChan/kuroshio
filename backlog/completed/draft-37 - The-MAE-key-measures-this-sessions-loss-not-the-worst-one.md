@@ -31,3 +31,7 @@ Probe: none — migrated from TODO.md
 <!-- AC:BEGIN -->
 - [ ] #1 either the threshold is compared against the low since `entry_date`, or the key and docs stop calling it the max adverse excursion; a test with a recovered position pins whichever is intended.
 <!-- AC:END -->
+
+## Resolution
+
+Closed by TASK-11. engine.py:410 now reads `worst = min(price, low)` from `signals.trail_inputs`' `min_close` and the card says "its lowest close since <entry_date>" — the key measures the worst excursion, not this session's. Verified 2026-09-08.
