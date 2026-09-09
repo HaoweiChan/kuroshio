@@ -83,6 +83,19 @@ def test_the_stylesheet_is_one_file_docs_and_the_package_share(site):
     assert ":root {" in (site / "index.html").read_text()  # and the site ships it inline
 
 
+def test_the_brand_mark_is_one_file_and_every_page_shows_it(site):
+    packaged = (Path(render.__file__).parent / "logo.svg").read_bytes()
+    assert packaged == (ROOT / "docs" / "logo.svg").read_bytes()
+    assert (site / "logo.svg").read_bytes() == packaged  # and it ships into the output tree
+    for page in site.rglob("*.html"):
+        depth = len(page.relative_to(site).parts) - 1
+        up = "../" * depth
+        html = page.read_text()
+        assert f"<link rel='icon' href='{up}logo.svg'>" in html, page
+        assert f"<img src='{up}logo.svg' alt=''>" in html, page
+        assert (page.parent / up / "logo.svg").resolve() == (site / "logo.svg").resolve()
+
+
 def test_every_language_defines_every_label_with_the_same_placeholders():
     english = LABELS["en"]
     for lang, table in LABELS.items():
