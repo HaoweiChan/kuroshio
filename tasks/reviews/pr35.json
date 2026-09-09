@@ -1,0 +1,16 @@
+{
+ "pr": 35,
+ "task": "TASK-19",
+ "call": 1,
+ "result": "APPROVED",
+ "findings": [],
+ "notes": [
+  "hold floor byte-identical to origin/main build_book over 600 randomized trials and the live 2026-09-08 screen",
+  "accounting intact at every floor: each name in exactly one of core/attack/skipped",
+  "out-of-vocabulary rating strings are rejected from the attack sleeve at every floor; unreachable in practice (record_rating and the engine enum validate)"
+ ],
+ "gate": "ruff 0 \u00b7 pytest 338/338 \u00b7 3c51ae4",
+ "probe": [
+  "kuroshio book on the 2026-09-08 screen, 1.0 s: attack SMTC/ASML/TSM, ENTG skipped below the attack floor (Hold)"
+ ]
+}

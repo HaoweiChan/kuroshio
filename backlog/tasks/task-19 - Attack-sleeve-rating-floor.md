@@ -1,7 +1,7 @@
 ---
 id: TASK-19
 title: 'Attack sleeve admits only Overweight/Buy overflow names (--attack-floor)'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-09'
 labels: []
