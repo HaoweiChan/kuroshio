@@ -35,8 +35,9 @@ LABELS: dict[str, dict[str, str]] = {
             "divided by the entry-to-stop distance), times the PM size multiplier."
         ),
         "rule_attack": (
-            "Attack budget {budget:.0%}: theme-cap overflow names go in at base weight first, then "
-            "the highest-ranked core names are raised to {double:.0%}. Concentration, not leverage."
+            "Attack budget {budget:.0%}: a theme-cap overflow name enters only at or above "
+            "{floor}; it goes in at base weight, then the highest-ranked core names are raised "
+            "to {double:.0%}. Concentration, not leverage."
         ),
         "rule_cash": "Cash: whatever is left.",
         "holdings_head": "Holdings",
@@ -225,8 +226,8 @@ LABELS: dict[str, dict[str, str]] = {
             "再乘 PM 的倉位係數。"
         ),
         "rule_attack": (
-            "攻擊預算 {budget:.0%}：被 theme 上限擠出的名字先以基礎權重放進去，剩餘預算把排名最高的核心名字"
-            "加碼到 {double:.0%}。集中而非槓桿。"
+            "攻擊預算 {budget:.0%}：被 theme 上限擠出的名字，評級須達 {floor} 以上才能進場，"
+            "先以基礎權重放進去，剩餘預算把排名最高的核心名字加碼到 {double:.0%}。集中而非槓桿。"
         ),
         "rule_cash": "現金：剩下的。",
         "holdings_head": "持倉",
