@@ -118,6 +118,32 @@ owner names one, `MARKET` = `us` unless said otherwise:
    - `**Stop Loss**:` a bare number (no currency symbol)
    - `**Price Target**:` a bare number
 
+## The Serenity method (optional, when installed)
+
+[serenity-skill](https://github.com/muxuuu/serenity-skill) (MIT) is a
+supply-chain-bottleneck research method: rank the value-chain layers before
+ranking companies, grade every claim on an evidence ladder, and name the fact
+that would prove the thesis wrong. It is not vendored here — it applies only
+when the owner has it installed (`~/.claude/skills/serenity-skill/`).
+
+When it is present:
+
+- The **fundamentals** and **news** analysts get its `SKILL.md` framing in
+  their prompt: say what the name *constrains* in its chain, grade each
+  evidence point (strong / medium / weak / unverified), and state the one
+  fact that would downgrade the case. Still no tool calls from a subagent —
+  the method reorders the reasoning, it does not buy more data.
+- The **research manager** (step 4) uses its layer-before-company ordering
+  when the debate is really about a theme rather than one name.
+- `references/market-source-playbook.md` is the source map for anything the
+  MCP tools do not carry (A-share 公告/問詢函/互動易/招投標, HKEX filings,
+  TWSE/TDnet). Fetching those is the session's own call and costs quota
+  outside the budget block, so do it only when the owner asks — otherwise
+  name the gap and the source path in the report instead.
+
+When it is not installed, run the steps above unchanged and say nothing about
+it.
+
 ## Writing the report
 
 Write the same tree `kuroshio/agents/engine/reporting.py:write_report_tree`
