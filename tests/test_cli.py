@@ -218,6 +218,39 @@ def test_holdings_from_yaml_rejects_unknown_setup_type(tmp_path):
         _holdings_from_yaml(str(f))
 
 
+def test_holdings_from_yaml_snapshot_first_seen_drops_entry_date(tmp_path):
+    """TASK-18: a tracking start is not a fill — the ratchet/MAE windows must not measure
+    from it, so entry_date is dropped while entry_date_source itself is kept (propose
+    reads it back to flag the row on the coverage line)."""
+    f = tmp_path / "holdings.yml"
+    f.write_text(
+        "- {ticker: AAPL, weight: 0.08, entry_date: 2024-01-01, "
+        "entry_date_source: snapshot_first_seen}\n"
+    )
+    (h,) = _holdings_from_yaml(str(f))
+    assert h.entry_date is None
+    assert h.entry_date_source == "snapshot_first_seen"
+
+
+def test_holdings_from_yaml_manifest_first_seen_and_absent_keep_entry_date(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text(
+        "- {ticker: AAPL, weight: 0.08, entry_date: 2024-01-01, "
+        "entry_date_source: manifest_first_seen}\n"
+        "- {ticker: TSM, weight: 0.05, entry_date: 2024-02-01}\n"
+    )
+    aapl, tsm = _holdings_from_yaml(str(f))
+    assert (aapl.entry_date, aapl.entry_date_source) == ("2024-01-01", "manifest_first_seen")
+    assert (tsm.entry_date, tsm.entry_date_source) == ("2024-02-01", None)
+
+
+def test_holdings_from_yaml_rejects_unknown_entry_date_source(tmp_path):
+    f = tmp_path / "holdings.yml"
+    f.write_text("- {ticker: AAPL, weight: 0.08, entry_date_source: guessed}\n")
+    with pytest.raises(ValueError, match="guessed"):
+        _holdings_from_yaml(str(f))
+
+
 def test_propose_exits_2_on_unknown_holdings_key(tmp_path, capsys):
     holdings = tmp_path / "holdings.yml"
     holdings.write_text("- {ticker: AAPL, weight: 0.08, entrey_price: 180.5}\n")
@@ -782,6 +815,35 @@ def test_propose_fetches_prices_for_an_entry_price_with_no_setup_type(
     assert "### DECIDE 1103" in out
     assert "-40.0% from your entry price of 100.00" in out
     assert "per your IPS: caps.max_adverse_excursion_pct" in out
+
+
+def test_propose_names_a_snapshot_sourced_entry_date_on_the_coverage_line(
+    tmp_path, capsys, monkeypatch
+):
+    """TASK-18: entry_date_source: snapshot_first_seen drops entry_date (AC #1 loading
+    tests cover that in isolation) — here the ticker must still surface on the "not
+    fully monitored" coverage line, with the tracking-start reason named, alongside
+    whatever else propose already had to say about it."""
+    _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1105", weight: 0.05, score: 0.5, entry_date: 2024-01-01, '
+        "entry_date_source: snapshot_first_seen}\n"
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "not fully monitored" in out
+    assert "entry date is a tracking start, not a fill" in out
+    assert "1105" in out
 
 
 # --- propose: book vol target wiring (TASK-9) -----------------------------------

@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from kuroshio.core.screening import PROFILES, get_profile
-from kuroshio.types import SETUP_TYPES, Candidate, Holding
+from kuroshio.types import ENTRY_DATE_SOURCES, SETUP_TYPES, Candidate, Holding
 
 
 def _parse_tickers(tickers: str | None, tickers_file: str | None) -> list[str]:
@@ -153,6 +153,18 @@ def _holdings_from_yaml(path: str) -> list[Holding]:
                 f"{where}: unknown setup_type {item['setup_type']!r} "
                 f"(expected one of {list(SETUP_TYPES)})"
             )
+        entry_date_source = item.get("entry_date_source")
+        if entry_date_source is not None and entry_date_source not in ENTRY_DATE_SOURCES:
+            raise ValueError(
+                f"{where}: unknown entry_date_source {entry_date_source!r} "
+                f"(expected one of {list(ENTRY_DATE_SOURCES)})"
+            )
+        if entry_date_source == "snapshot_first_seen":
+            # a tracking start is not a fill: a running high/low measured from it would
+            # ratchet the stop above the entry and breach on day one (TASK-18). The
+            # allocator names the ticker on its coverage line for this — see engine.py
+            # step 3c — off entry_date_source, which is kept.
+            item.pop("entry_date", None)
         if item.get("entry_date") is not None:
             # unquoted `2025-01-15` comes back from PyYAML as a datetime.date; the field is ISO str
             item["entry_date"] = str(item["entry_date"])
@@ -832,11 +844,15 @@ def cmd_research(args: argparse.Namespace) -> int:
     if decision:
         print(f"verdict: {decision}")
 
+    # stop_loss/price_target come off the same structured risk_controls the vendored
+    # engine already produced for the strategy payload — computed once, ahead of the
+    # --no-ledger gate, since the decision.json sidecar below needs it either way.
+    controls = (final_state.get("strategy_payload") or {}).get("risk_controls") or {}
+
     if not args.no_ledger:
         try:
             from kuroshio.core import ledger
 
-            controls = (final_state.get("strategy_payload") or {}).get("risk_controls") or {}
             row = {
                 "date": trade_date, "market": args.market, "ticker": args.ticker,
                 "rating": decision, "stop_loss": controls.get("stop_loss"),
@@ -847,7 +863,69 @@ def cmd_research(args: argparse.Namespace) -> int:
             print(f"ledger: 1 row -> {path}", file=sys.stderr)
         except Exception as exc:
             print(f"warning: ledger append failed: {exc}", file=sys.stderr)
+
+    _write_decision_json(
+        save_path, ticker=args.ticker, date=trade_date, market=args.market,
+        rating=decision, stop_loss=controls.get("stop_loss"),
+        price_target=controls.get("price_target"),
+    )
     return 0
+
+
+# A zh-TW run whose PM decision falls back to free text uses config/i18n/zh-TW.yaml's
+# localized section labels instead of the English ones — the same two-locale problem
+# the vendored writer's _LEVEL_LABELS solves for stop_loss/price_target (not reusable
+# here: that table doesn't cover the prose fields), so cli.py carries its own pair.
+_PROSE_FIELD_LABELS = {
+    "executive_summary": ("Executive Summary", "執行摘要"),
+    "investment_thesis": ("Investment Thesis", "投資論述"),
+}
+
+
+def _extract_prose_field(text: str, field: str) -> str | None:
+    """Section text for `field`, trying the English label then the zh-TW label."""
+    # reuse the vendored engine's labelled-section extractor rather than a second
+    # regex over the same markdown (kuroshio/agents/engine/payloads/writer.py).
+    from kuroshio.agents.engine.payloads.writer import _extract_markdown_field
+
+    for label in _PROSE_FIELD_LABELS[field]:
+        value = _extract_markdown_field(text, label)
+        if value is not None:
+            return value
+    return None
+
+
+def _write_decision_json(
+    save_path: Path, *, ticker: str, date: str, market: str,
+    rating: str | None, stop_loss: float | None, price_target: float | None,
+) -> None:
+    """Sidecar for `5_portfolio/decision.md` (TASK-18): the same rating/stop/target the
+    ratings ledger carries, plus the prose the desk turns into a thesis card. A no-op
+    when decision.md was never written (no PM judge_decision this run) — written even
+    with --no-ledger, since the ledger and the sidecar answer different questions."""
+    decision_md = save_path / "5_portfolio" / "decision.md"
+    if not decision_md.exists():
+        return
+    text = decision_md.read_text(encoding="utf-8")
+    fields = {name: _extract_prose_field(text, name) for name in _PROSE_FIELD_LABELS}
+    missing = [name for name, value in fields.items() if value is None]
+    if missing:
+        print(
+            f"research: decision.json {', '.join(missing)} null — no English or "
+            "zh-TW label matched in decision.md",
+            file=sys.stderr,
+        )
+    executive_summary, investment_thesis = fields["executive_summary"], fields["investment_thesis"]
+    row = {
+        "ticker": ticker, "date": date, "market": market, "rating": rating,
+        "stop_loss": stop_loss, "price_target": price_target, "close": None,
+        "executive_summary": executive_summary,
+        "investment_thesis": investment_thesis,
+        "source": None, "model": None,
+    }
+    (save_path / "5_portfolio" / "decision.json").write_text(
+        json.dumps(row, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 # --- mcp -----------------------------------------------------------------------

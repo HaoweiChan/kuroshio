@@ -7,10 +7,16 @@ picks up the stub instead of ever touching langgraph/an LLM provider.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 from kuroshio.cli import main
+
+DECISION_MD_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures" / "reports" / "AAA" / "2026-01-02" / "5_portfolio" / "decision.md"
+).read_text()
 
 FAKE_CONFIG = {
     "market_region": "us",
@@ -42,6 +48,28 @@ class FakeGraph:
 
     def save_reports(self, final_state, ticker, save_path=None):
         self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        return Path(save_path) / "complete_report.md"
+
+
+class FakeGraphWithDecision(FakeGraph):
+    """Also writes 5_portfolio/decision.md, the way the vendored report writer does —
+    needed to exercise TASK-18's decision.json sidecar without touching the real engine."""
+
+    def propagate(self, ticker, trade_date, seed_reports=None):
+        self.propagate_calls.append(
+            {"ticker": ticker, "trade_date": trade_date, "seed_reports": seed_reports}
+        )
+        final_state = {
+            "final_trade_decision": "stub",
+            "strategy_payload": {"risk_controls": {"stop_loss": 90.0, "price_target": 130.0}},
+        }
+        return final_state, "Buy"
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(DECISION_MD_FIXTURE, encoding="utf-8")
         return Path(save_path) / "complete_report.md"
 
 
@@ -167,3 +195,144 @@ def test_research_appends_a_rating_row_to_the_ledger(monkeypatch, tmp_path, caps
         "date": "2026-07-01", "market": "us", "ticker": "AAPL",
         "rating": "Buy", "stop_loss": None, "price_target": None, "close": None,
     }]
+
+
+# --- decision.json sidecar (TASK-18) --------------------------------------------
+
+_EXPECTED_DECISION_JSON = {
+    "ticker": "AAA", "date": "2026-01-02", "market": "us", "rating": "Buy",
+    "stop_loss": 90.0, "price_target": 130.0, "close": None,
+    "executive_summary": (
+        "Half a position at the close, the rest above 108 on volume; stop 90, target "
+        "130, horizon two quarters. Synthetic text, no real security."
+    ),
+    "investment_thesis": (
+        "Growth is real and the ranking found it before the tape did. The bear case "
+        "is a valuation opinion with no fact pattern behind it."
+    ),
+    "source": None, "model": None,
+}
+
+
+def test_research_writes_decision_json_beside_decision_md(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path),
+    ])
+    capsys.readouterr()
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    assert json.loads(path.read_text()) == _EXPECTED_DECISION_JSON
+
+
+def test_research_writes_decision_json_even_with_no_ledger(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path), "--no-ledger",
+    ])
+    capsys.readouterr()
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    assert json.loads(path.read_text()) == _EXPECTED_DECISION_JSON
+
+
+# --- decision.json zh-TW free-text labels (R1 repair) ---------------------------
+
+# The PM decision falls back to free text with localized section labels
+# (config/i18n/zh-TW.yaml: "executive summary" -> 執行摘要, "investment thesis" ->
+# 投資論述) when structured output fails on a --lang zh-TW run — the hermes desk's
+# primary path. Only the two prose labels differ from the English fixture.
+ZH_TW_DECISION_MD_FIXTURE = (
+    "# Portfolio Manager Decision — AAA (Synthetic Industries)\n"
+    "**Date:** 2026-01-02 · **Market:** US · **Last close:** $100.00 (2026-01-02)\n\n"
+    "**Rating**: Buy\n\n"
+    "**執行摘要**: 半個部位在收盤買進，其餘部位站上108放量再加碼；停損90，目標130。\n\n"
+    "**投資論述**: 成長是真的，排名比盤面更早發現它。看空論點只是估值意見，沒有事實支撐。\n\n"
+    "**Stop Loss**: 90\n\n"
+    "**Price Target**: 130\n"
+)
+
+NO_LABEL_DECISION_MD_FIXTURE = (
+    "# Portfolio Manager Decision — AAA (Synthetic Industries)\n"
+    "**Rating**: Buy\n\n"
+    "**Stop Loss**: 90\n\n"
+    "**Price Target**: 130\n"
+)
+
+
+class FakeGraphWithZhDecision(FakeGraphWithDecision):
+    """Same as FakeGraphWithDecision, but decision.md uses zh-TW free-text labels."""
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(ZH_TW_DECISION_MD_FIXTURE, encoding="utf-8")
+        return Path(save_path) / "complete_report.md"
+
+
+class FakeGraphWithNoLabelDecision(FakeGraphWithDecision):
+    """decision.md with neither the English nor the zh-TW prose labels."""
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(NO_LABEL_DECISION_MD_FIXTURE, encoding="utf-8")
+        return Path(save_path) / "complete_report.md"
+
+
+def test_research_writes_decision_json_for_zh_tw_free_text_labels(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithZhDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path), "--lang", "zh-TW",
+    ])
+    err = capsys.readouterr().err
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    row = json.loads(path.read_text())
+    assert row["executive_summary"] == (
+        "半個部位在收盤買進，其餘部位站上108放量再加碼；停損90，目標130。"
+    )
+    assert row["investment_thesis"] == (
+        "成長是真的，排名比盤面更早發現它。看空論點只是估值意見，沒有事實支撐。"
+    )
+    assert "decision.json" not in err
+
+
+def test_research_warns_on_stderr_when_no_prose_labels_match(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithNoLabelDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path),
+    ])
+    err = capsys.readouterr().err
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    row = json.loads(path.read_text())
+    assert row["executive_summary"] is None
+    assert row["investment_thesis"] is None
+    assert sum(1 for line in err.splitlines() if "decision.json" in line) == 1

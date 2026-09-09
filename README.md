@@ -83,6 +83,16 @@ reads no setup at all: a position whose worst close since `entry_date` is at or 
 Holding it unchanged is not one of the three. Positions missing the fields a rule reads are
 named on a card instead of quietly going unwatched.
 
+Run `propose` twice a day — once on a book (the target this project computes) and once on
+the **actual portfolio**: the broker-side holdings file the desk itself writes, with the
+book's names standing in as challengers. The ratchet stop, thesis break, MAE and DECIDE
+cards then run on what is really held, not the model. That file's `entry_date` can be a
+snapshot's tracking start rather than a real fill, so it carries `entry_date_source:
+manifest_first_seen` (a fill — unchanged) or `snapshot_first_seen`: `propose` drops
+`entry_date` for the latter (a running high measured from a tracking start would ratchet
+the stop above the entry and breach on day one) and names the ticker on the coverage line
+instead, so it reads as "not fully monitored" rather than silently going unwatched.
+
 `screen` prints a ranked table; `propose` prints cards like this — every one of them cites the
 IPS clause that triggered it:
 
@@ -137,6 +147,12 @@ your checkout lives elsewhere) so a Claude Code session can do the reasoning
 itself and pay nothing beyond its own subscription; see
 `.claude/skills/research/SKILL.md` and "Session mode (MCP)" in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Whenever `kuroshio research` writes a report tree's `5_portfolio/decision.md`, it also
+writes `decision.json` beside it — the same rating/stop-loss/price-target the ratings
+ledger gets (even with `--no-ledger`), plus the Executive Summary and Investment Thesis
+sections verbatim, so a downstream job can turn a run straight into a thesis card without
+scraping markdown.
 
 ## Architecture
 

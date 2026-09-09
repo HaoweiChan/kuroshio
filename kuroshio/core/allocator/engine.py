@@ -471,19 +471,31 @@ def propose(
     # it either way" over both groups made two cards contradict each other about one
     # ticker. Emitted only when something is actually being watched, so a holdings file
     # with no setup_type and no entry_price anywhere gets its cards unchanged.
+    # TASK-18: entry_date_source: snapshot_first_seen is a third, independent note — a
+    # tracking start, not a fill, so the stop ratchet (step 3a) silently declines to
+    # trail from it. It does not count toward the two-rule watched/unwatched split above
+    # (both rules may still be running fine on this ticker), but the row still belongs
+    # on the coverage line, so it is merged into the same why/item construction.
     unmonitored: list[str] = []   # nothing at all is watching these
-    partial: list[str] = []       # watched, but not on every axis they have
+    partial: list[str] = []       # watched, but not on every axis they have (or flagged)
     watching_anything = False
+    entry_flagged = False
     for h in holdings:
-        why = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
-        watching_anything |= len(why) < 2
+        core = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
+        watching_anything |= len(core) < 2
+        entry_note = (
+            "entry date is a tracking start, not a fill"
+            if h.entry_date_source == "snapshot_first_seen" else None
+        )
+        entry_flagged |= entry_note is not None
+        why = core + ([entry_note] if entry_note else [])
         if not why:
             continue
         # dict.fromkeys: both rules read the session price, so a position without one
         # states that reason once.
         item = f"{h.ticker} ({'; '.join(dict.fromkeys(why))})"
-        (partial if len(why) == 1 else unmonitored).append(item)
-    if (unmonitored or partial) and watching_anything:
+        (partial if len(core) < 2 else unmonitored).append(item)
+    if (unmonitored or partial) and (watching_anything or entry_flagged):
         said = [f"{len(unmonitored) + len(partial)} position(s) are not fully monitored."]
         if unmonitored:
             said.append(
