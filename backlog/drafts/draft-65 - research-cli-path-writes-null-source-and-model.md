@@ -1,5 +1,5 @@
 ---
-id: DRAFT-64
+id: DRAFT-65
 title: 'the cli research path writes source/model as null in the ledger row and decision.json'
 status: Draft
 assignee: []
@@ -9,7 +9,7 @@ labels:
 dependencies: []
 references:
   - PR #36 (TASK-18)
-ordinal: 64000
+ordinal: 65000
 ---
 
 ## Description
