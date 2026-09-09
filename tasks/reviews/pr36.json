@@ -1,0 +1,31 @@
+{
+ "pr": 36,
+ "task": "TASK-18",
+ "call": 1,
+ "result": "APPROVED",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "LOW",
+   "claim": "decision.json silently emits null executive_summary/investment_thesis when the PM decision uses the zh-TW free-text labels (執行摘要 / 投資論述).",
+   "evidence": "kuroshio/cli.py _write_decision_json called the vendored _extract_markdown_field with the English label only; the vendored writer tries both locales for stop/target.",
+   "repro": "a 5_portfolio/decision.md with '**執行摘要**: ...' -> executive_summary null",
+   "acceptance": "the prose fields carry the section text for zh-TW decisions too; when neither label is present the null is stated on stderr",
+   "blocking": false,
+   "status": "REPAIRED",
+   "fixed_in": "abd49ff",
+   "cases": [
+    "test_research_writes_decision_json_for_zh_tw_free_text_labels",
+    "test_research_warns_on_stderr_when_no_prose_labels_match"
+   ]
+  }
+ ],
+ "notes": [
+  "no single test asserts ledger row == sidecar; verified by hand (Buy/90.5/130.25 agree, stop 0 survives)",
+  "_write_decision_json is not wrapped like the ledger append; a write error would abort after the tree is saved (not reproduced)"
+ ],
+ "gate": "ruff 0 · pytest 339/339 · 29cf150; after repair 341/341 · abd49ff",
+ "probe": [
+  "propose on the desk's 17-name file, scratch ledger, 10.9 s"
+ ]
+}
