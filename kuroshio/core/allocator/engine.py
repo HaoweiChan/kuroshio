@@ -278,6 +278,12 @@ def propose(
     for h in holdings:
         if h.setup_type not in TRAILED_SETUPS:
             continue
+        # TASK-20: running_high/atr14 can outlive a session with no price for this
+        # ticker (they are read off the panel's whole lookback, not just today's row) —
+        # without this check a rate-limit gap would still ratchet the stop on a stale
+        # high, contradicting the missing-price ALERT's own "stops stay in force".
+        if prices.get(h.ticker) is None:
+            continue
         peak, atr = running_high.get(h.ticker), atr14.get(h.ticker)
         if peak is None or atr is None:
             # no entry_date to measure a running high from, or a panel with no high/low
@@ -464,6 +470,31 @@ def propose(
             },
         ))
 
+    # 3b2. missing-price ALERT (TASK-20). A holding a rule could actually run on — a
+    # monitored setup_type for the thesis rule, a usable entry_price for the
+    # loss-from-entry one, either is enough — but with no price for this session got
+    # nothing compared: not "unwatched by design" (a value_dip is supposed to look weak;
+    # no setup_type has no rule to begin with), but a rate limit or a provider gap this
+    # run could not see past. That is a different claim from the coverage line below and
+    # gets its own card, ahead of it. `ruled` excludes a holding with neither a monitored
+    # setup_type nor an entry_price — a missing price never blocked a rule that was never
+    # going to run on it, so it is not named here and does not count toward "of M" either.
+    ruled = [h for h in holdings if h.setup_type in MONITORED_SETUPS or _entry_price(h) is not None]
+    missing_price = [h.ticker for h in ruled if prices.get(h.ticker) is None]
+    if missing_price:
+        alerts.append(ProposalCard(
+            action="ALERT",
+            reason=(
+                f"Price data missing for {len(missing_price)} of {len(ruled)} positions "
+                f"this session — no stop, trend or loss rule was compared for: "
+                f"{', '.join(missing_price)}. Their last ratcheted stops stay in force "
+                f"but were not checked today."
+            ),
+            ips_clauses=[],
+            details={"missing": missing_price, "total": len(ruled)},
+        ))
+    missing_price_set = set(missing_price)
+
     # 3c. coverage. Two rules watch a position — its setup_type's and the loss-from-entry
     # one — so a position is fully watched, partly watched, or watched by neither, and the
     # three say different things. A partially-monitored position is not an unwatched one:
@@ -481,6 +512,10 @@ def propose(
     watching_anything = False
     entry_flagged = False
     for h in holdings:
+        if h.ticker in missing_price_set:
+            # TASK-20: named on the missing-price ALERT above instead — dropped from the
+            # coverage line entirely rather than repeated there for the same reason.
+            continue
         core = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
         watching_anything |= len(core) < 2
         entry_note = (

@@ -81,7 +81,12 @@ running high since entry (default 3), never downward. On top of that, one rule
 reads no setup at all: a position whose worst close since `entry_date` is at or past
 `caps.max_adverse_excursion_pct` from its entry (default -15%) gets a DECIDE card — kill it, add to it per the plan, or rewrite the thesis.
 Holding it unchanged is not one of the three. Positions missing the fields a rule reads are
-named on a card instead of quietly going unwatched.
+named on a card instead of quietly going unwatched. A position with a rule to run but no
+price for the session (a rate limit, say) is not "unwatched by design" either — it gets its
+own missing-price ALERT naming it, separate from the coverage line, and if *every* such
+position went unpriced the run was blind: `propose` exits 3 rather than 0 (cards still print;
+`--help` documents the exit codes, 2 being an invalid IPS or a bad holdings/candidates/
+universe/provider input).
 
 Run `propose` twice a day — once on a book (the target this project computes) and once on
 the **actual portfolio**: the broker-side holdings file the desk itself writes, with the

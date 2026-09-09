@@ -355,14 +355,26 @@ def test_missing_monitoring_fields_are_named_not_silently_unwatched():
     ]
     assert len(gaps) == 1
     named = gaps[0].details["unmonitored"]
-    assert set(named) == {"NODIP", "LEGACY", "OPTOUT", "NOPRICE"}
+    # TASK-20: NOPRICE gets its own missing-price ALERT (below) and is dropped from the
+    # coverage line entirely rather than folded in next to a missing setup_type.
+    assert set(named) == {"NODIP", "LEGACY", "OPTOUT"}
     # NOENTRY is watched on its MA50 — and this run alerted on it, so it is not unwatched
     assert gaps[0].details["partially_monitored"] == ["NOENTRY"]
     assert "NOENTRY" in thesis_alerts(cards)
     for ticker in named + gaps[0].details["partially_monitored"]:
         assert ticker in gaps[0].reason
+    assert "NOPRICE" not in gaps[0].reason
     # the three fully-equipped positions are watched, so they are not in the gap list
     assert not {"TREND", "DIP", "ADD"} & set(named)
+
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    # ruled = TREND, DIP, ADD, NODIP, NOENTRY, NOPRICE — LEGACY/OPTOUT have no rule at all
+    assert missing.details == {"missing": ["NOPRICE"], "total": 6}
+    assert missing.reason == (
+        "Price data missing for 1 of 6 positions this session — no stop, trend or loss "
+        "rule was compared for: NOPRICE. Their last ratcheted stops stay in force but "
+        "were not checked today."
+    )
 
 
 def test_pre_t3_portfolio_is_untouched_by_monitoring():
@@ -621,7 +633,10 @@ def test_positions_the_mae_rule_cannot_judge_are_named_not_dropped():
     assert [c.details["ticker"] for c in decides(cards)] == ["WATCHED"]
     gaps = [c for c in cards if c.details.get("unmonitored")]
     assert len(gaps) == 1
-    assert set(gaps[0].details["unmonitored"]) == {"NOENTRY", "ZEROENTRY", "NOPRICE"}
+    # TASK-20: NOPRICE (a trend_add with an entry_price — a rule that could have run) is
+    # dropped from the coverage line entirely and named on its own missing-price ALERT
+    # instead (below).
+    assert set(gaps[0].details["unmonitored"]) == {"NOENTRY", "ZEROENTRY"}
     assert gaps[0].details["partially_monitored"] == ["WATCHED"]  # judged on its loss only
     assert (
         "NOENTRY (no setup_type; no entry_price, so the loss from entry is not watched)"
@@ -629,8 +644,15 @@ def test_positions_the_mae_rule_cannot_judge_are_named_not_dropped():
     )
     # 0.0 is not "unrecorded": the card says what it found rather than what it wishes for
     assert "ZEROENTRY (no setup_type; entry_price 0.0 is not a price," in gaps[0].reason
-    # both rules read the session price, and a position without one states that once
-    assert "NOPRICE (no price for this session)" in gaps[0].reason
+    assert "NOPRICE" not in gaps[0].reason
+
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.details == {"missing": ["NOPRICE"], "total": 2}  # WATCHED is priced
+    assert missing.reason == (
+        "Price data missing for 1 of 2 positions this session — no stop, trend or loss "
+        "rule was compared for: NOPRICE. Their last ratcheted stops stay in force but "
+        "were not checked today."
+    )
 
     # one gate, both rules: a 0.0 entry reads as "not recorded" on the thesis card too,
     # and reaches details as None rather than as a price the run divided by (T43).
@@ -1094,3 +1116,53 @@ def test_a_close_under_the_last_logged_stop_still_breaches():
     assert len(breach) == 1
     assert breach[0].details["invalidation_price"] == pytest.approx(140.5)
     assert "trailing stop" in breach[0].reason
+
+
+# --- TASK-20: dedicated missing-price ALERT + exit-3-when-blind -----------------
+
+
+def test_a_priceless_ruled_holding_gets_a_dedicated_missing_price_alert():
+    """AC #1: a holding a rule could run on (a monitored setup_type or a usable
+    entry_price) but with no session price is named on its own ALERT card, ahead of the
+    coverage line — not folded into it, same voice as "NVDA has no setup_type" — and a
+    holding with a price is untouched and not named on it."""
+    holdings = [
+        trailed("T", setup_type="trend_add", entry_price=100.0),  # priced — unaffected
+        Holding(ticker="GAP1", weight=0.05, score=0.5, setup_type="value_dip", invalidation_price=80.0),
+        Holding(ticker="GAP2", weight=0.05, score=0.5, entry_price=50.0),  # mae-only rule
+    ]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"T": 140.0}, ma50={"T": 120.0},
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR,
+    )
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.action == "ALERT"
+    assert missing.ips_clauses == []
+    assert missing.details == {"missing": ["GAP1", "GAP2"], "total": 3}
+    assert missing.reason == (
+        "Price data missing for 2 of 3 positions this session — no stop, trend or loss "
+        "rule was compared for: GAP1, GAP2. Their last ratcheted stops stay in force but "
+        "were not checked today."
+    )
+    assert "T" not in missing.details["missing"]
+    assert ratchets(cards)  # T has a price — its own ratchet still fires normally
+
+
+def test_ratchet_and_monitoring_rules_skip_a_priceless_holding_even_with_trail_data():
+    """AC #3: running_high/atr14/last_stop can be sitting there from an earlier fetch —
+    or fed straight to `propose` the way this test does — while this session simply has
+    no price for the ticker. The ratchet must not move on stale trail data with nothing
+    to compare it to today ("last ratcheted stops stay in force" is the missing-price
+    card's own promise), and the thesis/MAE rules must not fire either."""
+    holdings = [trailed("T", setup_type="trend_add", entry_price=100.0)]
+    cards = propose(
+        holdings, [], make_ips(), "us",
+        running_high=TRAIL_HIGH, atr14=TRAIL_ATR, last_stop={"T": 130.0},
+        # no `prices` kwarg -> T has no session price
+    )
+    assert ratchets(cards) == []
+    assert decides(cards) == []
+    assert not [c for c in cards if c.details.get("ticker") == "T"]  # no thesis ALERT either
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.details == {"missing": ["T"], "total": 1}
+    assert "no stop, trend or loss rule was compared for: T." in missing.reason

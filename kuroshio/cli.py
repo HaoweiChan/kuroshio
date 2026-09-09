@@ -766,6 +766,14 @@ def cmd_propose(args: argparse.Namespace) -> int:
         ok = post_cards(args.discord_webhook, cards)
         print("posted proposals to Discord" if ok else "warning: Discord post failed", file=sys.stderr)
 
+    # TASK-20: exit 3 when every position a monitoring rule could have run on went
+    # unpriced this session — the engine's own missing-price ALERT already says so
+    # (details["missing"] == details["total"], both nonzero); the run was blind, not
+    # merely quiet, and the desk reads the exit code to tell stale from checked.
+    for card in cards or []:
+        missing, total = card.details.get("missing"), card.details.get("total")
+        if missing is not None and total and len(missing) == total:
+            return 3
     return 0
 
 
@@ -1176,7 +1184,13 @@ def main(argv: list[str] | None = None) -> int:
     p_simulate.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us-leadership only)")
     p_simulate.set_defaults(func=cmd_simulate)
 
-    p_propose = sub.add_parser("propose", help="propose portfolio swaps against an IPS")
+    p_propose = sub.add_parser(
+        "propose",
+        help="propose portfolio swaps against an IPS",
+        epilog="exit codes: 0 ok; 2 invalid IPS or a bad holdings/candidates/universe/provider "
+        "input; 3 every position a monitoring rule could have run on had no session price "
+        "(blind — cards still print and the ledger append still runs).",
+    )
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
     p_propose.add_argument("--market", choices=sorted(PROFILES), required=True)
