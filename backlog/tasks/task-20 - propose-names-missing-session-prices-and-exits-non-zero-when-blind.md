@@ -1,7 +1,7 @@
 ---
 id: TASK-20
 title: 'propose names positions with no session price as a separate ALERT and exits 3 when it is blind'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-10'
 labels: []
