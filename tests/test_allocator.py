@@ -130,12 +130,7 @@ def test_unscored_incumbents_yield_research_alert_and_no_swap():
     ips = make_ips()
     challengers = [cand("NEW", final_score=0.99)]
 
-    # priced, so this run is not also "blind" (PR39 R2/R3) — a concern this test isn't
-    # about — and the only ALERT card is the unscored-incumbents one it checks below.
-    cards = propose(
-        holdings, challengers, ips, "us", verdicts={"NEW": "buy"},
-        prices={"A": 10.0, "B": 10.0},
-    )
+    cards = propose(holdings, challengers, ips, "us", verdicts={"NEW": "buy"})
 
     assert [c.action for c in cards] == ["ALERT"]
     assert "research" in cards[0].reason.lower() or "screener" in cards[0].reason.lower()
@@ -385,10 +380,9 @@ def test_missing_monitoring_fields_are_named_not_silently_unwatched():
 
 def test_pre_t3_portfolio_is_untouched_by_monitoring():
     # No holding carries a setup_type -> thesis monitoring is not in use, nothing can
-    # look monitored, and propose() behaves exactly as it did before T5. Priced (a
-    # missing-price ALERT is PR39 R2/R3's concern, not this one).
+    # look monitored, and propose() behaves exactly as it did before T5.
     holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
-    assert propose(holdings, [], make_ips(), "us", prices={"OK": 10.0}) == []
+    assert propose(holdings, [], make_ips(), "us") == []
 
 
 def test_monitor_inputs_reads_the_last_session_and_skips_short_history():
@@ -1167,7 +1161,10 @@ def test_ratchet_and_monitoring_rules_skip_a_priceless_holding_even_with_trail_d
     cards = propose(
         holdings, [], make_ips(), "us",
         running_high=TRAIL_HIGH, atr14=TRAIL_ATR, last_stop={"T": 130.0},
-        # no `prices` kwarg -> T has no session price
+        # task-20 R4: an explicit empty dict, not an omitted kwarg -> a panel WAS
+        # fetched this session (a rate limit, say) and T just came back with no price,
+        # distinct from a run that never attempted one at all.
+        prices={},
     )
     assert ratchets(cards) == []
     assert decides(cards) == []

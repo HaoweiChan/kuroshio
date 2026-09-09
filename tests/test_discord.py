@@ -114,14 +114,10 @@ def test_propose_with_discord_webhook_calls_post_cards(tmp_path, capsys, monkeyp
     )
     err = capsys.readouterr().err
 
-    # PR39 R2: OVER carries no monitored setup_type or entry_price and needs no fetch,
-    # so this run is also "blind" — its missing-price ALERT card (alerts sort ahead of
-    # trims — see propose()'s return) now leads, with the hard-cap TRIM still posted
-    # right behind it.
-    assert code == 3
+    assert code == 0
     assert len(calls) == 1
     assert calls[0][0] == "https://discord.example/hook"
-    assert [c.action for c in calls[0][1]] == ["ALERT", "TRIM"]
+    assert calls[0][1][0].action == "TRIM"
     assert "Discord" in err
 
 
@@ -147,7 +143,5 @@ def test_propose_no_webhook_flag_leaves_behavior_unchanged(tmp_path, capsys, mon
     )
     err = capsys.readouterr().err
 
-    # PR39 R2: OVER needs no fetch, so this run is also "blind" (see the webhook test
-    # above) — stderr stays empty either way since nothing here writes to it.
-    assert code == 3
+    assert code == 0
     assert err == ""

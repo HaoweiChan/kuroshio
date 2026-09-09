@@ -81,11 +81,15 @@ running high since entry (default 3), never downward. On top of that, one rule
 reads no setup at all: a position whose worst close since `entry_date` is at or past
 `caps.max_adverse_excursion_pct` from its entry (default -15%) gets a DECIDE card — kill it, add to it per the plan, or rewrite the thesis.
 Holding it unchanged is not one of the three. Positions missing the fields a rule reads are
-named on a card instead of quietly going unwatched. A position with no price for the session
-(a rate limit, say) is not "unwatched by design" either — it gets its own missing-price ALERT
-naming it, separate from the coverage line, and if *every* held position went unpriced the
-run was blind: `propose` exits 3 rather than 0 (cards still print; `--help` documents the exit
-codes, 2 being an invalid IPS or a bad holdings/candidates/universe/provider input).
+named on a card instead of quietly going unwatched. This applies only to a session that
+actually fetched prices: a book with no monitored `setup_type`, no `entry_price`, and no
+`caps.book_vol_target_pct` needs no price and never fetches one, so it is not "blind" — no
+missing-price ALERT, exit 0. When a fetch *did* happen and a held position came back with no
+price (a rate limit, say), that is not "unwatched by design" either — it gets its own
+missing-price ALERT naming it, separate from the coverage line, and if *every* held position
+came back unpriced the run was blind: `propose` exits 3 rather than 0 (cards still print;
+`--help` documents the exit codes, 2 being an invalid IPS or a bad holdings/candidates/
+universe/provider input).
 
 Run `propose` twice a day — once on a book (the target this project computes) and once on
 the **actual portfolio**: the broker-side holdings file the desk itself writes, with the

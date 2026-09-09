@@ -157,6 +157,12 @@ def propose(
     auto_scored = auto_scored or {}
     # last close and 50-day mean close per ticker, computed by the caller from a panel
     # (allocator.signals.monitor_inputs) — core/allocator takes no panel and no provider.
+    # None means no panel was fetched this run (cli.py's need_scores/monitored/
+    # vol_targeted gate decided nothing needed one) — no price monitoring was even
+    # attempted, so a missing key here is not a gap. A dict (possibly empty) means a
+    # panel WAS fetched, so a holding absent from it really did go unpriced. Capture
+    # that distinction before collapsing both to a dict below.
+    prices_attempted = prices is not None
     prices = prices or {}
     ma50 = ma50 or {}
     # the same seam, for the stop ratchet and the max-adverse-excursion rule: running high
@@ -478,7 +484,12 @@ def propose(
     # PR39 R1/R2/R3: price coverage is counted over ALL holdings, not only the ones a
     # rule could have run on (a "ruled" filter here read as "the run compared everything
     # it could" even when a whole unruled book went unpriced, and undercounted "of M").
-    missing_price = [h.ticker for h in holdings if prices.get(h.ticker) is None]
+    # task-20 R4 (probe pr40): gated on prices_attempted — a run that never fetched a
+    # panel (a score-only book, no setup_type/entry_price/vol target anywhere) never
+    # tried to price anything, so it is not "blind" and gets no card here at all.
+    missing_price = (
+        [h.ticker for h in holdings if prices.get(h.ticker) is None] if prices_attempted else []
+    )
     if missing_price:
         alerts.append(ProposalCard(
             action="ALERT",
