@@ -7,10 +7,16 @@ picks up the stub instead of ever touching langgraph/an LLM provider.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 from kuroshio.cli import main
+
+DECISION_MD_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures" / "reports" / "AAA" / "2026-01-02" / "5_portfolio" / "decision.md"
+).read_text()
 
 FAKE_CONFIG = {
     "market_region": "us",
@@ -42,6 +48,28 @@ class FakeGraph:
 
     def save_reports(self, final_state, ticker, save_path=None):
         self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        return Path(save_path) / "complete_report.md"
+
+
+class FakeGraphWithDecision(FakeGraph):
+    """Also writes 5_portfolio/decision.md, the way the vendored report writer does —
+    needed to exercise TASK-18's decision.json sidecar without touching the real engine."""
+
+    def propagate(self, ticker, trade_date, seed_reports=None):
+        self.propagate_calls.append(
+            {"ticker": ticker, "trade_date": trade_date, "seed_reports": seed_reports}
+        )
+        final_state = {
+            "final_trade_decision": "stub",
+            "strategy_payload": {"risk_controls": {"stop_loss": 90.0, "price_target": 130.0}},
+        }
+        return final_state, "Buy"
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(DECISION_MD_FIXTURE, encoding="utf-8")
         return Path(save_path) / "complete_report.md"
 
 
@@ -167,3 +195,54 @@ def test_research_appends_a_rating_row_to_the_ledger(monkeypatch, tmp_path, caps
         "date": "2026-07-01", "market": "us", "ticker": "AAPL",
         "rating": "Buy", "stop_loss": None, "price_target": None, "close": None,
     }]
+
+
+# --- decision.json sidecar (TASK-18) --------------------------------------------
+
+_EXPECTED_DECISION_JSON = {
+    "ticker": "AAA", "date": "2026-01-02", "market": "us", "rating": "Buy",
+    "stop_loss": 90.0, "price_target": 130.0, "close": None,
+    "executive_summary": (
+        "Half a position at the close, the rest above 108 on volume; stop 90, target "
+        "130, horizon two quarters. Synthetic text, no real security."
+    ),
+    "investment_thesis": (
+        "Growth is real and the ranking found it before the tape did. The bear case "
+        "is a valuation opinion with no fact pattern behind it."
+    ),
+    "source": None, "model": None,
+}
+
+
+def test_research_writes_decision_json_beside_decision_md(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path),
+    ])
+    capsys.readouterr()
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    assert json.loads(path.read_text()) == _EXPECTED_DECISION_JSON
+
+
+def test_research_writes_decision_json_even_with_no_ledger(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path), "--no-ledger",
+    ])
+    capsys.readouterr()
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    assert json.loads(path.read_text()) == _EXPECTED_DECISION_JSON

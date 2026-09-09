@@ -43,6 +43,9 @@ class Candidate:
 # break, a value_dip only on its invalidation price. "other" is the escape hatch.
 SETUP_TYPES = ("value_dip", "pullback_add", "trend_add", "other")
 
+# How Holding.entry_date was sourced (TASK-18) — see Holding.entry_date_source.
+ENTRY_DATE_SOURCES = ("manifest_first_seen", "snapshot_first_seen")
+
 
 @dataclass
 class Holding:
@@ -58,6 +61,12 @@ class Holding:
     setup_type: str | None = None  # one of SETUP_TYPES
     thesis: str | None = None
     invalidation_price: float | None = None
+    # how entry_date was sourced (TASK-18) — "manifest_first_seen" (a real fill) or
+    # "snapshot_first_seen" (a tracking start, not a fill: kept on the Holding so
+    # core/allocator can name the row on its coverage line, but entry_date itself is
+    # dropped before construction — see cli.py:_holdings_from_yaml). None = pre-TASK-18
+    # file, same as manifest_first_seen.
+    entry_date_source: str | None = None
 
     @property
     def effective_exposure(self) -> float:
