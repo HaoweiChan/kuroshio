@@ -96,6 +96,11 @@ def _css() -> str:
     return files.joinpath("style.css").read_text() + files.joinpath("site.css").read_text()
 
 
+def _logo() -> str:
+    """The brand mark, byte-identical to docs/logo.svg (tests/test_site.py asserts it)."""
+    return resources.files("kuroshio.site").joinpath("logo.svg").read_text()
+
+
 def _markdown(text: str) -> str:
     try:
         import markdown
@@ -155,8 +160,10 @@ def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: st
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{esc(title)}</title><style>{css}</style></head><body>"
-        f"<header><div class='wrap'><div class='brand'>Kuro<span>shio</span></div>"
+        f"<title>{esc(title)}</title><link rel='icon' href='{up}logo.svg'>"
+        f"<style>{css}</style></head><body>"
+        f"<header><div class='wrap'><div class='brand'>"
+        f"<img src='{up}logo.svg' alt=''>Kuro<span>shio</span></div>"
         f"<nav>{nav}<a href='{GITHUB}'>GitHub</a></nav></div></header>"
         f"<div class='wrap'>{body}</div>"
         f"<footer><div class='wrap'><p>{esc(lb['disclaimer'])}</p>"
@@ -682,6 +689,7 @@ def render_site(
 
     # a failure anywhere in here must not leave `<out>.new` behind
     try:
+        (build / "logo.svg").write_text(_logo(), encoding="utf-8")
         (build / "index.html").write_text(
             _shell(f"{lb['book_page_title']} {book['asof']}",
                    _book_page(book, propose, reports, lb, link), css, lb, active="book"),
