@@ -1,7 +1,7 @@
 {
  "pr": 36,
  "task": "TASK-18",
- "call": 1,
+ "call": 2,
  "result": "APPROVED",
  "findings": [
   {
@@ -12,12 +12,13 @@
    "repro": "a 5_portfolio/decision.md with '**執行摘要**: ...' -> executive_summary null",
    "acceptance": "the prose fields carry the section text for zh-TW decisions too; when neither label is present the null is stated on stderr",
    "blocking": false,
-   "status": "REPAIRED",
+   "status": "VERIFIED",
    "fixed_in": "abd49ff",
    "cases": [
     "test_research_writes_decision_json_for_zh_tw_free_text_labels",
     "test_research_warns_on_stderr_when_no_prose_labels_match"
-   ]
+   ],
+   "resolution": "cli.py tries the English then the zh-TW label (labels match engine/config/i18n/zh-TW.yaml); two new tests; stderr line only when both labels miss"
   }
  ],
  "notes": [
@@ -27,5 +28,10 @@
  "gate": "ruff 0 · pytest 339/339 · 29cf150; after repair 341/341 · abd49ff",
  "probe": [
   "propose on the desk's 17-name file, scratch ledger, 10.9 s"
- ]
+ ],
+ "delta_verification": {
+  "result": "APPROVED",
+  "new_findings": [],
+  "gate": "ruff 0 · pytest 341/341 · 84dde3a"
+ }
 }

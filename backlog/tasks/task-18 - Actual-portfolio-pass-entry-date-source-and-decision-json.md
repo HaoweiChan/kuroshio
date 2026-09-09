@@ -1,7 +1,7 @@
 ---
 id: TASK-18
 title: 'Actual-portfolio pass: accept entry_date_source in holdings, write decision.json beside decision.md'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-09'
 labels: []
