@@ -112,7 +112,10 @@ def test_propose_emits_trim_card_for_hard_cap_breach(tmp_path, capsys, monkeypat
         ]
     )
     out = capsys.readouterr().out
-    assert code == 0
+    # PR39 R2: OVER carries no monitored setup_type or entry_price, so nothing here
+    # needs a fetch and none happens — this run is also "blind" by the new, unqualified
+    # exit-3 rule, alongside (not instead of) the hard-cap TRIM.
+    assert code == 3
     assert "TRIM OVER" in out
     assert "position_hard_pct" in out
 
@@ -131,8 +134,10 @@ def test_propose_no_candidates_still_runs(tmp_path, capsys, monkeypatch):
         ]
     )
     out = capsys.readouterr().out
-    assert code == 0
-    assert "No proposals" in out
+    # PR39 R2: OK carries no monitored setup_type or entry_price and needs no fetch,
+    # so nothing was priced this run — "blind" by the new, unqualified exit-3 rule.
+    assert code == 3
+    assert "Price data missing for 1 of 1 positions" in out
 
 
 def test_propose_with_candidates_swap(tmp_path, capsys, monkeypatch):
@@ -152,7 +157,9 @@ def test_propose_with_candidates_swap(tmp_path, capsys, monkeypatch):
         ]
     )
     out = capsys.readouterr().out
-    assert code == 0
+    # PR39 R2: WEAK carries no monitored setup_type or entry_price and needs no fetch —
+    # the SWAP still runs on hand-typed scores, but the run is also "blind".
+    assert code == 3
     assert "SWAP WEAK → GOOD" in out
     assert "Auto-filled" not in out  # both scores hand-typed -> nothing to disclose
 
@@ -722,7 +729,10 @@ def test_propose_never_fetches_when_every_score_is_hand_written(tmp_path, capsys
             "--market", "tw",
         ]
     )
-    assert code == 0
+    # PR39 R2: no provider call means no holding was priced this run — "blind" by the
+    # new, unqualified exit-3 rule, but the SWAP itself is untouched: it runs on the
+    # hand-typed scores alone and needs no price.
+    assert code == 3
     assert "SWAP 1101 → 1102" in capsys.readouterr().out
 
 
@@ -840,7 +850,10 @@ def test_propose_names_a_snapshot_sourced_entry_date_on_the_coverage_line(
         ]
     )
     out = capsys.readouterr().out
-    assert code == 0
+    # PR39 R2: 1105 carries no monitored setup_type or entry_price and needs no fetch,
+    # so it also lands on its own missing-price ALERT — the coverage line still names
+    # its entry_date_source gap (PR39 R1), not "no price for this session" twice over.
+    assert code == 3
     assert "not fully monitored" in out
     assert "entry date is a tracking start, not a fill" in out
     assert "1105" in out
@@ -891,6 +904,33 @@ def test_propose_exits_0_when_at_least_one_ruled_holding_is_priced(tmp_path, cap
     )
     assert code == 0
     assert stub.calls
+
+
+def test_r2_propose_exits_3_when_a_fully_unruled_unpriced_book_monitors_nothing(
+    tmp_path, capsys, monkeypatch,
+):
+    """R1 (pr39.json): a book where no holding carries a monitored setup_type or an
+    entry_price still exits 3 when every holding is unpriced — price coverage is
+    counted over all holdings, not only the ones a rule could have run on."""
+    empty_panel = Panel(close=pd.DataFrame(), volume=pd.DataFrame(), institutional=None)
+    _use_stub(monkeypatch, empty_panel)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1103", weight: 0.05, score: 0.5, setup_type: other}\n'
+        '- {ticker: "1104", weight: 0.05, score: 0.5}\n'
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 3
+    assert "Price data missing for 2 of 2 positions" in out
 
 
 # --- propose: book vol target wiring (TASK-9) -----------------------------------

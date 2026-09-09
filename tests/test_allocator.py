@@ -130,7 +130,12 @@ def test_unscored_incumbents_yield_research_alert_and_no_swap():
     ips = make_ips()
     challengers = [cand("NEW", final_score=0.99)]
 
-    cards = propose(holdings, challengers, ips, "us", verdicts={"NEW": "buy"})
+    # priced, so this run is not also "blind" (PR39 R2/R3) — a concern this test isn't
+    # about — and the only ALERT card is the unscored-incumbents one it checks below.
+    cards = propose(
+        holdings, challengers, ips, "us", verdicts={"NEW": "buy"},
+        prices={"A": 10.0, "B": 10.0},
+    )
 
     assert [c.action for c in cards] == ["ALERT"]
     assert "research" in cards[0].reason.lower() or "screener" in cards[0].reason.lower()
@@ -368,10 +373,11 @@ def test_missing_monitoring_fields_are_named_not_silently_unwatched():
     assert not {"TREND", "DIP", "ADD"} & set(named)
 
     missing = next(c for c in cards if c.details.get("missing") is not None)
-    # ruled = TREND, DIP, ADD, NODIP, NOENTRY, NOPRICE — LEGACY/OPTOUT have no rule at all
-    assert missing.details == {"missing": ["NOPRICE"], "total": 6}
+    # PR39 R3: counted over all 8 holdings (TREND, DIP, ADD, NODIP, NOENTRY, LEGACY,
+    # OPTOUT, NOPRICE), not only the 6 that carry a monitored setup_type or entry_price.
+    assert missing.details == {"missing": ["NOPRICE"], "total": 8}
     assert missing.reason == (
-        "Price data missing for 1 of 6 positions this session — no stop, trend or loss "
+        "Price data missing for 1 of 8 positions this session — no stop, trend or loss "
         "rule was compared for: NOPRICE. Their last ratcheted stops stay in force but "
         "were not checked today."
     )
@@ -379,9 +385,10 @@ def test_missing_monitoring_fields_are_named_not_silently_unwatched():
 
 def test_pre_t3_portfolio_is_untouched_by_monitoring():
     # No holding carries a setup_type -> thesis monitoring is not in use, nothing can
-    # look monitored, and propose() behaves exactly as it did before T5.
+    # look monitored, and propose() behaves exactly as it did before T5. Priced (a
+    # missing-price ALERT is PR39 R2/R3's concern, not this one).
     holdings = [Holding(ticker="OK", weight=0.05, score=0.5)]
-    assert propose(holdings, [], make_ips(), "us") == []
+    assert propose(holdings, [], make_ips(), "us", prices={"OK": 10.0}) == []
 
 
 def test_monitor_inputs_reads_the_last_session_and_skips_short_history():
@@ -647,9 +654,11 @@ def test_positions_the_mae_rule_cannot_judge_are_named_not_dropped():
     assert "NOPRICE" not in gaps[0].reason
 
     missing = next(c for c in cards if c.details.get("missing") is not None)
-    assert missing.details == {"missing": ["NOPRICE"], "total": 2}  # WATCHED is priced
+    # PR39 R3: counted over all 4 holdings — WATCHED, NOENTRY and ZEROENTRY are priced,
+    # only NOPRICE is not, regardless of any of the four having an entry_price/setup_type.
+    assert missing.details == {"missing": ["NOPRICE"], "total": 4}
     assert missing.reason == (
-        "Price data missing for 1 of 2 positions this session — no stop, trend or loss "
+        "Price data missing for 1 of 4 positions this session — no stop, trend or loss "
         "rule was compared for: NOPRICE. Their last ratcheted stops stay in force but "
         "were not checked today."
     )
@@ -1166,3 +1175,82 @@ def test_ratchet_and_monitoring_rules_skip_a_priceless_holding_even_with_trail_d
     missing = next(c for c in cards if c.details.get("missing") is not None)
     assert missing.details == {"missing": ["T"], "total": 1}
     assert "no stop, trend or loss rule was compared for: T." in missing.reason
+
+
+# --- PR #39 round 1 repairs (pr39.json) -----------------------------------------
+
+
+def test_r1_a_priceless_holdings_other_gap_still_names_it_on_the_coverage_card():
+    """R1: dropping a priceless ticker from the coverage line for *every* reason hides
+    its other gaps. OTH (setup_type 'other') and SNAP (a trend_add with a
+    snapshot_first_seen entry_date) each have a second, independent gap that has
+    nothing to do with price — the coverage card must still name it. Only the
+    "no price for this session" clause is suppressed, and P (priced, no other gap)
+    stays off both cards."""
+    holdings = [
+        trailed("P", setup_type="trend_add", entry_price=100.0),
+        Holding(ticker="OTH", weight=0.05, score=0.5, setup_type="other", entry_price=50.0),
+        Holding(
+            ticker="SNAP", weight=0.05, score=0.5, setup_type="trend_add",
+            entry_price=50.0, entry_date="2026-01-05", entry_date_source="snapshot_first_seen",
+        ),
+    ]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"P": 140.0}, ma50={"P": 120.0},
+    )
+    gaps = next(
+        c for c in cards
+        if c.action == "ALERT"
+        and (c.details.get("unmonitored") or c.details.get("partially_monitored"))
+    )
+    named = set(gaps.details["unmonitored"]) | set(gaps.details["partially_monitored"])
+    assert named == {"OTH", "SNAP"}
+    oth_item = next(s for s in gaps.reason.split(". ") if "OTH" in s)
+    snap_item = next(s for s in gaps.reason.split(". ") if "SNAP" in s)
+    assert "setup_type 'other'" in oth_item and "no price for this session" not in oth_item
+    assert (
+        "entry date is a tracking start, not a fill" in snap_item
+        and "no price for this session" not in snap_item
+    )
+    assert "P" not in named
+
+
+def test_r2_propose_exits_3_when_a_fully_unpriced_book_monitors_nothing():
+    """R2: a book where no holding is 'ruled' (no monitored setup_type, no entry_price)
+    and every holding is unpriced must still count as blind — price coverage is
+    counted over ALL holdings, not just the ones a rule could have run on."""
+    holdings = [
+        Holding(ticker="1103", weight=0.05, score=0.5, setup_type="other"),
+        Holding(ticker="1104", weight=0.05, score=0.5),
+    ]
+    cards = propose(holdings, [], make_ips(), "us", prices={})
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.details == {"missing": ["1103", "1104"], "total": 2}
+
+
+def test_r2_propose_never_counts_an_empty_holdings_book_as_blind():
+    """The other half of R2: an empty book has nothing to be blind about."""
+    cards = propose([], [], make_ips(), "us", prices={})
+    assert not [c for c in cards if c.details.get("missing") is not None]
+
+
+def test_r3_the_coverage_denominator_is_the_holdings_count_not_the_ruled_count():
+    """R3: M in "N of M positions" must be every holding, not only the ruled ones —
+    a two-position book where one has no setup_type and no entry_price must not print
+    "1 of 1"."""
+    holdings = [
+        trailed("TREND", setup_type="trend_add", entry_price=100.0, invalidation_price=90.0),
+        Holding(ticker="OTH", weight=0.05, score=0.5, setup_type="other"),
+    ]
+    cards = propose(holdings, [], make_ips(), "us", prices={})
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.details == {"missing": ["TREND", "OTH"], "total": 2}
+    assert "Price data missing for 2 of 2 positions" in missing.reason
+
+    holdings.append(trailed("PRICED", setup_type="trend_add", entry_price=100.0))
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={"PRICED": 140.0}, ma50={"PRICED": 120.0},
+    )
+    missing = next(c for c in cards if c.details.get("missing") is not None)
+    assert missing.details == {"missing": ["TREND", "OTH"], "total": 3}
+    assert "Price data missing for 2 of 3 positions" in missing.reason

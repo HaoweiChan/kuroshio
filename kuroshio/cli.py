@@ -766,8 +766,8 @@ def cmd_propose(args: argparse.Namespace) -> int:
         ok = post_cards(args.discord_webhook, cards)
         print("posted proposals to Discord" if ok else "warning: Discord post failed", file=sys.stderr)
 
-    # TASK-20: exit 3 when every position a monitoring rule could have run on went
-    # unpriced this session — the engine's own missing-price ALERT already says so
+    # TASK-20 (PR39 R2/R3): exit 3 when every held position went unpriced this session,
+    # ruled or not — the engine's own missing-price ALERT already says so
     # (details["missing"] == details["total"], both nonzero); the run was blind, not
     # merely quiet, and the desk reads the exit code to tell stale from checked.
     for card in cards or []:
@@ -1188,7 +1188,7 @@ def main(argv: list[str] | None = None) -> int:
         "propose",
         help="propose portfolio swaps against an IPS",
         epilog="exit codes: 0 ok; 2 invalid IPS or a bad holdings/candidates/universe/provider "
-        "input; 3 every position a monitoring rule could have run on had no session price "
+        "input; 3 every held position had no session price this run "
         "(blind — cards still print and the ledger append still runs).",
     )
     p_propose.add_argument("--ips", required=True)

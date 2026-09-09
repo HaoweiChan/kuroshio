@@ -470,28 +470,26 @@ def propose(
             },
         ))
 
-    # 3b2. missing-price ALERT (TASK-20). A holding a rule could actually run on — a
-    # monitored setup_type for the thesis rule, a usable entry_price for the
-    # loss-from-entry one, either is enough — but with no price for this session got
-    # nothing compared: not "unwatched by design" (a value_dip is supposed to look weak;
-    # no setup_type has no rule to begin with), but a rate limit or a provider gap this
-    # run could not see past. That is a different claim from the coverage line below and
-    # gets its own card, ahead of it. `ruled` excludes a holding with neither a monitored
-    # setup_type nor an entry_price — a missing price never blocked a rule that was never
-    # going to run on it, so it is not named here and does not count toward "of M" either.
-    ruled = [h for h in holdings if h.setup_type in MONITORED_SETUPS or _entry_price(h) is not None]
-    missing_price = [h.ticker for h in ruled if prices.get(h.ticker) is None]
+    # 3b2. missing-price ALERT (TASK-20). Any holding with no price for this session got
+    # nothing compared this run — not "unwatched by design" (a value_dip is supposed to
+    # look weak; no setup_type has no rule to begin with), but a rate limit or a provider
+    # gap this run could not see past. That is a different claim from the coverage line
+    # below and gets its own card, ahead of it.
+    # PR39 R1/R2/R3: price coverage is counted over ALL holdings, not only the ones a
+    # rule could have run on (a "ruled" filter here read as "the run compared everything
+    # it could" even when a whole unruled book went unpriced, and undercounted "of M").
+    missing_price = [h.ticker for h in holdings if prices.get(h.ticker) is None]
     if missing_price:
         alerts.append(ProposalCard(
             action="ALERT",
             reason=(
-                f"Price data missing for {len(missing_price)} of {len(ruled)} positions "
+                f"Price data missing for {len(missing_price)} of {len(holdings)} positions "
                 f"this session — no stop, trend or loss rule was compared for: "
                 f"{', '.join(missing_price)}. Their last ratcheted stops stay in force "
                 f"but were not checked today."
             ),
             ips_clauses=[],
-            details={"missing": missing_price, "total": len(ruled)},
+            details={"missing": missing_price, "total": len(holdings)},
         ))
     missing_price_set = set(missing_price)
 
@@ -512,10 +510,6 @@ def propose(
     watching_anything = False
     entry_flagged = False
     for h in holdings:
-        if h.ticker in missing_price_set:
-            # TASK-20: named on the missing-price ALERT above instead — dropped from the
-            # coverage line entirely rather than repeated there for the same reason.
-            continue
         core = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
         watching_anything |= len(core) < 2
         entry_note = (
@@ -524,6 +518,13 @@ def propose(
         )
         entry_flagged |= entry_note is not None
         why = core + ([entry_note] if entry_note else [])
+        if h.ticker in missing_price_set:
+            # PR39 R1: the missing-price ALERT above already says "no price for this
+            # session" for this ticker — repeating it here would say it twice in two
+            # voices. Its OTHER gaps (a bad setup_type, a snapshot_first_seen entry
+            # date) are independent of price and still belong on this line; only when
+            # price was its one and only gap does it drop off this card entirely.
+            why = [w for w in why if w != "no price for this session"]
         if not why:
             continue
         # dict.fromkeys: both rules read the session price, so a position without one
