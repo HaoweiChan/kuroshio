@@ -246,3 +246,93 @@ def test_research_writes_decision_json_even_with_no_ledger(monkeypatch, tmp_path
     assert code == 0
     path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
     assert json.loads(path.read_text()) == _EXPECTED_DECISION_JSON
+
+
+# --- decision.json zh-TW free-text labels (R1 repair) ---------------------------
+
+# The PM decision falls back to free text with localized section labels
+# (config/i18n/zh-TW.yaml: "executive summary" -> 執行摘要, "investment thesis" ->
+# 投資論述) when structured output fails on a --lang zh-TW run — the hermes desk's
+# primary path. Only the two prose labels differ from the English fixture.
+ZH_TW_DECISION_MD_FIXTURE = (
+    "# Portfolio Manager Decision — AAA (Synthetic Industries)\n"
+    "**Date:** 2026-01-02 · **Market:** US · **Last close:** $100.00 (2026-01-02)\n\n"
+    "**Rating**: Buy\n\n"
+    "**執行摘要**: 半個部位在收盤買進，其餘部位站上108放量再加碼；停損90，目標130。\n\n"
+    "**投資論述**: 成長是真的，排名比盤面更早發現它。看空論點只是估值意見，沒有事實支撐。\n\n"
+    "**Stop Loss**: 90\n\n"
+    "**Price Target**: 130\n"
+)
+
+NO_LABEL_DECISION_MD_FIXTURE = (
+    "# Portfolio Manager Decision — AAA (Synthetic Industries)\n"
+    "**Rating**: Buy\n\n"
+    "**Stop Loss**: 90\n\n"
+    "**Price Target**: 130\n"
+)
+
+
+class FakeGraphWithZhDecision(FakeGraphWithDecision):
+    """Same as FakeGraphWithDecision, but decision.md uses zh-TW free-text labels."""
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(ZH_TW_DECISION_MD_FIXTURE, encoding="utf-8")
+        return Path(save_path) / "complete_report.md"
+
+
+class FakeGraphWithNoLabelDecision(FakeGraphWithDecision):
+    """decision.md with neither the English nor the zh-TW prose labels."""
+
+    def save_reports(self, final_state, ticker, save_path=None):
+        self.save_reports_calls.append({"final_state": final_state, "ticker": ticker, "save_path": save_path})
+        portfolio_dir = Path(save_path) / "5_portfolio"
+        portfolio_dir.mkdir(parents=True, exist_ok=True)
+        (portfolio_dir / "decision.md").write_text(NO_LABEL_DECISION_MD_FIXTURE, encoding="utf-8")
+        return Path(save_path) / "complete_report.md"
+
+
+def test_research_writes_decision_json_for_zh_tw_free_text_labels(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithZhDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path), "--lang", "zh-TW",
+    ])
+    err = capsys.readouterr().err
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    row = json.loads(path.read_text())
+    assert row["executive_summary"] == (
+        "半個部位在收盤買進，其餘部位站上108放量再加碼；停損90，目標130。"
+    )
+    assert row["investment_thesis"] == (
+        "成長是真的，排名比盤面更早發現它。看空論點只是估值意見，沒有事實支撐。"
+    )
+    assert "decision.json" not in err
+
+
+def test_research_warns_on_stderr_when_no_prose_labels_match(monkeypatch, tmp_path, capsys):
+    import kuroshio.agents.engine.graph.trading_graph as trading_graph_mod
+
+    _stub_engine(monkeypatch)
+    monkeypatch.setattr(trading_graph_mod, "TradingAgentsGraph", FakeGraphWithNoLabelDecision)
+
+    code = main([
+        "research", "AAA", "--market", "us", "--date", "2026-01-02",
+        "--no-cache", "--out", str(tmp_path),
+    ])
+    err = capsys.readouterr().err
+
+    assert code == 0
+    path = tmp_path / "AAA" / "2026-01-02" / "5_portfolio" / "decision.json"
+    row = json.loads(path.read_text())
+    assert row["executive_summary"] is None
+    assert row["investment_thesis"] is None
+    assert sum(1 for line in err.splitlines() if "decision.json" in line) == 1
