@@ -72,6 +72,29 @@ def test_book_rules_are_cli_options(tmp_path, no_network):
     assert [r["ticker"] for r in book["attack"]] == ["BBB"]
 
 
+def test_book_attack_floor_cli_option_skips_below_floor_overflow(tmp_path, no_network):
+    """AC #1/#2: `--attack-floor buy` bumps BBB (Overweight) out of the attack sleeve;
+    DDD (Buy), the next Widgets overflow by rank, takes the one slot instead."""
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(
+        out, "--meta", str(FIX / "meta.json"), "--scores", str(FIX / "scores.jsonl"),
+        "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "0",
+        "--attack-floor", "buy",
+    )) == 0
+    book = json.loads((out / "book.json").read_text())
+    assert [r["ticker"] for r in book["core"]] == ["AAA", "GGG"]
+    assert [r["ticker"] for r in book["attack"]] == ["DDD"]
+    reason = {r[1]: r[3] for r in book["skipped"]}
+    assert reason["BBB"] == "below the attack floor (Overweight)"
+
+
+def test_book_attack_floor_rejects_an_unknown_value(tmp_path, no_network, capsys):
+    out = tmp_path / "book"
+    with pytest.raises(SystemExit):
+        cli.main(_book_argv(out, "--attack-floor", "strong-buy"))
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_book_survives_a_propose_that_cannot_run(tmp_path, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("no network here")

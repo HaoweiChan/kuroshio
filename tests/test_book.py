@@ -101,6 +101,57 @@ def test_holdings_yaml_carries_weights_stops_and_the_locked_name(built):
     assert by_t["AAA"]["entry_date"] == "2026-01-05"
 
 
+def test_attack_floor_hold_reproduces_todays_behaviour(built):
+    """AC #1: `hold` is the lowest non-vetoed rung, so it must not change anything —
+    the mechanical baseline the owner traded on 2026-09-04 stays reachable."""
+    assert bk.BookRules().attack_floor == "overweight"
+    same = bk.build_book(
+        bk.load_screen(FIX / "screen.json"),
+        bk.load_jsonl(FIX / "ratings.jsonl"),
+        parse_ips(str(IPS)),
+        meta=json.loads((FIX / "meta.json").read_text()),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+        positions=bk.load_positions(FIX / "positions.csv"),
+        nav=100000.0,
+        pm_size=json.loads((FIX / "pm_size.json").read_text()),
+        locked=json.loads((FIX / "locked.json").read_text()),
+        rules=bk.BookRules(attack_floor="hold"),
+    )
+    assert same["core"] == built["core"]
+    assert same["attack"] == built["attack"]
+    assert same["skipped"] == built["skipped"]
+
+
+def test_attack_floor_skips_a_below_floor_overflow_and_the_next_name_by_rank_takes_the_slot():
+    """AC #2, both branches: W2 (Hold) overflows Widgets' theme cap but sits below the
+    default `overweight` floor, so W3 (Overweight) takes the one attack slot instead —
+    and the core selection itself (W1) is untouched by the floor."""
+    screen_rows = [
+        {"ticker": "W1", "date": "2026-01-05", "rank": 1, "factors": {"close": 100.0}, "industry": "Widgets"},
+        {"ticker": "W2", "date": "2026-01-05", "rank": 2, "factors": {"close": 50.0}, "industry": "Widgets"},
+        {"ticker": "W3", "date": "2026-01-05", "rank": 3, "factors": {"close": 40.0}, "industry": "Widgets"},
+    ]
+    ratings_rows = [
+        {"date": "2026-01-02", "market": "us", "ticker": "W1", "rating": "Buy"},
+        {"date": "2026-01-02", "market": "us", "ticker": "W2", "rating": "Hold"},
+        {"date": "2026-01-02", "market": "us", "ticker": "W3", "rating": "Overweight"},
+    ]
+    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=0)
+    book = bk.build_book(screen_rows, ratings_rows, parse_ips(str(IPS)), rules=rules)
+    assert [r["ticker"] for r in book["core"]] == ["W1"]
+    assert [r["ticker"] for r in book["attack"]] == ["W3"]
+    reason = {r[1]: r[3] for r in book["skipped"]}
+    assert reason["W2"] == "below the attack floor (Hold)"
+
+
+def test_book_md_names_the_attack_floor_in_both_languages(built):
+    """AC #3: `rule_attack` in the rendered book names the floor, in en and zh."""
+    for lang in ("en", "zh"):
+        md = bk.render_book_md(built, lang=lang, propose_text="x")
+        line = next(line for line in md.splitlines() if line.startswith("4. "))
+        assert "Overweight" in line, f"{lang}: {line}"
+
+
 def test_rules_are_options_not_constants():
     book = bk.build_book(
         bk.load_screen(FIX / "screen.json"),

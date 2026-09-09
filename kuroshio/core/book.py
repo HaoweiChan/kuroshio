@@ -16,8 +16,10 @@ The rules, in the order they apply (all of them options on `BookRules`):
   `caps.risk_budget_pct` of NAV spread over the entry-to-invalidation distance, times the PM
   size multiplier for that name.
 * **Attack** — names the theme cap pushed out of the core go into an attack sleeve at base
-  weight; whatever is left of `attack_budget_pct` raises the highest-ranked core names to
-  twice base. Concentration, not leverage.
+  weight, provided the rating is at or above `attack_floor` (default `overweight`); a name
+  below the floor is skipped and the next qualifying overflow name by rank takes the slot.
+  Whatever is left of `attack_budget_pct` raises the highest-ranked core names to twice base.
+  Concentration, not leverage.
 * **Locked** — positions the owner marked as not-the-book's-business ride along at their live
   weight, so `propose` sees the real concentration.
 """
@@ -31,6 +33,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from kuroshio.core.ips import verdict_at_least
 from kuroshio.site.labels import labels
 
 VETO = {"sell", "underweight"}
@@ -45,6 +48,7 @@ class BookRules:
     attack_n: int = 3
     base_pct: float = 5.0
     attack_budget_pct: float = 15.0
+    attack_floor: str = "overweight"
     ttl_days: int = 45
     review_days: int = 21
     earnings_warn_days: int = 7
@@ -187,7 +191,13 @@ def build_book(
             per_theme[ind] = per_theme.get(ind, 0) + 1
             core.append(rec)
         elif len(attack) < rules.attack_n and per_theme.get(ind, 0) >= rules.core_per_theme:
-            attack.append({**rec, "theme": "attack"})
+            # the veto above is the core rule; the floor is an attack-only conviction gate —
+            # a name below it does not take the slot, so the next overflow name by rank does.
+            if verdict_at_least(rating, rules.attack_floor):
+                attack.append({**rec, "theme": "attack"})
+            else:
+                skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
+                continue
         if len(core) >= rules.core_n and len(attack) >= rules.attack_n:
             break
 
@@ -350,6 +360,9 @@ def render_book_md(
     ma50 = ma50 or {}
     base = rules.base_pct / 100
     na = lb["na"]
+    rule_attack = lb["rule_attack"].format(
+        budget=rules.attack_budget_pct / 100, double=2 * base, floor=rules.attack_floor.capitalize(),
+    )
 
     def row(rec: dict, sleeve: str) -> str:
         sleeve = rec.get("sleeve", sleeve)
@@ -372,7 +385,7 @@ def render_book_md(
         f"1. {lb['rule_core'].format(core_n=rules.core_n, per_theme=rules.core_per_theme)}",
         f"2. {lb['rule_veto'].format(ttl=rules.ttl_days)}",
         f"3. {lb['rule_weight'].format(base=base, risk=book.get('risk_budget', 0.01))}",
-        f"4. {lb['rule_attack'].format(budget=rules.attack_budget_pct / 100, double=2 * base)}",
+        f"4. {rule_attack}",
         f"5. {lb['rule_cash']}", "",
         f"## {lb['holdings_head']}", "",
         "| " + " | ".join(lb[h] for h in heads) + " |",
