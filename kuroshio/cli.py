@@ -954,6 +954,7 @@ def cmd_book(args: argparse.Namespace) -> int:
     rules = bookmod.BookRules(
         core_n=args.core_n, core_per_theme=args.core_per_theme, attack_n=args.attack_n,
         base_pct=args.base_pct, attack_budget_pct=args.attack_budget_pct,
+        attack_floor=args.attack_floor,
         ttl_days=args.ttl_days, review_days=args.review_days,
         earnings_warn_days=args.earnings_warn_days,
     )
@@ -1178,6 +1179,10 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument("--attack-n", type=int, default=3)
     p_book.add_argument("--base-pct", type=float, default=5.0)
     p_book.add_argument("--attack-budget-pct", type=float, default=15.0)
+    p_book.add_argument(
+        "--attack-floor", choices=["hold", "overweight", "buy"], default="overweight",
+        help="minimum rating an overflow name needs to enter the attack sleeve",
+    )
     p_book.add_argument("--ttl-days", type=int, default=45)
     p_book.add_argument("--review-days", type=int, default=21)
     p_book.add_argument("--earnings-warn-days", type=int, default=7)
