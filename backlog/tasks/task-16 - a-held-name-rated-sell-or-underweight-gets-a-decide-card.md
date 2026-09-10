@@ -1,7 +1,7 @@
 ---
 id: TASK-16
 title: 'a held name rated Sell or Underweight gets a DECIDE card, never an automatic swap'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-09'
 labels: []
