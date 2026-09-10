@@ -1,0 +1,33 @@
+{
+ "pr": 40,
+ "task": "TASK-15",
+ "call": 2,
+ "result": "APPROVED",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "HIGH",
+   "claim": "A stale held rating whose next_earnings_date exists but lies outside the warn window (or in the past) was reported as 'earnings in N days' (N even negative) instead of 'rating <age> days old'.",
+   "evidence": "book.py needs_research branched on `if x['earnings']` alone while build_book stores any known print date on the review row; H1 rated 2026-01-08, asof 2026-02-01, print 2026-04-02 -> 'earnings in 60 days'.",
+   "repro": "build_book(...H1..., scores_rows next_earnings_date 2026-04-02) -> needs_research reason != 'rating 24 days old' at 1638a82",
+   "acceptance": "earnings reason only when 0 <= days <= rules.earnings_warn_days, else the age reason; no negative count; a test for the far-off-print case.",
+   "blocking": true,
+   "status": "VERIFIED",
+   "resolution": "needs_research re-applies build_book's window; test_needs_research_stale_rating_with_a_far_off_print_is_reported_as_stale",
+   "fixed_in": "9b42868"
+  }
+ ],
+ "gate": "ruff 0 · pytest 359/359 · 1638a82",
+ "probe": [
+  "kuroshio book on the 2026-09-09 screen with --nav -> needs_research.json 16 'not researched' entries matching alloc.md, 1.4 s"
+ ],
+ "delta_verification": {
+  "result": "APPROVED",
+  "new_findings": [],
+  "gate": "ruff 0 · pytest 360/360 · 9b42868",
+  "notes": "fixture book byte-identical across 1638a82 and 9b42868 for alloc.md, book.json, needs_research.json; rules key present on every path reaching needs_research"
+ },
+ "problems": [
+  "shared git stash between the task-15 and task-16 implementers swapped their uncommitted work; orchestrator quarantined patches and reverted the foreign hunks in both trees (DRAFT filed)"
+ ]
+}
