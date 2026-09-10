@@ -1,0 +1,40 @@
+{
+ "pr": 42,
+ "task": "TASK-16",
+ "call": 1,
+ "result": "APPROVED",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "LOW",
+   "claim": "A holdings file listing the same ticker twice yields two identical rating DECIDE cards.",
+   "evidence": "engine.py step 3d iterates holdings without recording the ticker; _holdings_from_yaml accepts duplicates; the MAE step has the same pre-existing behaviour.",
+   "repro": "propose([Holding('T',.03), Holding('T',.02)], [], ips, 'us', ratings_held={'T': Sell}) -> 2 DECIDE cards",
+   "acceptance": "one DECIDE per ticker regardless of duplicate rows (loader-level duplicate check covers MAE too).",
+   "blocking": false,
+   "status": "DEFERRED",
+   "resolution": "pre-existing loader behaviour shared with the MAE step; DRAFT-70"
+  },
+  {
+   "id": "R2",
+   "severity": "LOW",
+   "claim": "A rating with surrounding whitespace is accepted by the MCP ledger writer but ignored by the veto (and by book's VETO check).",
+   "evidence": "mcp_server.py validates rating.strip().lower() but writes the raw string; schema._rank lowercases without strip.",
+   "repro": "verdict_at_least('underweight', '  sell') -> False",
+   "acceptance": "normalise once at the ledger boundary.",
+   "blocking": false,
+   "status": "DEFERRED",
+   "resolution": "pre-existing, shared with book.py; DRAFT-71"
+  }
+ ],
+ "gate": "ruff 0 · pytest 366/366 · 508f54b (370/370 at ba4d5c3 after merging main)",
+ "probe": [
+  "real book holdings + real ledger: no rating DECIDE card, 11 s",
+  "two-name file with AAOI (real Underweight 2026-09-05) against a ledger copy: exactly one DECIDE AAOI card, exit 0, 0.8 s"
+ ],
+ "verifier_evidence": "propose on the desk's real 17-name actual holdings (ledger copy): exit 0, exactly two DECIDE cards — MU and COHR, both real Underweight ratings dated 2026-09-03 with unrecorded source/model; none for the 15 Hold/Buy/unrated names; blind run still exits 3 and the rating card still prints",
+ "notes": [
+  "no TTL on the veto: a two-year-old Sell still fires — 'newest' per AC #1, design choice",
+  "next_earnings takes the last scores row in file order, byte-identical to book.py — parity with AC #4"
+ ]
+}
