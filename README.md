@@ -141,8 +141,13 @@ Full walkthrough (including the LLM research pipeline): [examples/quickstart.md]
 
 `kuroshio book` turns files you already have into a mechanical book: a screen
 ranking (`kuroshio screen --json`), your ratings ledger, and your IPS become
-`holdings.yml`, `book.json`, `book.md`, `alloc.md` and `propose.out` in the
-directory you name. It walks the ranking under a per-theme cap, drops names a
+`holdings.yml`, `book.json`, `book.md`, `alloc.md`, `needs_research.json` and
+`propose.out` in the directory you name. `holdings.yml` is the handoff file for
+whatever runs your real book: every name carries `setup_type`, the report's
+`invalidation_price`, `entry_price`/`entry_date` and a one-line `thesis`, so a
+desk that copies those fields into its own holdings file gets the same stop,
+trend and loss rules `propose` applies here — its fields are an interface, kept
+stable by tests. It walks the ranking under a per-theme cap, drops names a
 rating vetoed or a TTL/earnings print expired, sizes each one at
 `min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends an
 attack budget on the theme-cap overflow, and — with `--nav` and an optional
