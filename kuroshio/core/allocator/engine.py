@@ -143,6 +143,7 @@ def propose(
     atr14: dict[str, float] | None = None,
     min_close: dict[str, float] | None = None,
     last_stop: dict[str, float] | None = None,
+    ratings_held: dict[str, dict] | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
@@ -176,6 +177,13 @@ def propose(
     # ledger.STOPS — core/allocator imports no ledger, same rule as the panel). Empty =
     # the ratchet only knows the recorded level, which is a run with no history yet.
     last_stop = last_stop or {}
+    # the newest ledger rating per held ticker (cli.py's `_held_ratings`, from
+    # ledger.RATINGS, market-matched and already dropped when a later earnings print
+    # voided it — core/allocator imports no ledger, same rule as the panel and the stop
+    # ledger). Read only in step 3d: a Sell/Underweight rating here is a veto that
+    # forces a DECIDE, never a ranking input, so step 4's swap hurdle never reads it.
+    # Empty = no rating ledger has anything for a held ticker this run.
+    ratings_held = ratings_held or {}
     # `asof` is the session `prices` was read from (signals.monitor_inputs), so a card can
     # name it instead of calling a still-forming bar a close — see _price_phrase.
     theme_cap = ips.caps.theme_pct / 100
@@ -564,6 +572,42 @@ def propose(
                 "partially_monitored": [u.split(" (")[0] for u in partial],
             },
         ))
+
+    # 3d. rating veto (TASK-16): the newest ledger rating on a held name is a veto, not
+    # a ranking input — it never enters step 4's swap hurdle or verdict floor (rating
+    # hit rate is unmeasured until `evaluate` has 60+ sessions). A rating at or below
+    # Underweight forces the same three-way decision as MAE: kill it, rewrite the
+    # thesis, or hold with a written reason. No price is read here, so a holding with
+    # no session price still gets this card (TASK-20's missing-price gap is a price
+    # problem, not a ratings one). Exactly one DECIDE per ticker: when MAE (3b) already
+    # forced one this run, the rating sentence folds into that card instead of a second.
+    for h in holdings:
+        row = ratings_held.get(h.ticker)
+        if row is None or not verdict_at_least("underweight", row.get("rating") or ""):
+            continue
+        src = row.get("source") or "unrecorded source"
+        model = row.get("model") or "unrecorded model"
+        stop = row.get("stop_loss")
+        stop_str = f"{stop:.2f}" if stop is not None else "not recorded"
+        sentence = (
+            f"{h.ticker}'s newest rating is {row['rating']} ({row.get('date')}, "
+            f"{src}/{model}): decide — kill it, rewrite the thesis, or hold with a "
+            f"written reason. The report's stop was {stop_str}."
+        )
+        rating_details = {
+            "rating": row["rating"], "rating_date": row.get("date"),
+            "source": row.get("source"), "model": row.get("model"), "report_stop": stop,
+        }
+        if h.ticker in decided:
+            card = next(c for c in decisions if c.details.get("ticker") == h.ticker)
+            card.reason = f"{card.reason} {sentence}"
+            card.details = {**card.details, **rating_details, "kind": "mae+rating"}
+        else:
+            decisions.append(ProposalCard(
+                action="DECIDE",
+                reason=sentence,
+                details={"ticker": h.ticker, **rating_details, "kind": "rating"},
+            ))
 
     # 4. challenger vs incumbent.
     held = {h.ticker for h in holdings}

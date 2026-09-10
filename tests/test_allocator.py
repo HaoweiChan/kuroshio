@@ -1251,3 +1251,121 @@ def test_r3_the_coverage_denominator_is_the_holdings_count_not_the_ruled_count()
     missing = next(c for c in cards if c.details.get("missing") is not None)
     assert missing.details == {"missing": ["TREND", "OTH"], "total": 3}
     assert "Price data missing for 2 of 3 positions" in missing.reason
+
+
+# --- TASK-16: a held Sell/Underweight rating is a veto, never an automatic swap -----
+
+
+def rating_row(rating: str, **kw) -> dict:
+    row = {
+        "date": "2026-08-20", "market": "us", "ticker": "T", "rating": rating,
+        "stop_loss": 42.0, "price_target": 55.0, "close": None,
+        "source": "claude-session", "model": "claude-opus-4",
+    }
+    row.update(kw)
+    return row
+
+
+def test_a_held_sell_or_underweight_rating_gets_one_decide_card():
+    """Acceptance #1: a Sell or Underweight rating on a held name (case-insensitive)
+    gets exactly one DECIDE card quoting the rating, date, source, model and the
+    report's own stop."""
+    for rating in ("Sell", "Underweight", "sell", "UNDERWEIGHT"):
+        holdings = [Holding(ticker="T", weight=0.05, score=0.5)]
+        cards = decides(
+            propose(
+                holdings, [], make_ips(), "us",
+                ratings_held={"T": rating_row(rating)},
+            )
+        )
+        assert len(cards) == 1, rating
+        card = cards[0]
+        assert card.details["ticker"] == "T"
+        assert card.details["rating"] == rating
+        assert card.details["rating_date"] == "2026-08-20"
+        assert card.details["source"] == "claude-session"
+        assert card.details["model"] == "claude-opus-4"
+        assert card.details["report_stop"] == 42.0
+        assert card.details["kind"] == "rating"
+        assert card.reason == (
+            f"T's newest rating is {rating} (2026-08-20, claude-session/claude-opus-4): "
+            "decide — kill it, rewrite the thesis, or hold with a written reason. "
+            "The report's stop was 42.00."
+        )
+
+
+def test_a_held_hold_overweight_or_buy_rating_gets_no_decide_card():
+    """Acceptance #1: Hold/Overweight/Buy is not a veto — nothing new."""
+    for rating in ("Hold", "Overweight", "Buy", "hold"):
+        holdings = [Holding(ticker="T", weight=0.05, score=0.5)]
+        cards = propose(
+            holdings, [], make_ips(), "us", ratings_held={"T": rating_row(rating)},
+        )
+        assert decides(cards) == [], rating
+
+
+def test_a_held_name_with_no_rating_gets_no_decide_card():
+    """Acceptance #1: no ledger rating for the ticker -> nothing, whether the dict is
+    absent (default None) or simply has no entry for it."""
+    holdings = [Holding(ticker="T", weight=0.05, score=0.5)]
+    assert decides(propose(holdings, [], make_ips(), "us")) == []
+    assert decides(propose(holdings, [], make_ips(), "us", ratings_held={})) == []
+
+
+def test_the_rating_veto_reads_no_price():
+    """A priceless holding still gets the rating DECIDE card (TASK-20's missing-price
+    gap is a price problem; the rating veto never reads a price at all)."""
+    holdings = [Holding(ticker="T", weight=0.05, score=0.5)]
+    cards = propose(
+        holdings, [], make_ips(), "us", prices={},
+        ratings_held={"T": rating_row("Sell")},
+    )
+    assert len(decides(cards)) == 1
+
+
+def test_a_challenger_that_clears_the_hurdle_still_swaps_on_the_score_gap_not_the_rating():
+    """Acceptance #2: the rating veto never enters the swap hurdle or verdict floor —
+    a challenger that clears the hurdle against a rated incumbent still produces a
+    SWAP card that quotes the score gap, and the veto's own DECIDE card ships
+    alongside it rather than blocking or altering the SWAP."""
+    holdings = [
+        Holding(ticker="LOSER", weight=0.05, theme="t", score=0.2),
+        Holding(ticker="OK", weight=0.05, score=0.9),
+    ]
+    cards = propose(
+        holdings, [cand("NEW", 0.9)], make_ips(), "us",
+        verdicts={"NEW": "buy"}, themes={"NEW": "t"},
+        ratings_held={"LOSER": rating_row("Underweight")},
+    )
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "LOSER"
+    assert swap.score_gap == pytest.approx(0.9 - 0.2)
+    assert "a gap of" in swap.reason
+    assert "newest rating" not in swap.reason
+
+    decide = next(c for c in cards if c.action == "DECIDE" and c.details["ticker"] == "LOSER")
+    assert "newest rating is Underweight" in decide.reason
+
+
+def test_mae_and_rating_veto_fold_into_one_decide_card():
+    """Acceptance #3: when MAE and the rating veto both fire on the same ticker in the
+    same run, exactly one DECIDE card ships — the rating sentence folds into the MAE
+    card rather than a second card."""
+    holdings = [Holding(ticker="LOSER", weight=0.05, score=0.2, entry_price=100.0)]
+    cards = decides(
+        propose(
+            holdings, [], make_ips(), "us", prices={"LOSER": 80.0},
+            ratings_held={"LOSER": rating_row("Sell")},
+        )
+    )
+    assert len(cards) == 1
+    card = cards[0]
+    assert card.details["kind"] == "mae+rating"
+    assert card.details["rating"] == "Sell"
+    assert card.details["drawdown"] == pytest.approx(-0.20)
+    assert card.reason.startswith("LOSER is -20.0% from your entry price of 100.00")
+    assert card.reason.endswith(
+        "LOSER's newest rating is Sell (2026-08-20, claude-session/claude-opus-4): "
+        "decide — kill it, rewrite the thesis, or hold with a written reason. The "
+        "report's stop was 42.00."
+    )

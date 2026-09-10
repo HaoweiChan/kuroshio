@@ -95,6 +95,16 @@ can score the stop that was live on a date, not just the final one; `--no-ledger
 nothing, and says on stderr how many moves went unrecorded — for a dry run, a probe, or the
 desk previewing a book without committing state.
 
+A held name's newest `kuroshio research` rating is a veto, never a ranking input: rating
+hit rate is unmeasured until `evaluate` has 60+ sessions, so it never enters the swap
+hurdle or the verdict floor that judge challengers. Instead, a rating at or below
+Underweight forces the same three-way DECIDE as MAE — kill it, rewrite the thesis, or hold
+with a written reason — quoting the rating, its date, source and model, and the stop the
+report gave. It reads no price, so a holding with no session price still gets the card; a
+rating an earnings print has since voided (the same rule `kuroshio book` applies) does not
+count; and when MAE also fires on the same name this run, the two fold into one card
+rather than two.
+
 Run `propose` twice a day — once on a book (the target this project computes) and once on
 the **actual portfolio**: the broker-side holdings file the desk itself writes, with the
 book's names standing in as challengers. The ratchet stop, thesis break, MAE and DECIDE

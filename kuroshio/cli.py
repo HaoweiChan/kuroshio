@@ -673,6 +673,7 @@ def _run_propose(
         pool_name=pool_name, book_vol=book_vol,
         running_high=running_high, atr14=atr14, min_close=min_close,
         last_stop=_logged_stops(holdings, asof),
+        ratings_held=_held_ratings(holdings, market, asof),
     )
     _log_ratchets(cards, market, asof, no_ledger=no_ledger)
     return cards, None
@@ -713,6 +714,45 @@ def _logged_stops(holdings: list[Holding], asof: str | None) -> dict[str, float]
         if level is not None:
             stops[h.ticker] = level
     return stops
+
+
+def _held_ratings(holdings: list[Holding], market: str, asof: str | None) -> dict[str, dict]:
+    """The newest ``RATINGS`` row per held ticker, market-matched, minus one voided by
+    an earnings print after its rating date (TASK-16 AC #4) — the same rule
+    ``core.book``'s ``voided_by_earnings`` applies, duplicated rather than imported: it
+    is a closure over ``build_book``'s own ``next_earnings``, not a top-level helper,
+    and the two next_earnings maps are built from the same ``SCORES`` rows either way.
+    Best-effort like ``_logged_stops``: an unreadable ledger warns and the run proceeds
+    with no ratings held."""
+    from kuroshio.core import ledger
+
+    today = asof or datetime.date.today().isoformat()
+    try:
+        rating_rows = ledger.load(ledger.ledger_dir() / ledger.RATINGS)
+        score_rows = ledger.load(ledger.ledger_dir() / ledger.SCORES)
+    except OSError as exc:
+        print(f"warning: ratings ledger read failed: {exc}", file=sys.stderr)
+        return {}
+
+    next_earnings: dict[str, str] = {}
+    for r in score_rows:
+        f = r.get("fundamentals") or {}
+        if r.get("market", market) == market and f.get("next_earnings_date"):
+            next_earnings[r["ticker"]] = str(f["next_earnings_date"])[:10]
+
+    held = {h.ticker for h in holdings}
+    newest: dict[str, dict] = {}
+    for row in sorted(rating_rows, key=lambda r: r.get("date", "")):
+        if row.get("market") == market and row.get("ticker") in held and row.get("rating"):
+            newest[row["ticker"]] = row
+
+    ratings = {}
+    for ticker, row in newest.items():
+        ne = next_earnings.get(ticker)
+        if ne and row["date"] < ne <= today:
+            continue  # an earnings print landed after this rating — void, same as `book`
+        ratings[ticker] = row
+    return ratings
 
 
 def _log_ratchets(cards, market: str, asof: str | None, *, no_ledger: bool = False) -> None:
