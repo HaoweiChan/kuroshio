@@ -1,16 +1,24 @@
 ---
 id: DRAFT-58
 title: 'propose has no --no-ledger flag, so every stop move writes to the ledger with no opt-out'
-status: Draft
+status: Superseded
 assignee: []
 created_date: '2026-09-06'
 labels:
   - debt
 dependencies: []
+superseded_by: TASK-17
 references:
   - PR #26 (TASK-11)
 ordinal: 58000
 ---
+
+## Resolution
+
+Superseded by TASK-17. `propose` now takes `--no-ledger` (matching `screen` and
+`research`): it still reads `stops.jsonl` for the never-lower rule, but appends
+nothing and prints `ledger: N stop move(s) not recorded (--no-ledger)` on stderr
+when a run would otherwise have logged a move.
 
 ## Description
 
