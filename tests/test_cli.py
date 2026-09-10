@@ -1254,6 +1254,86 @@ N_TRAIL = 30
 _TRAIL_DATES = [d.strftime("%Y-%m-%d") for d in pd.bdate_range("2024-01-01", periods=N_TRAIL)]
 
 
+# --- TASK-16: a held Sell/Underweight rating is a veto, wired from the ratings ledger --
+
+
+def test_propose_emits_a_decide_card_for_a_held_sell_rating(tmp_path, capsys, monkeypatch):
+    """Acceptance #1, wired end to end: a Sell rating on a held name in the ratings
+    ledger produces one DECIDE card quoting the rating, date, source, model and stop."""
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    ledger.append(tmp_path / "ledger" / ledger.RATINGS, [{
+        "date": "2026-08-01", "market": "us", "ticker": "HELD", "rating": "Sell",
+        "stop_loss": 42.0, "price_target": 30.0, "close": 50.0,
+        "source": "claude-session", "model": "claude-opus-4",
+    }])
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text("- {ticker: HELD, weight: 0.05, score: 0.5}\n")
+
+    code = main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "DECIDE HELD" in out
+    assert "HELD's newest rating is Sell (2026-08-01, claude-session/claude-opus-4)" in out
+    assert "report's stop was 42.00" in out
+
+
+def test_propose_ignores_a_rating_voided_by_a_later_earnings_print(tmp_path, capsys, monkeypatch):
+    """Acceptance #4: a rating dated before the next earnings print after it is void —
+    the same rule `kuroshio book`'s `voided_by_earnings` applies — and must not surface
+    a DECIDE card."""
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    ledger.append(tmp_path / "ledger" / ledger.RATINGS, [{
+        "date": "2026-08-01", "market": "us", "ticker": "HELD", "rating": "Sell",
+        "stop_loss": 42.0, "price_target": 30.0, "close": 50.0,
+        "source": "claude-session", "model": "claude-opus-4",
+    }])
+    ledger.append(tmp_path / "ledger" / ledger.SCORES, [{
+        "date": "2026-08-01", "market": "us", "profile": "us-momentum", "ticker": "HELD",
+        "rank": 1, "final_score": 0.5, "scores": {}, "factors": {}, "close": 50.0,
+        "fundamentals": {"next_earnings_date": "2026-08-15"},
+    }])
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text("- {ticker: HELD, weight: 0.05, score: 0.5}\n")
+
+    code = main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "DECIDE" not in out
+
+
+def test_propose_rating_veto_is_market_matched(tmp_path, capsys, monkeypatch):
+    """A rating logged under a different market must not veto a same-ticker holding
+    proposed under this market."""
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    ledger.append(tmp_path / "ledger" / ledger.RATINGS, [{
+        "date": "2026-08-01", "market": "tw", "ticker": "HELD", "rating": "Sell",
+        "stop_loss": 42.0, "price_target": 30.0, "close": 50.0,
+        "source": "claude-session", "model": "claude-opus-4",
+    }])
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text("- {ticker: HELD, weight: 0.05, score: 0.5}\n")
+
+    code = main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us",
+    ])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "DECIDE" not in out
+
+
 def _trail_panel() -> Panel:
     """One name ramping 100 -> 160 with a 4.00-wide bar every session."""
     close = pd.DataFrame(
