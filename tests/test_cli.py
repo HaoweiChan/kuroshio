@@ -846,6 +846,111 @@ def test_propose_names_a_snapshot_sourced_entry_date_on_the_coverage_line(
     assert "1105" in out
 
 
+# --- propose: exit 3 when the run was blind (TASK-20) ---------------------------
+
+
+def test_propose_exits_3_when_every_ruled_holding_has_no_session_price(tmp_path, capsys, monkeypatch):
+    """AC #2: the only holding carries a monitoring rule (entry_price) but the provider
+    comes back with nothing for it — same shape as a yfinance rate-limit failure — so
+    the run compared nothing and must say so with exit 3, not 0. Cards still print."""
+    empty_panel = Panel(close=pd.DataFrame(), volume=pd.DataFrame(), institutional=None)
+    _use_stub(monkeypatch, empty_panel)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text('- {ticker: "1103", weight: 0.05, score: 0.5, entry_price: 100.0}\n')
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 3
+    assert "Price data missing for 1 of 1 positions this session" in out
+    assert "1103" in out
+
+
+def test_propose_exits_0_when_at_least_one_ruled_holding_is_priced(tmp_path, capsys, monkeypatch):
+    """The other half of AC #2 — the provider priced the one ruled holding, so the run
+    was not blind and exits 0 as it always has."""
+    stub = _use_stub(monkeypatch)  # _tw_panel() covers every _SPECS ticker
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1103", weight: 0.05, score: 0.5, setup_type: trend_add, entry_price: 100.0}\n'
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    assert code == 0
+    assert stub.calls
+
+
+def test_task20_r4_a_score_only_book_never_fetches_and_is_not_blind(
+    tmp_path, capsys, monkeypatch,
+):
+    """task-20 R4 (probe pr40): a book with no monitored setup_type, no entry_price and
+    no caps.book_vol_target_pct needs no fetch, and none happens — a run that never
+    attempted a price is not "blind" (2d72ce4 conflated "no panel fetched" with "panel
+    fetched, nothing came back" by defaulting `prices` to `{}` in both cases). No
+    missing-price ALERT, exit 0, and the plain "no proposals" line prints."""
+    def _boom(name):
+        raise AssertionError("a score-only, unruled book must not touch a provider")
+
+    monkeypatch.setattr("kuroshio.providers.get_provider", _boom)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "1103", weight: 0.05, score: 0.5, setup_type: other}\n'
+        '- {ticker: "1104", weight: 0.05, score: 0.5}\n'
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "No proposals" in out
+    assert "Price data missing" not in out
+
+
+def test_task20_r4_a_fetched_panel_with_nothing_back_is_blind(tmp_path, capsys, monkeypatch):
+    """task-20 R4 (probe pr40): the other half — a book WITH a monitored setup_type
+    (ZZQX1, trend_add with entry/stop) does fetch a panel, and when that panel comes
+    back with nothing for either holding, the run really is blind: exit 3, "2 of 2"."""
+    empty_panel = Panel(close=pd.DataFrame(), volume=pd.DataFrame(), institutional=None)
+    _use_stub(monkeypatch, empty_panel)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: "ZZQX1", weight: 0.05, score: 0.5, setup_type: trend_add, '
+        'entry_price: 100.0, invalidation_price: 90.0}\n'
+        '- {ticker: "ZZQX2", weight: 0.05, score: 0.5, setup_type: other}\n'
+    )
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "tw",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 3
+    assert "Price data missing for 2 of 2 positions" in out
+
+
 # --- propose: book vol target wiring (TASK-9) -----------------------------------
 
 

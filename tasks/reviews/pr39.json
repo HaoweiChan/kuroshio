@@ -1,0 +1,55 @@
+{
+ "pr": 39,
+ "task": "TASK-20",
+ "call": 2,
+ "result": "APPROVED",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "MEDIUM",
+   "claim": "A priceless holding is dropped from the coverage line for every reason, so a second gap on the same ticker (unusable setup_type, snapshot_first_seen entry date) is reported nowhere that session.",
+   "evidence": "engine.py coverage loop `if h.ticker in missing_price_set: continue` skips the whole row; input P priced trend_add, OTH other+entry unpriced, SNAP trend_add snapshot-dated unpriced -> no coverage card at all on HEAD, both named on origin/main.",
+   "repro": "propose() with that input prints NO COVERAGE CARD on 0679082",
+   "acceptance": "the coverage card still names OTH's setup_type other and SNAP's tracking-start flag; only the 'no price for this session' clause is suppressed for tickers on the missing-price ALERT; a test asserts a priceless holding with a second gap appears on both cards, each with only its own reason.",
+   "blocking": true,
+   "status": "VERIFIED",
+   "resolution": "coverage loop filters only the 'no price for this session' clause; other gaps stay named; price-only gap drops off the card",
+   "fixed_in": "2d72ce4 + 078fb1c"
+  },
+  {
+   "id": "R2",
+   "severity": "LOW",
+   "claim": "A book where no holding is 'ruled' and every holding is unpriced still exits 0 with 'No proposals'.",
+   "evidence": "engine.py `ruled` filter + cli.py exit-3 scan finds no card when nothing is ruled; same on origin/main (narrowing of the AC, not a regression).",
+   "repro": "holdings 1103 {setup_type: other} + 1104 {} with an empty-panel provider -> exit 0",
+   "acceptance": "exit 3 when a fully unpriced book monitors nothing (price coverage counted over all holdings), or the narrowing stated in the AC.",
+   "blocking": true,
+   "status": "VERIFIED",
+   "resolution": "ruled filter removed; blind = a fetched session left every holding unpriced; a run that never fetched (prices=None) is never blind (orchestrator probe caught the over-correction at 2d72ce4, fixed in 078fb1c)",
+   "fixed_in": "2d72ce4 + 078fb1c"
+  },
+  {
+   "id": "R3",
+   "severity": "LOW",
+   "claim": "The card's 'N of M positions' counts only ruled holdings, under-reporting book size.",
+   "evidence": "engine.py details total=len(ruled); two-position book prints '1 of 1'.",
+   "repro": "Holding A entry_price only + Holding B other, prices={} -> 'Price data missing for 1 of 1 positions'",
+   "acceptance": "M is the holdings count and N the unpriced holdings (not only ruled ones), with a test on a mixed book.",
+   "blocking": true,
+   "status": "VERIFIED",
+   "resolution": "N = unpriced holdings, M = len(holdings)",
+   "fixed_in": "2d72ce4 + 078fb1c"
+  }
+ ],
+ "gate": "ruff 0 · pytest 351/351 · 0679082",
+ "probe": [
+  "two made-up tickers -> exit 3",
+  "real book -> exit 0"
+ ],
+ "delta_verification": {
+  "result": "APPROVED",
+  "new_findings": [],
+  "gate": "ruff 0 · pytest 357/357 · 078fb1c",
+  "probe_regression_caught_by_orchestrator": "score-only book exited 3 at 2d72ce4; returned to implementer without a model call; fixed at 078fb1c"
+ }
+}

@@ -157,6 +157,12 @@ def propose(
     auto_scored = auto_scored or {}
     # last close and 50-day mean close per ticker, computed by the caller from a panel
     # (allocator.signals.monitor_inputs) — core/allocator takes no panel and no provider.
+    # None means no panel was fetched this run (cli.py's need_scores/monitored/
+    # vol_targeted gate decided nothing needed one) — no price monitoring was even
+    # attempted, so a missing key here is not a gap. A dict (possibly empty) means a
+    # panel WAS fetched, so a holding absent from it really did go unpriced. Capture
+    # that distinction before collapsing both to a dict below.
+    prices_attempted = prices is not None
     prices = prices or {}
     ma50 = ma50 or {}
     # the same seam, for the stop ratchet and the max-adverse-excursion rule: running high
@@ -277,6 +283,12 @@ def propose(
     moved: set[str] = set()   # tickers this run's ratchet actually raised
     for h in holdings:
         if h.setup_type not in TRAILED_SETUPS:
+            continue
+        # TASK-20: running_high/atr14 can outlive a session with no price for this
+        # ticker (they are read off the panel's whole lookback, not just today's row) —
+        # without this check a rate-limit gap would still ratchet the stop on a stale
+        # high, contradicting the missing-price ALERT's own "stops stay in force".
+        if prices.get(h.ticker) is None:
             continue
         peak, atr = running_high.get(h.ticker), atr14.get(h.ticker)
         if peak is None or atr is None:
@@ -464,6 +476,34 @@ def propose(
             },
         ))
 
+    # 3b2. missing-price ALERT (TASK-20). Any holding with no price for this session got
+    # nothing compared this run — not "unwatched by design" (a value_dip is supposed to
+    # look weak; no setup_type has no rule to begin with), but a rate limit or a provider
+    # gap this run could not see past. That is a different claim from the coverage line
+    # below and gets its own card, ahead of it.
+    # PR39 R1/R2/R3: price coverage is counted over ALL holdings, not only the ones a
+    # rule could have run on (a "ruled" filter here read as "the run compared everything
+    # it could" even when a whole unruled book went unpriced, and undercounted "of M").
+    # task-20 R4 (probe pr40): gated on prices_attempted — a run that never fetched a
+    # panel (a score-only book, no setup_type/entry_price/vol target anywhere) never
+    # tried to price anything, so it is not "blind" and gets no card here at all.
+    missing_price = (
+        [h.ticker for h in holdings if prices.get(h.ticker) is None] if prices_attempted else []
+    )
+    if missing_price:
+        alerts.append(ProposalCard(
+            action="ALERT",
+            reason=(
+                f"Price data missing for {len(missing_price)} of {len(holdings)} positions "
+                f"this session — no stop, trend or loss rule was compared for: "
+                f"{', '.join(missing_price)}. Their last ratcheted stops stay in force "
+                f"but were not checked today."
+            ),
+            ips_clauses=[],
+            details={"missing": missing_price, "total": len(holdings)},
+        ))
+    missing_price_set = set(missing_price)
+
     # 3c. coverage. Two rules watch a position — its setup_type's and the loss-from-entry
     # one — so a position is fully watched, partly watched, or watched by neither, and the
     # three say different things. A partially-monitored position is not an unwatched one:
@@ -489,6 +529,13 @@ def propose(
         )
         entry_flagged |= entry_note is not None
         why = core + ([entry_note] if entry_note else [])
+        if h.ticker in missing_price_set:
+            # PR39 R1: the missing-price ALERT above already says "no price for this
+            # session" for this ticker — repeating it here would say it twice in two
+            # voices. Its OTHER gaps (a bad setup_type, a snapshot_first_seen entry
+            # date) are independent of price and still belong on this line; only when
+            # price was its one and only gap does it drop off this card entirely.
+            why = [w for w in why if w != "no price for this session"]
         if not why:
             continue
         # dict.fromkeys: both rules read the session price, so a position without one

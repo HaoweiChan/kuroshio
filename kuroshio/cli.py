@@ -612,7 +612,10 @@ def _run_propose(
     # loss-from-entry rule if it has an entry_price, which dispatches on no setup at
     # all. A set caps.book_vol_target_pct needs a panel too, for signals.book_vol —
     # none of that needed -> no fetch, no network.
-    prices: dict[str, float] = {}
+    # None until a panel is actually fetched below — propose() reads None as "price
+    # monitoring was never attempted this run" (no missing-price card), vs. a dict
+    # (possibly empty) as "a panel was fetched" (a holding absent from it is missing).
+    prices: dict[str, float] | None = None
     ma50: dict[str, float] = {}
     running_high: dict[str, float] = {}
     atr14: dict[str, float] = {}
@@ -766,6 +769,17 @@ def cmd_propose(args: argparse.Namespace) -> int:
         ok = post_cards(args.discord_webhook, cards)
         print("posted proposals to Discord" if ok else "warning: Discord post failed", file=sys.stderr)
 
+    # TASK-20 (PR39 R2/R3, PR40 R4): exit 3 when every held position went unpriced this
+    # session, ruled or not — the engine's own missing-price ALERT already says so
+    # (details["missing"] == details["total"], both nonzero). That card only exists when
+    # _run_propose actually fetched a panel (prices is a dict, not None) — a score-only
+    # book that never attempted a price prints no such card and never hits this branch.
+    # The run was blind, not merely quiet, and the desk reads the exit code to tell
+    # stale from checked.
+    for card in cards or []:
+        missing, total = card.details.get("missing"), card.details.get("total")
+        if missing is not None and total and len(missing) == total:
+            return 3
     return 0
 
 
@@ -1176,7 +1190,14 @@ def main(argv: list[str] | None = None) -> int:
     p_simulate.add_argument("--sector-map", help="YAML file of {ticker: sector_etf} (us-leadership only)")
     p_simulate.set_defaults(func=cmd_simulate)
 
-    p_propose = sub.add_parser("propose", help="propose portfolio swaps against an IPS")
+    p_propose = sub.add_parser(
+        "propose",
+        help="propose portfolio swaps against an IPS",
+        epilog="exit codes: 0 ok; 2 invalid IPS or a bad holdings/candidates/universe/provider "
+        "input; 3 this session fetched prices and every held position came back unpriced "
+        "(blind — cards still print and the ledger append still runs); a run that never "
+        "needed a price (a score-only book) exits 0, not 3.",
+    )
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
     p_propose.add_argument("--market", choices=sorted(PROFILES), required=True)
