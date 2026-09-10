@@ -301,9 +301,11 @@ def needs_research(book: dict) -> dict:
     asof_d = dt.date.fromisoformat(book["asof"])
     rank_of = {x["ticker"]: x["rank"] for x in book["core"] + book["attack"]}
     research = []
+    warn = book["rules"]["earnings_warn_days"]
     for x in sorted(book["review"], key=lambda x: rank_of[x["ticker"]]):
-        if x["earnings"]:
-            days = (dt.date.fromisoformat(x["earnings"]) - asof_d).days
+        days = (dt.date.fromisoformat(x["earnings"]) - asof_d).days if x["earnings"] else None
+        # the row carries any known print date; only one inside the warn window is the reason
+        if days is not None and 0 <= days <= warn:
             reason = f"earnings in {days} days"
         else:
             reason = f"rating {x['age']} days old"

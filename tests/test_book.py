@@ -261,3 +261,16 @@ def test_nav_alone_still_allocates_it_is_positions_that_add_the_diff():
     assert alloc["nav"] == 100000.0 and alloc["cash"] is None and alloc["sells"] == []
     row = next(r for r in alloc["rows"] if r["ticker"] == "AAA")
     assert row["shares"] == 100 and row["have"] == 0
+
+
+def test_needs_research_stale_rating_with_a_far_off_print_is_reported_as_stale():
+    # a review row carries any known earnings date; only one inside the warn window is the reason
+    book = bk.build_book(
+        [{"ticker": "H1", "date": "2026-02-01", "rank": 1, "factors": {"close": 10.0}, "industry": "X"}],
+        [{"date": "2026-01-08", "market": "us", "ticker": "H1", "rating": "Buy"}],
+        parse_ips("examples/ips-balanced.md"),
+        scores_rows=[{"date": "2026-02-01", "market": "us", "ticker": "H1",
+                      "fundamentals": {"next_earnings_date": "2026-04-02"}}],
+        rules=bk.BookRules(core_n=10, core_per_theme=10, attack_n=0, attack_budget_pct=0),
+    )
+    assert [r["reason"] for r in bk.needs_research(book)["research"]] == ["rating 24 days old"]
