@@ -30,6 +30,7 @@ import csv
 import datetime as dt
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -290,6 +291,38 @@ def build_book(
     }
 
 
+_VOID_RE = re.compile(r"^not researched \(rating (?P<date>\S+) void: (?P<void>.+)\)$")
+
+
+def needs_research(book: dict) -> dict:
+    """The desk's to-research list: held names due for re-review, then unrated screen
+    names by rank — `render_alloc_md`'s unrated/review blocks render from this same list,
+    so the JSON and the prose cannot disagree."""
+    asof_d = dt.date.fromisoformat(book["asof"])
+    rank_of = {x["ticker"]: x["rank"] for x in book["core"] + book["attack"]}
+    research = []
+    for x in sorted(book["review"], key=lambda x: rank_of[x["ticker"]]):
+        if x["earnings"]:
+            days = (dt.date.fromisoformat(x["earnings"]) - asof_d).days
+            reason = f"earnings in {days} days"
+        else:
+            reason = f"rating {x['age']} days old"
+        research.append({
+            "ticker": x["ticker"], "rank": rank_of[x["ticker"]], "reason": reason,
+            "rating_date": x["rating_date"],
+        })
+    for rank, ticker, _ind, why in sorted(book["skipped"], key=lambda s: s[0]):
+        if why == "not researched":
+            research.append({"ticker": ticker, "rank": rank, "reason": why, "rating_date": None})
+        elif m := _VOID_RE.match(why):
+            research.append({
+                "ticker": ticker, "rank": rank, "reason": f"rating void: {m['void']}",
+                "rating_date": m["date"],
+            })
+        # "(below cut)" and "below the attack floor (...)" are not research gaps — excluded
+    return {"asof": book["asof"], "research": research}
+
+
 # --- outputs -----------------------------------------------------------------
 
 
@@ -471,11 +504,14 @@ def render_alloc_md(book: dict, lang: str | None = None) -> str:
             f"| {lb['symbol']} | {lb['asset_type']} | {lb['market_value']} |", "|---|---|---|"]
     out += [f"| {s} | {a or ''} | {v:,.0f} |" for s, v, a in alloc["sells"]] or [f"| {lb['none']} |  |  |"]
 
-    unrated = [f"{r[0]} {r[1]}" for r in book["skipped"] if str(r[3]).startswith("not researched")]
+    research = needs_research(book)["research"]
+    unrated = [
+        f"{r['rank']} {r['ticker']}" for r in research
+        if r["reason"] == "not researched" or r["reason"].startswith("rating void:")
+    ]
     review = [
-        f"{x['ticker']} ({x['rating_date']}, {x['age']}d"
-        + (f", earnings {x['earnings']}" if x["earnings"] else "") + ")"
-        for x in book["review"]
+        f"{r['ticker']} ({r['rating_date']}, {r['reason']})" for r in research
+        if r["reason"] not in ("not researched",) and not r["reason"].startswith("rating void:")
     ]
     out += ["", f"## {lb['queue_head']}", "", f"### {lb['unrated_head']}", "",
             ", ".join(unrated) or lb["none"], "",
@@ -497,7 +533,10 @@ def write_book(
     """Write the five book files into `out_dir` (created if needed); returns what was written."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    written = [out / "holdings.yml", out / "book.json", out / "book.md", out / "propose.out"]
+    written = [
+        out / "holdings.yml", out / "book.json", out / "book.md", out / "propose.out",
+        out / "needs_research.json",
+    ]
     (out / "holdings.yml").write_text(holdings_yaml(book), encoding="utf-8")
     (out / "book.json").write_text(json.dumps(book, indent=1, default=str), encoding="utf-8")
     (out / "book.md").write_text(
@@ -506,6 +545,9 @@ def write_book(
         encoding="utf-8",
     )
     (out / "propose.out").write_text(propose_text, encoding="utf-8")
+    (out / "needs_research.json").write_text(
+        json.dumps(needs_research(book), indent=1, default=str), encoding="utf-8",
+    )
     if book["alloc"]:
         (out / "alloc.md").write_text(render_alloc_md(book, lang), encoding="utf-8")
         written.append(out / "alloc.md")

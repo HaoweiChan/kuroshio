@@ -194,6 +194,59 @@ def test_book_md_and_alloc_md_render_in_both_languages(built):
         assert "100,000" in alloc and "QQQ" in alloc and "{" not in alloc
 
 
+def test_needs_research_orders_held_names_first_then_screen_names_by_rank():
+    """AC #2: one unrated top-N name (S1), one rating voided by an earnings print (S2),
+    one 24-day-old held rating (H1) and one held name 5 days before its print (H2) yield
+    exactly those four entries with those reasons, held names first, then by rank."""
+    screen_rows = [
+        {"ticker": "H1", "date": "2026-02-01", "rank": 1, "factors": {"close": 10.0}, "industry": "X"},
+        {"ticker": "H2", "date": "2026-02-01", "rank": 2, "factors": {"close": 10.0}, "industry": "X"},
+        {"ticker": "S1", "date": "2026-02-01", "rank": 3, "factors": {"close": 10.0}, "industry": "X"},
+        {"ticker": "S2", "date": "2026-02-01", "rank": 4, "factors": {"close": 10.0}, "industry": "X"},
+    ]
+    ratings_rows = [
+        {"date": "2026-01-08", "market": "us", "ticker": "H1", "rating": "Buy"},
+        {"date": "2026-01-25", "market": "us", "ticker": "H2", "rating": "Buy"},
+        {"date": "2026-01-05", "market": "us", "ticker": "S2", "rating": "Buy"},
+    ]
+    scores_rows = [
+        {"date": "2026-02-01", "market": "us", "ticker": "H2",
+         "fundamentals": {"next_earnings_date": "2026-02-06"}},
+        {"date": "2026-02-01", "market": "us", "ticker": "S2",
+         "fundamentals": {"next_earnings_date": "2026-01-10"}},
+    ]
+    rules = bk.BookRules(core_n=10, core_per_theme=10, attack_n=0, attack_budget_pct=0)
+    book = bk.build_book(
+        screen_rows, ratings_rows, parse_ips(str(IPS)), scores_rows=scores_rows, rules=rules,
+    )
+    assert bk.needs_research(book) == {
+        "asof": "2026-02-01",
+        "research": [
+            {"ticker": "H1", "rank": 1, "reason": "rating 24 days old", "rating_date": "2026-01-08"},
+            {"ticker": "H2", "rank": 2, "reason": "earnings in 5 days", "rating_date": "2026-01-25"},
+            {"ticker": "S1", "rank": 3, "reason": "not researched", "rating_date": None},
+            {
+                "ticker": "S2", "rank": 4,
+                "reason": "rating void: earnings 2026-01-10 after rating 2026-01-05",
+                "rating_date": "2026-01-05",
+            },
+        ],
+    }
+
+
+def test_needs_research_writes_an_empty_list_never_a_missing_file(tmp_path):
+    """AC #3: nothing to research still writes the file, with an empty `research` list."""
+    screen_rows = [{"ticker": "Z1", "date": "2026-01-05", "rank": 1, "factors": {"close": 10.0}}]
+    ratings_rows = [{"date": "2026-01-02", "market": "us", "ticker": "Z1", "rating": "Buy"}]
+    book = bk.build_book(screen_rows, ratings_rows, parse_ips(str(IPS)))
+    assert book["skipped"] == [] and book["review"] == []
+    assert bk.needs_research(book) == {"asof": "2026-01-05", "research": []}
+    bk.write_book(book, tmp_path)
+    assert json.loads((tmp_path / "needs_research.json").read_text()) == {
+        "asof": "2026-01-05", "research": [],
+    }
+
+
 def test_nav_alone_still_allocates_it_is_positions_that_add_the_diff():
     """`--nav` without a positions file: the dollar allocation is a pure NAV x weight sizing,
     with nothing held to diff against (the probe's shape)."""
