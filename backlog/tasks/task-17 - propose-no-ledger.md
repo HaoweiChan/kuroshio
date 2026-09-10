@@ -1,7 +1,7 @@
 ---
 id: TASK-17
 title: 'propose --no-ledger skips the stop ledger, like screen and research'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-09'
 labels: []
