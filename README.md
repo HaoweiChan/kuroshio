@@ -89,7 +89,11 @@ price (a rate limit, say), that is not "unwatched by design" either — it gets 
 missing-price ALERT naming it, separate from the coverage line, and if *every* held position
 came back unpriced the run was blind: `propose` exits 3 rather than 0 (cards still print;
 `--help` documents the exit codes, 2 being an invalid IPS or a bad holdings/candidates/
-universe/provider input).
+universe/provider input). Every ratchet move is appended to the stop ledger so `evaluate`
+can score the stop that was live on a date, not just the final one; `--no-ledger` (like
+`screen` and `research`) still reads that ledger for the never-lower rule but appends
+nothing, and says on stderr how many moves went unrecorded — for a dry run, a probe, or the
+desk previewing a book without committing state.
 
 A held name's newest `kuroshio research` rating is a veto, never a ranking input: rating
 hit rate is unmeasured until `evaluate` has 60+ sessions, so it never enters the swap

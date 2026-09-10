@@ -1,0 +1,25 @@
+{
+ "pr": 41,
+ "task": "TASK-17",
+ "call": 1,
+ "result": "APPROVED",
+ "findings": [
+  {
+   "id": "R1",
+   "severity": "LOW",
+   "claim": "AC #3 named DRAFT-50 (an unrelated debt) where the --no-ledger debt is DRAFT-58, which the diff correctly closes.",
+   "evidence": "draft-50 status Draft; draft-58 Superseded, superseded_by TASK-17.",
+   "repro": "grep '^status:' backlog/drafts/draft-50*.md -> Draft",
+   "acceptance": "AC id corrected to DRAFT-58 or the human confirms DRAFT-50 was meant.",
+   "blocking": false,
+   "status": "VERIFIED",
+   "resolution": "task file typo; corrected to DRAFT-58",
+   "fixed_in": "b51727e"
+  }
+ ],
+ "gate": "ruff 0 · pytest 358/358 · 4b80161",
+ "probe": [
+  "propose --no-ledger on the desk's 17-name holdings against the real ledger dir: exit 0, stops.jsonl byte-identical, 47 s"
+ ],
+ "verifier_evidence": "seeded stops row 140 -> flag: ratchet ALERT printed, file unchanged, stderr '1 stop move(s) not recorded'; no flag: identical appended row on branch and origin/main; blind run with flag still exits 3; --discord-webhook with flag posts and appends nothing"
+}

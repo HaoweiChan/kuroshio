@@ -42,13 +42,26 @@ def test_book_writes_its_five_files_and_nothing_else(tmp_path, no_network, capsy
         "--pm-size", str(FIX / "pm_size.json"), "--locked", str(FIX / "locked.json"),
     )) == 0
     assert sorted(p.name for p in out.iterdir()) == [
-        "alloc.md", "book.json", "book.md", "holdings.yml", "propose.out",
+        "alloc.md", "book.json", "book.md", "holdings.yml", "needs_research.json", "propose.out",
     ]
     book = json.loads((out / "book.json").read_text())
     assert [r["ticker"] for r in book["core"]] == ["AAA", "BBB", "DDD", "GGG"]
     assert book["alloc"]["nav"] == 100000.0
     assert no_network["holdings"] == str(out / "holdings.yml")  # propose ran on the book's own file
     assert "core 4 · attack 1" in capsys.readouterr().out
+
+    # AC #1: needs_research.json and alloc.md's unrated block name the same tickers, same order
+    needs_research = json.loads((out / "needs_research.json").read_text())
+    tickers = [r["ticker"] for r in needs_research["research"]]
+    assert tickers == ["EEE", "FFF", "HHH"]
+    reasons = {r["ticker"]: r["reason"] for r in needs_research["research"]}
+    assert reasons["EEE"] == "not researched"
+    assert reasons["FFF"] == "rating void: earnings 2026-01-03 after rating 2026-01-02"
+    alloc_lines = (out / "alloc.md").read_text().splitlines()
+    heading = next(i for i, line in enumerate(alloc_lines) if line.startswith("### Unrated"))
+    assert alloc_lines[heading + 2] == ", ".join(
+        f"{r['rank']} {r['ticker']}" for r in needs_research["research"]
+    )
 
 
 def test_book_runs_without_positions_scores_or_a_meta_file(tmp_path, no_network):

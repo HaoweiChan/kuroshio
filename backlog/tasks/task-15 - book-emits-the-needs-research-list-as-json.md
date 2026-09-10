@@ -1,7 +1,7 @@
 ---
 id: TASK-15
 title: 'kuroshio book emits the needs-research list as JSON for the desk'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-09-09'
 labels: []

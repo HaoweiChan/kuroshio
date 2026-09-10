@@ -10,9 +10,9 @@ input files — ``propose``. ``research`` additionally requires the optional
 stdio MCP server exposing the engine's dataflows (and screen/propose/record_rating)
 as tools for a Claude Code session, with no LLM calls of its own (TASK-10).
 
-``screen`` and ``research`` append to a plain-file ledger (``kuroshio.core.ledger``)
-by default — ``--no-ledger`` opts out; ``evaluate`` reads that ledger back and
-prints realized forward performance.
+``screen``, ``research`` and ``propose`` append to a plain-file ledger
+(``kuroshio.core.ledger``) by default — ``--no-ledger`` opts out; ``evaluate``
+reads that ledger back and prints realized forward performance.
 """
 
 from __future__ import annotations
@@ -566,6 +566,7 @@ def _run_propose(
     universe_file: str | None = None,
     swaps_this_week: int = 0,
     provider_name: str | None = None,
+    no_ledger: bool = False,
 ):
     """Core of ``propose``: (cards, None) on success, (None, message_lines) on an
     invalid IPS or a bad holdings/candidates/universe/provider input.
@@ -674,7 +675,7 @@ def _run_propose(
         last_stop=_logged_stops(holdings, asof),
         ratings_held=_held_ratings(holdings, market, asof),
     )
-    _log_ratchets(cards, market, asof)
+    _log_ratchets(cards, market, asof, no_ledger=no_ledger)
     return cards, None
 
 
@@ -754,13 +755,18 @@ def _held_ratings(holdings: list[Holding], market: str, asof: str | None) -> dic
     return ratings
 
 
-def _log_ratchets(cards, market: str, asof: str | None) -> None:
+def _log_ratchets(cards, market: str, asof: str | None, *, no_ledger: bool = False) -> None:
     """Append every stop this run's ratchet moved to the ledger's ``STOPS`` file.
 
     A trailing stop is a level that moves, so a record of only the final one cannot say
     what was live when a rating was made — ``evaluate`` reads these rows back per date
     (``ledger.live_stop``). Best-effort, like the ``research`` rating append: an
     unwritable ledger warns and never costs the user their cards.
+
+    ``no_ledger`` (TASK-17, like ``screen``/``research``): the never-lower rule still
+    read ``stops.jsonl`` upstream in ``_logged_stops`` — this only skips the append, and
+    says on stderr how many moves would have been recorded so a preview run cannot be
+    mistaken for one that quietly ratcheted nothing.
     """
     from kuroshio.core import ledger
 
@@ -777,6 +783,9 @@ def _log_ratchets(cards, market: str, asof: str | None) -> None:
     ]
     if not rows:
         return
+    if no_ledger:
+        print(f"ledger: {len(rows)} stop move(s) not recorded (--no-ledger)", file=sys.stderr)
+        return
     try:
         path = ledger.ledger_dir() / ledger.STOPS
         ledger.append(path, rows)
@@ -790,6 +799,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
         args.ips, args.holdings, args.market,
         candidates_path=args.candidates, universe_file=args.universe_file,
         swaps_this_week=args.swaps_this_week, provider_name=args.provider,
+        no_ledger=args.no_ledger,
     )
     if problems is not None:
         # IPS validate() problems are plain (stdout, no prefix, ips-validate style);
@@ -1236,7 +1246,8 @@ def main(argv: list[str] | None = None) -> int:
         epilog="exit codes: 0 ok; 2 invalid IPS or a bad holdings/candidates/universe/provider "
         "input; 3 this session fetched prices and every held position came back unpriced "
         "(blind — cards still print and the ledger append still runs); a run that never "
-        "needed a price (a score-only book) exits 0, not 3.",
+        "needed a price (a score-only book) exits 0, not 3. --no-ledger still reads "
+        "stops.jsonl for the never-lower rule but appends nothing.",
     )
     p_propose.add_argument("--ips", required=True)
     p_propose.add_argument("--holdings", required=True)
@@ -1254,6 +1265,9 @@ def main(argv: list[str] | None = None) -> int:
         "--discord-webhook",
         default=os.getenv("KUROSHIO_DISCORD_WEBHOOK"),
         help="Discord webhook URL to post proposal cards to (default: env KUROSHIO_DISCORD_WEBHOOK)",
+    )
+    p_propose.add_argument(
+        "--no-ledger", action="store_true", help="skip appending stop moves to the ledger"
     )
     p_propose.set_defaults(func=cmd_propose)
 

@@ -1375,6 +1375,30 @@ def test_propose_appends_every_ratchet_move_to_the_stop_ledger(tmp_path, capsys,
     assert rows[0]["new"] > 145.0  # running high 162 less 3 x ~4.07 of ATR
 
 
+def test_propose_no_ledger_skips_the_stop_ledger(tmp_path, capsys, monkeypatch):
+    """#1/#2: --no-ledger still reads stops.jsonl for the never-lower rule but appends
+    nothing, and says on stderr how many moves went unrecorded (TASK-17)."""
+    from kuroshio.core import ledger
+
+    _use_stub(monkeypatch, _trail_panel())
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        f'- {{ticker: "T", weight: 0.05, score: 0.5, setup_type: trend_add, '
+        f'entry_price: 100.0, entry_date: "{_TRAIL_DATES[0]}"}}\n'
+    )
+
+    code = main([
+        "propose", "--ips", str(EXAMPLES / "ips-balanced.md"),
+        "--holdings", str(holdings), "--market", "us", "--no-ledger",
+    ])
+    cap = capsys.readouterr()
+    assert code == 0
+    assert "stop ratchets up" in cap.out
+    assert not (tmp_path / "ledger" / ledger.STOPS).exists()
+    assert "ledger: 1 stop move(s) not recorded (--no-ledger)" in cap.err
+
+
 def test_a_second_propose_run_logs_no_stop_row_when_the_stop_has_not_moved(
     tmp_path, capsys, monkeypatch
 ):
