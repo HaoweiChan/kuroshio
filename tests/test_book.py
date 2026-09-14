@@ -101,6 +101,78 @@ def test_holdings_yaml_carries_weights_stops_and_the_locked_name(built):
     assert by_t["AAA"]["entry_date"] == "2026-01-05"
 
 
+def test_candidates_yaml_is_one_row_per_core_and_attack_name_no_locked_no_theme(built):
+    """AC #1: `candidates.yml` carries core+attack only — not ZZZ, the locked name —
+    each row exactly `{ticker, final_score, verdict}` with the screen's own final_score
+    and the book's rating as the verdict; no `theme` key at all."""
+    candidates = yaml.safe_load(bk.candidates_yaml(built))
+    by_t = {c["ticker"]: c for c in candidates}
+    assert set(by_t) == {"AAA", "BBB", "DDD", "GGG", "III"}  # ZZZ (locked) excluded
+    assert by_t["AAA"] == {"ticker": "AAA", "final_score": 1.0, "verdict": "Buy"}
+    assert by_t["GGG"] == {"ticker": "GGG", "final_score": 0.4, "verdict": "Hold"}
+    assert all("theme" not in c for c in candidates)
+
+
+def test_candidates_yaml_empty_book_writes_an_empty_list():
+    """AC #1: a book with no core/attack names still writes valid YAML: `[]`."""
+    book = bk.build_book(
+        [{"ticker": "Z1", "date": "2026-01-05", "rank": 1, "factors": {"close": 10.0}}],
+        [],  # no ratings -> Z1 is "not researched", skipped
+        parse_ips(str(IPS)),
+    )
+    assert book["core"] == [] and book["attack"] == []
+    assert yaml.safe_load(bk.candidates_yaml(book)) == []
+
+
+def test_write_book_writes_candidates_yaml_and_returns_its_path(tmp_path, built):
+    written = bk.write_book(built, tmp_path)
+    assert tmp_path / "candidates.yml" in written
+    candidates = yaml.safe_load((tmp_path / "candidates.yml").read_text())
+    assert {c["ticker"] for c in candidates} == {"AAA", "BBB", "DDD", "GGG", "III"}
+
+
+def test_book_candidates_give_the_actual_pass_a_swap_challenger(tmp_path, built):
+    """AC #2: `_run_propose` (the shared core of `propose`) run on an actual-portfolio
+    holdings file, with the book's own `candidates.yml` as `--candidates`, issues a SWAP
+    naming the weak incumbent and the book's strongest challenger — no network, every
+    score hand-typed."""
+    from kuroshio import cli
+
+    candidates_path = tmp_path / "candidates.yml"
+    candidates_path.write_text(bk.candidates_yaml(built))
+    holdings_path = tmp_path / "holdings.yml"
+    holdings_path.write_text("- {ticker: WEAK, weight: 0.05, score: 0.40}\n")
+
+    cards, problems = cli._run_propose(
+        str(IPS), str(holdings_path), "us", candidates_path=str(candidates_path),
+    )
+    assert problems is None
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "WEAK" and swap.buy == "AAA"  # AAA: final_score 1.0, the strongest
+
+
+def test_book_candidate_already_held_is_not_offered_as_a_swap(tmp_path, built):
+    """AC #2: a book name already sitting in the actual portfolio is not proposed —
+    the next-strongest challenger (BBB) takes the slot instead."""
+    from kuroshio import cli
+
+    candidates_path = tmp_path / "candidates.yml"
+    candidates_path.write_text(bk.candidates_yaml(built))
+    holdings_path = tmp_path / "holdings.yml"
+    holdings_path.write_text(
+        "- {ticker: WEAK, weight: 0.05, score: 0.40}\n"
+        "- {ticker: AAA, weight: 0.05, score: 0.95}\n"
+    )
+
+    cards, problems = cli._run_propose(
+        str(IPS), str(holdings_path), "us", candidates_path=str(candidates_path),
+    )
+    assert problems is None
+    assert all(c.buy != "AAA" for c in cards)  # AAA is already held, not a challenger
+    swap = next(c for c in cards if c.action == "SWAP")
+    assert swap.sell == "WEAK" and swap.buy == "BBB"
+
+
 def test_attack_floor_hold_reproduces_todays_behaviour(built):
     """AC #1: `hold` is the lowest non-vetoed rung, so it must not change anything —
     the mechanical baseline the owner traded on 2026-09-04 stays reachable."""

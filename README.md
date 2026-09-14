@@ -106,8 +106,10 @@ count; and when MAE also fires on the same name this run, the two fold into one 
 rather than two.
 
 Run `propose` twice a day — once on a book (the target this project computes) and once on
-the **actual portfolio**: the broker-side holdings file the desk itself writes, with the
-book's names standing in as challengers. The ratchet stop, thesis break, MAE and DECIDE
+the **actual portfolio**: the broker-side holdings file the desk itself writes, run with
+`propose --candidates <book>/candidates.yml` so the book's names — written there by
+`kuroshio book`, one core+attack ticker/score/verdict row each — stand in as challengers.
+The ratchet stop, thesis break, MAE and DECIDE
 cards then run on what is really held, not the model. That file's `entry_date` can be a
 snapshot's tracking start rather than a real fill, so it carries `entry_date_source:
 manifest_first_seen` (a fill — unchanged) or `snapshot_first_seen`: `propose` drops
@@ -141,13 +143,15 @@ Full walkthrough (including the LLM research pipeline): [examples/quickstart.md]
 
 `kuroshio book` turns files you already have into a mechanical book: a screen
 ranking (`kuroshio screen --json`), your ratings ledger, and your IPS become
-`holdings.yml`, `book.json`, `book.md`, `alloc.md`, `needs_research.json` and
-`propose.out` in the directory you name. `holdings.yml` is the handoff file for
-whatever runs your real book: every name carries `setup_type`, the report's
-`invalidation_price`, `entry_price`/`entry_date` and a one-line `thesis`, so a
-desk that copies those fields into its own holdings file gets the same stop,
-trend and loss rules `propose` applies here — its fields are an interface, kept
-stable by tests. It walks the ranking under a per-theme cap, drops names a
+`holdings.yml`, `candidates.yml`, `book.json`, `book.md`, `alloc.md`,
+`needs_research.json` and `propose.out` in the directory you name. `holdings.yml`
+is the handoff file for whatever runs your real book: every name carries
+`setup_type`, the report's `invalidation_price`, `entry_price`/`entry_date` and a
+one-line `thesis`, so a desk that copies those fields into its own holdings file
+gets the same stop, trend and loss rules `propose` applies here — its fields are
+an interface, kept stable by tests. `candidates.yml` is the book's core+attack
+names, ticker/score/verdict only — the file the actual-portfolio pass above
+reads with `--candidates`. It walks the ranking under a per-theme cap, drops names a
 rating vetoed or a TTL/earnings print expired, sizes each one at
 `min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends an
 attack budget on the theme-cap overflow, and — with `--nav` and an optional
