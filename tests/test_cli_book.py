@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from kuroshio import cli
 
@@ -42,13 +43,19 @@ def test_book_writes_its_five_files_and_nothing_else(tmp_path, no_network, capsy
         "--pm-size", str(FIX / "pm_size.json"), "--locked", str(FIX / "locked.json"),
     )) == 0
     assert sorted(p.name for p in out.iterdir()) == [
-        "alloc.md", "book.json", "book.md", "holdings.yml", "needs_research.json", "propose.out",
+        "alloc.md", "book.json", "book.md", "candidates.yml", "holdings.yml",
+        "needs_research.json", "propose.out",
     ]
     book = json.loads((out / "book.json").read_text())
     assert [r["ticker"] for r in book["core"]] == ["AAA", "BBB", "DDD", "GGG"]
     assert book["alloc"]["nav"] == 100000.0
     assert no_network["holdings"] == str(out / "holdings.yml")  # propose ran on the book's own file
     assert "core 4 · attack 1" in capsys.readouterr().out
+
+    # TASK-21: candidates.yml carries core+attack as challengers, not the locked name
+    candidates = yaml.safe_load((out / "candidates.yml").read_text())
+    assert {c["ticker"] for c in candidates} == {"AAA", "BBB", "DDD", "GGG", "III"}
+    assert all("theme" not in c for c in candidates)
 
     # AC #1: needs_research.json and alloc.md's unrated block name the same tickers, same order
     needs_research = json.loads((out / "needs_research.json").read_text())

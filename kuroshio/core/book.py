@@ -187,6 +187,7 @@ def build_book(
             "rating": rating, "rating_date": rat["date"], "entry": entry, "stop": stop,
             "target": rat.get("price_target"), "weight": w, "cap": cap,
             "mom": row["factors"].get("mom_12_1_raw"), "vol": m.get("vol"),
+            "final_score": row.get("final_score"),
         }
         if per_theme.get(ind, 0) < rules.core_per_theme and len(core) < rules.core_n:
             per_theme[ind] = per_theme.get(ind, 0) + 1
@@ -351,6 +352,22 @@ def holdings_yaml(book: dict) -> str:
         for x in book["locked"]
     ]
     return yaml.safe_dump(holdings, sort_keys=False, allow_unicode=True)
+
+
+def candidates_yaml(book: dict) -> str:
+    """candidates.yml beside holdings.yml: every core+attack name (not locked — an
+    owner-locked position is not a challenger) as a row `_candidates_from_yaml` reads,
+    so the actual-portfolio `propose --candidates` pass gets the book's names as
+    challengers. `final_score` is the screen row's own, on the incumbents' scale; no
+    `theme` — the book's yfinance industries and the desk's holdings themes are
+    different vocabularies."""
+    import yaml
+
+    candidates = [
+        {"ticker": x["ticker"], "final_score": x["final_score"], "verdict": x["rating"]}
+        for x in book["core"] + book["attack"]
+    ]
+    return yaml.safe_dump(candidates, sort_keys=False, allow_unicode=True)
 
 
 def _pct(x, sign: bool = False, na: str = "n/a") -> str:
@@ -532,14 +549,15 @@ def write_book(
     book_vol: float | None = None,
     vol_window: int | None = None,
 ) -> list[Path]:
-    """Write the five book files into `out_dir` (created if needed); returns what was written."""
+    """Write the six book files into `out_dir` (created if needed); returns what was written."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     written = [
-        out / "holdings.yml", out / "book.json", out / "book.md", out / "propose.out",
-        out / "needs_research.json",
+        out / "holdings.yml", out / "candidates.yml", out / "book.json", out / "book.md",
+        out / "propose.out", out / "needs_research.json",
     ]
     (out / "holdings.yml").write_text(holdings_yaml(book), encoding="utf-8")
+    (out / "candidates.yml").write_text(candidates_yaml(book), encoding="utf-8")
     (out / "book.json").write_text(json.dumps(book, indent=1, default=str), encoding="utf-8")
     (out / "book.md").write_text(
         render_book_md(book, lang, propose_text=propose_text, ma50=ma50,
