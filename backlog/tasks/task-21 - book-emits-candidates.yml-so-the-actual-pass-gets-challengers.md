@@ -1,7 +1,7 @@
 ---
 id: TASK-21
 title: 'book emits candidates.yml so the actual-portfolio propose pass gets challengers'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-14'
 labels: []
