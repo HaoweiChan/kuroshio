@@ -632,6 +632,153 @@ def test_setup_type_and_rating_render_zh_in_cards():
     assert "中立" in zh_swap.reason and "neutral" not in zh_swap.reason
 
 
+# --- pr47 verifier R2: eight conditional zh clauses no pre-existing case reached ----
+# no_ma50, no_invalidation, mae_gap_bad_entry, trail_earlier, swap_bridge and
+# rating_source_missing/rating_model_missing were only ever formatted by assert_zh's
+# blanket no-Latin check when some OTHER case happened to hit them — none did, so
+# mutating any one of these keys back to English left the suite green. entry_date_note
+# is the eighth. Each test below drives a real card through the specific branch that
+# reads the key, so reverting the template makes that test (not just this comment)
+# fail.
+
+
+def test_coverage_alert_zh_exercises_setup_and_entry_gap_notes():
+    holdings = [
+        Holding(ticker="NOMA", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="NODIP", weight=0.05, score=0.5, setup_type="value_dip"),
+        Holding(ticker="BADENTRY", weight=0.05, score=0.5, entry_price=-5.0),
+        Holding(
+            ticker="SNAP", weight=0.05, score=0.5, setup_type="trend_add",
+            entry_price=100.0, entry_date_source="snapshot_first_seen",
+        ),
+    ]
+    kw = dict(
+        prices={"NOMA": 90.0, "NODIP": 50.0, "BADENTRY": 20.0, "SNAP": 100.0},
+        ma50={"SNAP": 100.0},
+    )
+    zh = next(
+        c for c in propose(holdings, [], make_ips(), "us", lang="zh", **kw)
+        if c.details.get("unmonitored") or c.details.get("partially_monitored")
+    )
+    assert_zh(
+        zh, allowed=["NOMA", "NODIP", "BADENTRY", "SNAP"],
+        must_contain=[
+            "交易日數不到",  # no_ma50: NOMA is trend_add with no MA50 for it
+            "無從判斷是否跌破",  # no_invalidation: NODIP is value_dip with no invalidation_price
+            "不是一個價格，所以不追蹤從進場以來的虧損",  # mae_gap_bad_entry: BADENTRY's entry_price <= 0
+            "進場日期只是追蹤起點，不是成交",  # entry_date_note: SNAP's entry_date_source
+        ],
+    )
+
+
+def test_trend_add_trailing_stop_breach_zh_earlier_ratchet_level():
+    # invalidation_price (100) < last_stop (120): an earlier run already ratcheted the
+    # stop past what's recorded, and this run trails no further (no running_high/atr14
+    # given) — level must read "之前的檢查" (trail_earlier), distinct from trail_known
+    # (this run's ratchet, tested elsewhere) and trail_recorded (never ratcheted).
+    holdings = [
+        Holding(
+            ticker="T3", weight=0.05, score=0.5, setup_type="trend_add",
+            entry_price=90.0, invalidation_price=100.0,
+        )
+    ]
+    kw = dict(prices={"T3": 110.0}, last_stop={"T3": 120.0})
+    en = [c for c in propose(holdings, [], make_ips(), "us", **kw) if c.details.get("ticker") == "T3"]
+    zh = [
+        c for c in propose(holdings, [], make_ips(), "us", lang="zh", **kw)
+        if c.details.get("ticker") == "T3"
+    ]
+    breach_en = next(c for c in en if not c.details.get("ratchet"))
+    breach_zh = next(c for c in zh if not c.details.get("ratchet"))
+    assert_same_shape(breach_en, breach_zh)
+    assert_zh(breach_zh, allowed=["T3"], must_contain=["之前的檢查已經把停損上調到這裡"])
+
+
+def test_swap_card_zh_bridge_thesis_intact_incumbent():
+    # the incumbent (INCM) is a monitored value_dip whose thesis is intact this run —
+    # step 4's swap_bridge quotes that note, a sentence no other zh SWAP case reaches
+    # (test_swap_card_zh_bridge_and_decided_addendum's incumbent has no setup_type).
+    holdings = [
+        Holding(
+            ticker="INCM", weight=0.05, score=0.2, setup_type="value_dip",
+            entry_price=50.0, invalidation_price=40.0,
+        )
+    ]
+    ips = make_ips(**{"turnover.hurdle": 0.05})
+    zh = next(
+        c for c in propose(
+            holdings, [cand("CHAL", 0.9)], ips, "us", lang="zh", prices={"INCM": 45.0},
+        )
+        if c.action == "SWAP"
+    )
+    assert_zh(zh, allowed=["INCM", "CHAL"], must_contain=["這次檢查了 INCM", "價值低接"])
+
+
+def test_rating_veto_decide_zh_unrecorded_source_and_model():
+    # rating_row()'s default always sets source/model, so no pre-existing case ever hit
+    # either "unrecorded" fallback. Also fixes the fallback wording itself: the task
+    # spec says 未記錄來源 / 未記錄模型, engine.py had 來源未記錄 / 模型未記錄.
+    holdings = [Holding(ticker="T", weight=0.05, score=0.5)]
+    row = rating_row("Sell", source=None, model=None)
+    zh = next(
+        c for c in propose(holdings, [], make_ips(), "us", lang="zh", ratings_held={"T": row})
+        if c.action == "DECIDE"
+    )
+    assert_zh(zh, allowed=["T"], must_contain=["未記錄來源", "未記錄模型"])
+
+
+# --- pr47 verifier R1: downstream zh phrases pinned exactly, not just "no Latin" ---
+
+
+def test_downstream_zh_phrases_pinned():
+    """AC #3: these four phrases are read by downstream parsers and must survive
+    translation exactly — assert_zh's no-Latin check doesn't catch a reordered or
+    dropped literal, so pin them directly."""
+    # a ticker-led reason (TRIM) opens with the ticker
+    trim_holdings = [Holding(ticker="OVER", weight=0.30, score=0.5)]
+    trim_ips = make_ips(**{"caps.position_pct": 8})
+    trim = next(
+        c for c in propose(trim_holdings, [], trim_ips, "us", lang="zh") if c.action == "TRIM"
+    )
+    assert trim.reason.startswith("OVER")
+
+    # a theme reason opens with 「<theme>」主題
+    theme_holdings = [
+        Holding(ticker="AAA", weight=0.15, theme="ai", score=0.85),
+        Holding(ticker="BBB", weight=0.15, theme="ai", score=0.90),
+    ]
+    theme_alert = next(
+        c for c in propose(theme_holdings, [], make_ips(), "us", lang="zh") if c.action == "ALERT"
+    )
+    assert theme_alert.reason.startswith("「ai」主題")
+
+    # the coverage summary contains 沒有被完整監控
+    cov_holdings = [
+        Holding(ticker="NOENTRY", weight=0.05, score=0.5, setup_type="trend_add"),
+        Holding(ticker="LEGACY", weight=0.05, score=0.5),
+    ]
+    cov_kw = dict(prices={"NOENTRY": 90.0, "LEGACY": 10.0}, ma50={"NOENTRY": 100.0})
+    coverage = next(
+        c for c in propose(cov_holdings, [], make_ips(), "us", lang="zh", **cov_kw)
+        if c.details.get("unmonitored") or c.details.get("partially_monitored")
+    )
+    assert "沒有被完整監控" in coverage.reason
+
+    # a missing-price alert with two missing names reads 虧損規則：T1, T2。
+    price_holdings = [
+        Holding(ticker="OK", weight=0.05, score=0.5, entry_price=10.0),
+        Holding(ticker="T1", weight=0.05, score=0.5, entry_price=10.0),
+        Holding(ticker="T2", weight=0.05, score=0.5, entry_price=10.0),
+    ]
+    missing = next(
+        c for c in propose(
+            price_holdings, [], make_ips(), "us", lang="zh", prices={"OK": 11.0},
+        )
+        if c.details.get("missing") is not None
+    )
+    assert "虧損規則：T1, T2。" in missing.reason
+
+
 # --- AC #2: lang resolution ----------------------------------------------------------
 
 

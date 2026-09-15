@@ -293,8 +293,8 @@ CARD_TEXT: dict[str, dict[str, str]] = {
             "部分監控：這幾檔這次檢查有一條規則能跑、另一條不能 — {names}。"
         ),
         "rating_stop_missing": "沒有記錄",
-        "rating_source_missing": "來源未記錄",
-        "rating_model_missing": "模型未記錄",
+        "rating_source_missing": "未記錄來源",
+        "rating_model_missing": "未記錄模型",
         "rating_decide": (
             "{ticker} 最新評級是 {rating}（{date}，{src}/{model}）：該做決定了 — "
             "出清、重寫投資論點，或寫下理由後續抱。報告裡的停損是 {stop}。"
