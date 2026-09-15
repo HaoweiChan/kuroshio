@@ -1,0 +1,27 @@
+{
+ "pr": 46,
+ "call1": {
+  "result": "REQUEST_CHANGES",
+  "findings": [
+   {
+    "id": "R1",
+    "severity": "HIGH",
+    "claim": "The zh sizing clause used when the percent-risk cap cannot apply says the position has no entry price, even when it has one and only the invalidation price is missing or not below entry.",
+    "evidence": "kuroshio/core/allocator/engine.py CARD_TEXT['zh']['tw_base_no_stop']; target_weight() picks it when entry is None OR invalidation is None OR invalidation >= entry; a holding with entry_price set and no invalidation_price is told it has no entry price.",
+    "repro": "target_weight(make_ips(caps.position_pct=10), Holding(ticker='NOW', weight=0.06, entry_price=101.885), _text('zh'))[2] contains '沒有進場價'; test_hard_cap_trim_zh_base_cap_no_stop only covers a holding with neither price.",
+    "acceptance": "For a holding with an entry_price but no invalidation_price below it, the zh clause no longer claims the entry price is missing; a zh test with entry_price set and invalidation_price None (or >= entry) asserts it."
+   }
+  ]
+ },
+ "call2": {
+  "result": "APPROVED",
+  "verifications": [
+   {
+    "id": "R1",
+    "status": "VERIFIED",
+    "evidence": "tw_base_no_stop reworded to negate the entry+invalidation pair; two new zh tests cover invalidation None / == entry / > entry with entry_price set; 413/413 at f35376d"
+   }
+  ],
+  "new_findings": []
+ }
+}

@@ -27,8 +27,333 @@ MONITORED_SETUPS = ("value_dip", "pullback_add", "trend_add")
 # distance from a high the position has not made yet.
 TRAILED_SETUPS = ("trend_add", "pullback_add")
 
+# TASK-22: every `reason` string `propose()` builds, by language — one table per
+# language rather than `if lang` branches scattered through the rule logic above. Keys
+# are format-string names threaded through `.format(...)`; a language's table need only
+# override the English entries it translates (`_text()` merges over English, same
+# fallback shape as `kuroshio/site/labels.py`'s `labels()`). The `### ` head line,
+# tickers, theme names, setup_type values, IPS clause keys, dates and numbers are never
+# in here — they stay in the f-strings/`.format()` calls below, verbatim in every
+# language.
+CARD_TEXT: dict[str, dict[str, str]] = {
+    "en": {
+        "at_plain": "at {price:.2f}",
+        "at_session": "at {price:.2f} ({asof} session)",
+        "theme_alert": (
+            "Theme '{theme}' effective exposure is {exp:.1%}, above your IPS theme "
+            "budget of {cap:.1%}. Challengers tagged to this theme may only "
+            "swap against incumbents in the same theme until it's back under budget."
+        ),
+        "tw_base_no_stop": (
+            "your IPS base position cap of {position_pct:.1f}% of NAV — without "
+            "an entry price and an invalidation price below it, the percent-risk cap has "
+            "no distance to size against"
+        ),
+        "tw_risk_binds": (
+            "the percent-risk cap binds: {risk_budget_pct:.2f}% of NAV risked "
+            "over the {entry:.2f} entry to {invalidation:.2f} invalidation distance is "
+            "tighter than your {position_pct:.1f}% base position cap"
+        ),
+        "tw_base_binds": (
+            "your IPS base position cap of {position_pct:.1f}% of NAV, tighter than "
+            "the {risk:.1%} the percent-risk cap allows"
+        ),
+        "trim_reason": (
+            "{ticker} is {weight:.1%} of NAV, above your IPS hard cap of "
+            "{hard_cap:.1%} per name. Trim it to {target:.1%} of NAV — {why}."
+        ),
+        "scale_reason": (
+            "The book's trailing {window}-session realized volatility is "
+            "{book_vol:.1f}% (annualized), above your IPS book vol target of "
+            "{target:.1f}%. Scale gross exposure to {scale:.0%} (sell "
+            "{inv_scale:.0%} of every position pro rata) to bring the book back "
+            "to target."
+        ),
+        "ratchet_alert": (
+            "{ticker}'s stop ratchets up to {trail:.2f}: its running high since "
+            "{entry_date} is {peak:.2f}, and {mult:g}x its ATR14 "
+            "of {atr:.2f} below that sits above {was_clause} Monitoring watches "
+            "{trail:.2f} from here, and a ratcheted stop never "
+            "moves back down — later runs read this level back from the stop ledger."
+        ),
+        "ratchet_was_known": "the {was:.2f} it was already watching.",
+        "ratchet_was_none": "the level it had — you recorded none.",
+        "setup_named": "setup_type '{setup_type}'",
+        "setup_missing": "no setup_type",
+        "no_price_session": "no price for this session",
+        "entry_recorded": "entry price {entry_price:.2f}, now {chg:+.1%} from entry",
+        "entry_missing": "entry price not recorded",
+        "no_ma50": "no MA50 for its trend_add — fewer than {ma_trend} traded sessions",
+        "trend_intact": (
+            "its trend is intact — {at}, at or above its 50-day moving "
+            "average of {ma:.2f}"
+        ),
+        "trend_broken": (
+            "{ticker} was opened as a trend_add and the trend has broken: {at}, "
+            "below its 50-day moving average of {ma:.2f} ({entry}). "
+            "The setup that justified the position no longer holds."
+        ),
+        "trail_known": "{stop:.2f} its stop has ratcheted up to (see the ALERT above)",
+        "trail_earlier": "{stop:.2f} its stop had already ratcheted up to on an earlier run",
+        "trail_recorded": "{stop:.2f} you recorded as the level that ends the thesis",
+        "trail_breached": (
+            "{ticker} was opened as a trend_add and its trailing stop is breached: "
+            "{at}, at or below the {level} ({entry}). "
+            "The setup that justified the position no longer holds."
+        ),
+        "no_invalidation": "no invalidation_price for its {setup_type} — nothing to breach",
+        "invalidation_intact": "its invalidation price of {stop:.2f} is not breached — {at}",
+        "invalidation_breached": (
+            "{ticker} was opened as a {setup_type} and its invalidation price is "
+            "breached: {at}, at or below the {level} ({entry})."
+        ),
+        "thesis_broke_note": "its thesis broke this run — see the ALERT above",
+        "mae_lead_recovered": (
+            "{ticker} fell to {chg:+.1%} from your entry price of "
+            "{entry_price:.2f} — its lowest close since {entry_date} was {worst:.2f}, "
+            "and it is back {at}"
+        ),
+        "mae_lead_current": (
+            "{ticker} is {chg:+.1%} from your entry price of "
+            "{entry_price:.2f}, {at}"
+        ),
+        "mae_reason": (
+            "{lead} — at or past your IPS max "
+            "adverse excursion of {mae_pct:.1f}%. "
+            "Decide: kill it, add to it per the plan you opened it with, or "
+            "rewrite the thesis and record the new one. Holding it unchanged is not "
+            "one of the three."
+        ),
+        "mae_monitor_note": " Monitoring checked {ticker} this run: it is a {setup_type} and {note}.",
+        "mae_gap_no_entry": "no entry_price, so the loss from entry is not watched",
+        "mae_gap_bad_entry": (
+            "entry_price {entry_price} is not a price, so the loss from entry is not watched"
+        ),
+        "entry_date_note": "entry date is a tracking start, not a fill",
+        "missing_price_alert": (
+            "Price data missing for {n} of {total} positions "
+            "this session — no stop, trend or loss rule was compared for: "
+            "{names}. Their last ratcheted stops stay in force "
+            "but were not checked today."
+        ),
+        "coverage_summary": "{n} position(s) are not fully monitored.",
+        "coverage_unmonitored": (
+            "Nothing is watching {names}: the thesis rule dispatches "
+            "on setup_type and the loss-from-entry rule needs an entry price, and a "
+            "position missing what a rule reads gets no check from it — this run says "
+            "nothing about those either way."
+        ),
+        "coverage_partial": (
+            "Partly watched: one of the two rules ran on each of these this session "
+            "and the other could not — {names}."
+        ),
+        "rating_stop_missing": "not recorded",
+        "rating_source_missing": "unrecorded source",
+        "rating_model_missing": "unrecorded model",
+        "rating_decide": (
+            "{ticker}'s newest rating is {rating} ({date}, "
+            "{src}/{model}): decide — kill it, rewrite the thesis, or hold with a "
+            "written reason. The report's stop was {stop}."
+        ),
+        "no_score_alert": (
+            "No current holding has a screener score, so no incumbent can be "
+            "objectively ranked weakest — run the screener before evaluating swaps."
+        ),
+        "pool_own": "your own files",
+        "pool_universe": "the universe in {file}",
+        "swap_main": (
+            "Challenger {challenger} scores {c_score:.3f} vs incumbent "
+            "{incumbent}'s {i_score:.3f} — a gap of {gap:.3f}, above "
+            "your IPS turnover hurdle of {hurdle:.3f} plus estimated "
+            "round-trip friction of {friction:.3f}%. {challenger}'s verdict is "
+            "'{verdict}', at or above your floor of '{floor}'."
+        ),
+        "swap_sizing": (
+            " Sizing is {incumbent}'s: its target weight is {target:.1%} of "
+            "NAV — {why}. {challenger} has no entry or invalidation price on file, so "
+            "nothing here sizes the buy — record them and it gets the same caps."
+        ),
+        "swap_bridge": " Monitoring checked {incumbent} this run: it is a {setup_type} and {note}.",
+        "swap_decided_addendum": (
+            " {incumbent} is also {loss} from its "
+            "entry price and has a DECIDE card above: this SWAP is the 'kill it' "
+            "option on that card, not a fourth one."
+        ),
+        "disclosure_both": (
+            " Auto-filled score(s): {names} — a percentile rank among "
+            "the {n} names in {pool}, so this gap is a "
+            "rank distance within that pool, not a difference in screener scores."
+        ),
+        "disclosure_one": (
+            " Auto-filled score(s): {auto} — a percentile rank among the "
+            "{n} names in {pool}. {hand}'s score is "
+            "hand-typed and not on that scale, so this gap subtracts two different "
+            "scales: it is not a rank distance, and {hand}'s own rank in that pool "
+            "would give a different number."
+        ),
+        "suppressed_alert": (
+            "{n} additional swap(s) cleared the hurdle but were suppressed "
+            "by your IPS turnover limit of {limit} swaps/week "
+            "({made} already made this week)."
+        ),
+    },
+    "zh": {
+        "at_plain": "現價 {price:.2f}",
+        "at_session": "現價 {price:.2f}（{asof} 交易日）",
+        "theme_alert": (
+            "「{theme}」主題的有效曝險是 {exp:.1%}，超過你 IPS 的主題預算 {cap:.1%}。"
+            "曝險回到預算內之前，掛在這個主題的候選標的只能跟同主題的持股換倉。"
+        ),
+        # pr46 R1: picked whenever the (entry, invalidation-below-entry) PAIR is
+        # incomplete — entry is None OR invalidation is None OR invalidation >= entry —
+        # not only when entry itself is missing. "沒有一組進場價與低於進場價的失效價"
+        # negates the pair as a unit ("no [entry + invalidation-below-entry] pair"),
+        # never independently asserting the entry price is the one that's absent — the
+        # same genericness as the English "without an entry price and an invalidation
+        # price below it".
+        "tw_base_no_stop": (
+            "你 IPS 的基礎單一部位上限 {position_pct:.1f}%（佔 NAV）— 沒有一組進場價"
+            "與低於進場價的失效價可以拿來算距離，風險比例上限沒有距離可以計算"
+        ),
+        "tw_risk_binds": (
+            "風險比例上限生效：以 {entry:.2f} 進場到 {invalidation:.2f} 失效價的距離"
+            "承擔 {risk_budget_pct:.2f}% NAV 的風險，比你 {position_pct:.1f}% 的"
+            "基礎單一部位上限更緊"
+        ),
+        "tw_base_binds": (
+            "你 IPS 的基礎單一部位上限 {position_pct:.1f}%（佔 NAV），"
+            "比風險比例上限允許的 {risk:.1%} 更緊"
+        ),
+        "trim_reason": (
+            "{ticker} 目前佔 NAV 的 {weight:.1%}，超過你 IPS 單一部位硬上限 "
+            "{hard_cap:.1%}。減碼到 NAV 的 {target:.1%} — {why}。"
+        ),
+        "scale_reason": (
+            "整個 book 近 {window} 個交易日的已實現波動是 {book_vol:.1f}%（年化），"
+            "超過你 IPS 的 book 波動目標 {target:.1f}%。把總曝險縮到 {scale:.0%}"
+            "（每個部位依比例賣出 {inv_scale:.0%}）讓 book 回到目標。"
+        ),
+        "ratchet_alert": (
+            "{ticker} 的停損上調到 {trail:.2f}：自 {entry_date} 以來的最高價是 "
+            "{peak:.2f}，扣掉 {mult:g}x ATR14（{atr:.2f}）之後高於{was_clause}"
+            "目前起監控 {trail:.2f}，停損只會往上調，不會往下調 — 之後的 run 會從"
+            "停損帳本讀回這個水位。"
+        ),
+        "ratchet_was_known": "原本在看的 {was:.2f}。",
+        "ratchet_was_none": "原本記錄的水位 — 你沒有記過。",
+        "setup_named": "setup_type 為 '{setup_type}'",
+        "setup_missing": "沒有 setup_type",
+        "no_price_session": "這個交易日沒有價格",
+        "entry_recorded": "進場價 {entry_price:.2f}，目前距進場 {chg:+.1%}",
+        "entry_missing": "沒有記錄進場價",
+        "no_ma50": "這檔 trend_add 沒有 MA50 — 交易日數不到 {ma_trend} 天",
+        "trend_intact": "趨勢仍然成立 — {at}，現價在 50 日均線 {ma:.2f} 之上或持平",
+        "trend_broken": (
+            "{ticker} 當初以 trend_add 進場，趨勢已經走壞：{at}，低於 50 日均線 "
+            "{ma:.2f}（{entry}）。當初進場的理由已經不成立。"
+        ),
+        "trail_known": "{stop:.2f}（這次 run 剛把停損上調到這裡，見上方 ALERT）",
+        "trail_earlier": "{stop:.2f}（之前的 run 已經把停損上調到這裡）",
+        "trail_recorded": "{stop:.2f}（你記錄的、會讓 thesis 失效的水位）",
+        "trail_breached": (
+            "{ticker} 當初以 trend_add 進場，移動停損已經跌破：{at}，跌到或跌破 "
+            "{level}（{entry}）。當初進場的理由已經不成立。"
+        ),
+        "no_invalidation": "這檔 {setup_type} 沒有 invalidation_price — 無從判斷是否跌破",
+        "invalidation_intact": "失效價 {stop:.2f} 尚未跌破 — {at}",
+        "invalidation_breached": (
+            "{ticker} 當初以 {setup_type} 進場，失效價已經跌破：{at}，跌到或跌破 "
+            "{level}（{entry}）。"
+        ),
+        "thesis_broke_note": "這次 run 判定 thesis 已經失效 — 見上方 ALERT",
+        "mae_lead_recovered": (
+            "{ticker} 曾經跌到距進場價 {entry_price:.2f} 的 {chg:+.1%} — 自 "
+            "{entry_date} 以來最低收在 {worst:.2f}，目前已經回到{at}"
+        ),
+        "mae_lead_current": "{ticker} 距進場價 {entry_price:.2f} 為 {chg:+.1%}，{at}",
+        "mae_reason": (
+            "{lead} — 已經到達或超過你 IPS 的最大不利偏移 (MAE) {mae_pct:.1f}%。"
+            "該做決定了：出清、依照當初計畫加碼，或重寫 thesis 並記錄下來。"
+            "維持不動不是這三個選項之一。"
+        ),
+        "mae_monitor_note": " 這次 run 檢查了 {ticker}：它是 {setup_type}，{note}。",
+        "mae_gap_no_entry": "沒有 entry_price，所以不追蹤從進場以來的虧損",
+        "mae_gap_bad_entry": "entry_price {entry_price} 不是一個價格，所以不追蹤從進場以來的虧損",
+        "entry_date_note": "entry date 只是追蹤起點，不是成交",
+        "missing_price_alert": (
+            "這個交易日有 {n}/{total} 個部位缺價 — 沒有比對停損、趨勢或虧損規則："
+            "{names}。它們上次調整的停損仍然有效，只是今天沒有檢查。"
+        ),
+        "coverage_summary": "有 {n} 個部位沒有被完整監控。",
+        "coverage_unmonitored": (
+            "沒有任何規則在看 {names}：thesis 規則靠 setup_type 派工，虧損規則"
+            "需要進場價，缺少規則要讀的東西就不會被檢查 — 這次 run 對它們沒有任何結論。"
+        ),
+        "coverage_partial": (
+            "部分監控：這幾檔這次 run 有一條規則能跑、另一條不能 — {names}。"
+        ),
+        "rating_stop_missing": "沒有記錄",
+        "rating_source_missing": "來源未記錄",
+        "rating_model_missing": "模型未記錄",
+        "rating_decide": (
+            "{ticker} 最新評級是 {rating}（{date}，{src}/{model}）：該做決定了 — "
+            "出清、重寫 thesis，或寫下理由後續抱。報告裡的停損是 {stop}。"
+        ),
+        "no_score_alert": (
+            "目前沒有任何持股有篩選分數，無法客觀排出最弱的持股 — 先跑篩選，再評估換倉。"
+        ),
+        "pool_own": "你自己的檔案",
+        "pool_universe": "{file} 這份 universe 名單",
+        "swap_main": (
+            "候選 {challenger} 分數 {c_score:.3f}，對比持股 {incumbent} 的 "
+            "{i_score:.3f} — 差距 {gap:.3f}，超過你 IPS 的換倉門檻 {hurdle:.3f} "
+            "加上預估來回摩擦成本 {friction:.3f}%。{challenger} 的評級是 "
+            "'{verdict}'，達到或高於你的下限 '{floor}'。"
+        ),
+        "swap_sizing": (
+            " 倉位大小照 {incumbent} 算：目標權重是 NAV 的 {target:.1%} — {why}。"
+            "{challenger} 沒有記錄進場價或失效價，這裡沒有東西能拿來算買進的倉位 — "
+            "補上之後就會套用同樣的 cap。"
+        ),
+        "swap_bridge": " 這次 run 檢查了 {incumbent}：它是 {setup_type}，{note}。",
+        "swap_decided_addendum": (
+            " {incumbent} 距進場價也已經 {loss}，上面有一張 DECIDE 卡：這張 SWAP "
+            "是那張卡的「出清」選項，不是第四個選項。"
+        ),
+        "disclosure_both": (
+            " 自動帶入的分數：{names} — 是在{pool}的 {n} 檔裡的百分位排名，"
+            "所以這個差距是同一個池子裡的排名距離，不是篩選分數本身的差異。"
+        ),
+        "disclosure_one": (
+            " 自動帶入的分數：{auto} — 是在{pool}的 {n} 檔裡的百分位排名。"
+            "{hand} 的分數是手動輸入，不在同一個量尺上，所以這個差距是兩個不同量尺"
+            "相減：不是排名距離，{hand} 在同一個池子裡的排名會給出不同的數字。"
+        ),
+        "suppressed_alert": (
+            "還有 {n} 筆換倉過了門檻，但被你 IPS 的換倉上限擋下來：每週最多 "
+            "{limit} 筆（這週已經換了 {made} 筆）。"
+        ),
+    },
+}
 
-def _price_phrase(price: float, asof: str | None) -> str:
+
+def _resolve_lang(lang: str | None, ips) -> str:
+    """`zh`, `zh-TW`, `zh_TW` (any case) -> Chinese; anything else, including an
+    explicit `en`, an unknown value, or nothing at all (falls back to `ips.lang`,
+    itself IPS-schema-defaulted to `en`) -> English. Mirrors the normalize-then-fall-
+    back shape of `kuroshio/site/labels.py`'s `labels()`."""
+    effective = lang if lang is not None else getattr(ips, "lang", None)
+    effective = (effective or "en").lower().replace("_", "-")
+    return "zh" if effective.split("-")[0] == "zh" else "en"
+
+
+def _text(lang_key: str) -> dict[str, str]:
+    """The template table for `lang_key`, English-backed like `labels()`: a key a
+    translation has not filled in yet falls through to English rather than KeyError."""
+    return {**CARD_TEXT["en"], **CARD_TEXT.get(lang_key, {})}
+
+
+def _price_phrase(price: float, asof: str | None, T: dict[str, str] | None = None) -> str:
     """How the card names the last print: the price and the session label it came from,
     and no claim about whether that session is open or closed. The panel's final row is
     a *close* only once the session is over, and nothing here knows that — it takes the
@@ -37,9 +362,10 @@ def _price_phrase(price: float, asof: str | None) -> str:
     mid-NYSE-session under *yesterday's* local date, and 21:00 Taipei with `--market tw`
     is 7.5h past the close under today's. So the card says neither, and the number is
     reported against the session it was read from."""
+    T = T or _text("en")
     if asof is None:
-        return f"at {price:.2f}"
-    return f"at {price:.2f} ({asof} session)"
+        return T["at_plain"].format(price=price)
+    return T["at_session"].format(price=price, asof=asof)
 
 
 def _entry_price(h) -> float | None:
@@ -83,7 +409,7 @@ def swap_hurdle(ips, market: str) -> tuple[float, float, str]:
     return ips.turnover.hurdle + friction_pct / 100, friction_pct, field
 
 
-def target_weight(ips, h) -> tuple[float, str, str]:
+def target_weight(ips, h, T: dict[str, str] | None = None) -> tuple[float, str, str]:
     """The size policy allows one position: the weight as a fraction of NAV, the IPS
     clause that set it, and why in words for the card to quote.
 
@@ -103,24 +429,21 @@ def target_weight(ips, h) -> tuple[float, str, str]:
     or under it, so it could only bind on an IPS that was never validated — and the hard
     cap is the ceiling the TRIM card is already about, not a sizing input.
     """
+    T = T or _text("en")
     base = ips.caps.position_pct / 100
     entry, invalidation = _entry_price(h), h.invalidation_price
     if entry is None or invalidation is None or invalidation >= entry:
-        return base, "caps.position_pct", (
-            f"your IPS base position cap of {ips.caps.position_pct:.1f}% of NAV — without "
-            f"an entry price and an invalidation price below it, the percent-risk cap has "
-            f"no distance to size against"
+        return base, "caps.position_pct", T["tw_base_no_stop"].format(
+            position_pct=ips.caps.position_pct,
         )
     risk = ips.caps.risk_budget_pct / 100 * entry / (entry - invalidation)
     if risk < base:
-        return risk, "caps.risk_budget_pct", (
-            f"the percent-risk cap binds: {ips.caps.risk_budget_pct:.2f}% of NAV risked "
-            f"over the {entry:.2f} entry to {invalidation:.2f} invalidation distance is "
-            f"tighter than your {ips.caps.position_pct:.1f}% base position cap"
+        return risk, "caps.risk_budget_pct", T["tw_risk_binds"].format(
+            risk_budget_pct=ips.caps.risk_budget_pct, entry=entry, invalidation=invalidation,
+            position_pct=ips.caps.position_pct,
         )
-    return base, "caps.position_pct", (
-        f"your IPS base position cap of {ips.caps.position_pct:.1f}% of NAV, tighter than "
-        f"the {risk:.1%} the percent-risk cap allows"
+    return base, "caps.position_pct", T["tw_base_binds"].format(
+        position_pct=ips.caps.position_pct, risk=risk,
     )
 
 
@@ -136,7 +459,7 @@ def propose(
     prices: dict[str, float] | None = None,
     ma50: dict[str, float] | None = None,
     asof: str | None = None,
-    pool_name: str = "your own files",
+    pool_source: str | None = None,
     book_vol: float | None = None,
     *,
     running_high: dict[str, float] | None = None,
@@ -144,10 +467,23 @@ def propose(
     min_close: dict[str, float] | None = None,
     last_stop: dict[str, float] | None = None,
     ratings_held: dict[str, dict] | None = None,
+    lang: str | None = None,
 ) -> list[ProposalCard]:
     # lazy: kuroshio.core.ips is a sibling module developed in parallel — importing
     # here (not at module load) keeps this package importable regardless of ordering.
     from kuroshio.core.ips.schema import verdict_at_least
+
+    # TASK-22: None -> ips.lang (IPS-schema-defaulted to "en"); zh/zh-TW/zh_TW -> "zh";
+    # anything else, including an explicit "en" or an unknown value, -> "en" byte-for-
+    # byte with what this function has always printed. T is every reason-building
+    # f-string below, now a `.format()` template looked up in one place per language.
+    lang_key = _resolve_lang(lang, ips)
+    T = _text(lang_key)
+    # the auto-filled-score disclosure's pool phrase (step 4): `pool_source` is the
+    # universe file's basename, or None for "your own files" — never a pre-rendered
+    # English phrase, so it can render in either language (cli.py used to build the
+    # whole phrase; it now passes just the name).
+    pool_name = T["pool_own"] if pool_source is None else T["pool_universe"].format(file=pool_source)
 
     verdicts = verdicts or {}
     themes = themes or {}
@@ -214,11 +550,7 @@ def propose(
         cap, clause = cap_for(theme)
         alerts.append(ProposalCard(
             action="ALERT",
-            reason=(
-                f"Theme '{theme}' effective exposure is {exp:.1%}, above your IPS theme "
-                f"budget of {cap:.1%}. Challengers tagged to this theme may only "
-                f"swap against incumbents in the same theme until it's back under budget."
-            ),
+            reason=T["theme_alert"].format(theme=theme, exp=exp, cap=cap),
             ips_clauses=[clause],
             details={"theme": theme, "exposure": exp, "cap": cap},
         ))
@@ -230,13 +562,12 @@ def propose(
         # "back under the ceiling" is not a number: the hard cap says where the position
         # stops being allowed, and target_weight says where policy wanted it in the first
         # place, which is the one the user can act on.
-        target, cap_clause, why = target_weight(ips, h)
+        target, cap_clause, why = target_weight(ips, h, T)
         trims.append(ProposalCard(
             action="TRIM",
             sell=h.ticker,
-            reason=(
-                f"{h.ticker} is {h.weight:.1%} of NAV, above your IPS hard cap of "
-                f"{hard_cap:.1%} per name. Trim it to {target:.1%} of NAV — {why}."
+            reason=T["trim_reason"].format(
+                ticker=h.ticker, weight=h.weight, hard_cap=hard_cap, target=target, why=why,
             ),
             ips_clauses=["caps.position_hard_pct", cap_clause],
             details={
@@ -254,12 +585,9 @@ def propose(
         scale = target / book_vol
         scale_cards.append(ProposalCard(
             action="SCALE",
-            reason=(
-                f"The book's trailing {BOOK_VOL_WINDOW}-session realized volatility is "
-                f"{book_vol:.1f}% (annualized), above your IPS book vol target of "
-                f"{target:.1f}%. Scale gross exposure to {scale:.0%} (sell "
-                f"{1 - scale:.0%} of every position pro rata) to bring the book back "
-                f"to target."
+            reason=T["scale_reason"].format(
+                window=BOOK_VOL_WINDOW, book_vol=book_vol, target=target,
+                scale=scale, inv_scale=1 - scale,
             ),
             ips_clauses=["caps.book_vol_target_pct"],
             details={
@@ -317,19 +645,16 @@ def propose(
             continue
         live_stop[h.ticker] = trail
         moved.add(h.ticker)
+        was_clause = (
+            T["ratchet_was_known"].format(was=was)
+            if was is not None
+            else T["ratchet_was_none"]
+        )
         alerts.append(ProposalCard(
             action="ALERT",
-            reason=(
-                f"{h.ticker}'s stop ratchets up to {trail:.2f}: its running high since "
-                f"{h.entry_date} is {peak:.2f}, and {ips.caps.trail_atr_mult:g}x its ATR14 "
-                f"of {atr:.2f} below that sits above "
-                + (
-                    f"the {was:.2f} it was already watching."
-                    if was is not None
-                    else "the level it had — you recorded none."
-                )
-                + f" Monitoring watches {trail:.2f} from here, and a ratcheted stop never "
-                f"moves back down — later runs read this level back from the stop ledger."
+            reason=T["ratchet_alert"].format(
+                ticker=h.ticker, trail=trail, entry_date=h.entry_date, peak=peak,
+                mult=ips.caps.trail_atr_mult, atr=atr, was_clause=was_clause,
             ),
             ips_clauses=["caps.trail_atr_mult"],
             details={
@@ -345,75 +670,58 @@ def propose(
     for h in holdings:
         if h.setup_type not in MONITORED_SETUPS:
             thesis_gap[h.ticker] = (
-                f"setup_type '{h.setup_type}'" if h.setup_type else "no setup_type"
+                T["setup_named"].format(setup_type=h.setup_type) if h.setup_type
+                else T["setup_missing"]
             )
             continue
         price = prices.get(h.ticker)
         if price is None:
             # the one gap the loss-from-entry rule below shares, so it is worded the same
-            thesis_gap[h.ticker] = "no price for this session"
+            thesis_gap[h.ticker] = T["no_price_session"]
             continue
         entry_price = _entry_price(h)
         entry = (
-            f"entry price {entry_price:.2f}, now {price / entry_price - 1:+.1%} from entry"
+            T["entry_recorded"].format(entry_price=entry_price, chg=price / entry_price - 1)
             if entry_price
-            else "entry price not recorded"
+            else T["entry_missing"]
         )
-        at = _price_phrase(price, asof)
+        at = _price_phrase(price, asof, T)
         stop = live_stop.get(h.ticker)
         # how a card names the level: the user's own words for it, or the trail's — and
         # the ALERT is only "above" when this run is the one that moved it.
         level = "" if stop is None else (
-            f"{stop:.2f} its stop has ratcheted up to (see the ALERT above)"
+            T["trail_known"].format(stop=stop)
             if h.ticker in moved
-            else f"{stop:.2f} its stop had already ratcheted up to on an earlier run"
+            else T["trail_earlier"].format(stop=stop)
             if stop != h.invalidation_price
-            else f"{stop:.2f} you recorded as the level that ends the thesis"
+            else T["trail_recorded"].format(stop=stop)
         )
         if h.setup_type == "trend_add" and (stop is None or price > stop):
             # the trend half of the rule; the trailed stop below is the drawdown half
             ma = ma50.get(h.ticker)
             if ma is None:
-                thesis_gap[h.ticker] = (
-                    f"no MA50 for its trend_add — fewer than {MA_TREND} traded sessions"
-                )
+                thesis_gap[h.ticker] = T["no_ma50"].format(ma_trend=MA_TREND)
                 continue
             if price >= ma:
-                thesis_note[h.ticker] = (
-                    f"its trend is intact — {at}, at or above its 50-day moving "
-                    f"average of {ma:.2f}"
-                )
+                thesis_note[h.ticker] = T["trend_intact"].format(at=at, ma=ma)
                 continue
-            reason = (
-                f"{h.ticker} was opened as a trend_add and the trend has broken: {at}, "
-                f"below its 50-day moving average of {ma:.2f} ({entry}). "
-                f"The setup that justified the position no longer holds."
-            )
+            reason = T["trend_broken"].format(ticker=h.ticker, at=at, ma=ma, entry=entry)
             details = {"ma50": ma}
         elif h.setup_type == "trend_add":
-            reason = (
-                f"{h.ticker} was opened as a trend_add and its trailing stop is breached: "
-                f"{at}, at or below the {level} ({entry}). "
-                f"The setup that justified the position no longer holds."
-            )
+            reason = T["trail_breached"].format(ticker=h.ticker, at=at, level=level, entry=entry)
             details = {"invalidation_price": stop}
         else:  # value_dip | pullback_add — the recorded level, never MA distance
             if stop is None:
-                thesis_gap[h.ticker] = (
-                    f"no invalidation_price for its {h.setup_type} — nothing to breach"
-                )
+                thesis_gap[h.ticker] = T["no_invalidation"].format(setup_type=h.setup_type)
                 continue
             if price > stop:
-                thesis_note[h.ticker] = (
-                    f"its invalidation price of {stop:.2f} is not breached — {at}"
-                )
+                thesis_note[h.ticker] = T["invalidation_intact"].format(stop=stop, at=at)
                 continue
-            reason = (
-                f"{h.ticker} was opened as a {h.setup_type} and its invalidation price is "
-                f"breached: {at}, at or below the {level} ({entry})."
+            reason = T["invalidation_breached"].format(
+                ticker=h.ticker, setup_type=h.setup_type, at=at, level=level, entry=entry,
             )
             details = {"invalidation_price": stop}
-        thesis_note[h.ticker] = "its thesis broke this run — see the ALERT above"
+        thesis_note[h.ticker] = T["thesis_broke_note"]
         alerts.append(ProposalCard(
             action="ALERT",
             reason=reason,
@@ -438,13 +746,13 @@ def propose(
     for h in holdings:
         price, entry_price = prices.get(h.ticker), _entry_price(h)
         if price is None:
-            mae_gap[h.ticker] = "no price for this session"
+            mae_gap[h.ticker] = T["no_price_session"]
             continue
         if entry_price is None:
             mae_gap[h.ticker] = (
-                "no entry_price" if h.entry_price is None
-                else f"entry_price {h.entry_price} is not a price"
-            ) + ", so the loss from entry is not watched"
+                T["mae_gap_no_entry"] if h.entry_price is None
+                else T["mae_gap_bad_entry"].format(entry_price=h.entry_price)
+            )
             continue
         low = min_close.get(h.ticker)
         worst = price if low is None else min(price, low)
@@ -452,29 +760,26 @@ def propose(
             continue
         note = thesis_note.get(h.ticker)
         decided[h.ticker] = f"{worst / entry_price - 1:+.1%}"
+        chg = worst / entry_price - 1
         # the card states what the rule read: the low when the position has recovered off
         # it, and this session's print when the low *is* this session's print.
         lead = (
-            f"{h.ticker} fell to {worst / entry_price - 1:+.1%} from your entry price of "
-            f"{entry_price:.2f} — its lowest close since {h.entry_date} was {worst:.2f}, "
-            f"and it is back {_price_phrase(price, asof)}"
+            T["mae_lead_recovered"].format(
+                ticker=h.ticker, chg=chg, entry_price=entry_price, entry_date=h.entry_date,
+                worst=worst, at=_price_phrase(price, asof, T),
+            )
             if worst < price else
-            f"{h.ticker} is {worst / entry_price - 1:+.1%} from your entry price of "
-            f"{entry_price:.2f}, {_price_phrase(price, asof)}"
+            T["mae_lead_current"].format(
+                ticker=h.ticker, chg=chg, entry_price=entry_price, at=_price_phrase(price, asof, T),
+            )
+        )
+        monitor_note = (
+            T["mae_monitor_note"].format(ticker=h.ticker, setup_type=h.setup_type, note=note)
+            if note else ""
         )
         decisions.append(ProposalCard(
             action="DECIDE",
-            reason=(
-                f"{lead} — at or past your IPS max "
-                f"adverse excursion of {mae_pct:.1f}%. "
-                f"Decide: kill it, add to it per the plan you opened it with, or "
-                f"rewrite the thesis and record the new one. Holding it unchanged is not "
-                f"one of the three."
-                + (
-                    f" Monitoring checked {h.ticker} this run: it is a {h.setup_type} "
-                    f"and {note}." if note else ""
-                )
-            ),
+            reason=T["mae_reason"].format(lead=lead, mae_pct=mae_pct) + monitor_note,
             ips_clauses=["caps.max_adverse_excursion_pct"],
             details={
                 "ticker": h.ticker, "entry_price": entry_price, "price": price, "asof": asof,
@@ -501,11 +806,8 @@ def propose(
     if missing_price:
         alerts.append(ProposalCard(
             action="ALERT",
-            reason=(
-                f"Price data missing for {len(missing_price)} of {len(holdings)} positions "
-                f"this session — no stop, trend or loss rule was compared for: "
-                f"{', '.join(missing_price)}. Their last ratcheted stops stay in force "
-                f"but were not checked today."
+            reason=T["missing_price_alert"].format(
+                n=len(missing_price), total=len(holdings), names=", ".join(missing_price),
             ),
             ips_clauses=[],
             details={"missing": missing_price, "total": len(holdings)},
@@ -532,7 +834,7 @@ def propose(
         core = [g for g in (thesis_gap.get(h.ticker), mae_gap.get(h.ticker)) if g]
         watching_anything |= len(core) < 2
         entry_note = (
-            "entry date is a tracking start, not a fill"
+            T["entry_date_note"]
             if h.entry_date_source == "snapshot_first_seen" else None
         )
         entry_flagged |= entry_note is not None
@@ -543,7 +845,7 @@ def propose(
             # voices. Its OTHER gaps (a bad setup_type, a snapshot_first_seen entry
             # date) are independent of price and still belong on this line; only when
             # price was its one and only gap does it drop off this card entirely.
-            why = [w for w in why if w != "no price for this session"]
+            why = [w for w in why if w != T["no_price_session"]]
         if not why:
             continue
         # dict.fromkeys: both rules read the session price, so a position without one
@@ -551,19 +853,11 @@ def propose(
         item = f"{h.ticker} ({'; '.join(dict.fromkeys(why))})"
         (partial if len(core) < 2 else unmonitored).append(item)
     if (unmonitored or partial) and (watching_anything or entry_flagged):
-        said = [f"{len(unmonitored) + len(partial)} position(s) are not fully monitored."]
+        said = [T["coverage_summary"].format(n=len(unmonitored) + len(partial))]
         if unmonitored:
-            said.append(
-                f"Nothing is watching {', '.join(unmonitored)}: the thesis rule dispatches "
-                f"on setup_type and the loss-from-entry rule needs an entry price, and a "
-                f"position missing what a rule reads gets no check from it — this run says "
-                f"nothing about those either way."
-            )
+            said.append(T["coverage_unmonitored"].format(names=", ".join(unmonitored)))
         if partial:
-            said.append(
-                f"Partly watched: one of the two rules ran on each of these this session "
-                f"and the other could not — {', '.join(partial)}."
-            )
+            said.append(T["coverage_partial"].format(names=", ".join(partial)))
         alerts.append(ProposalCard(
             action="ALERT",
             reason=" ".join(said),
@@ -585,14 +879,13 @@ def propose(
         row = ratings_held.get(h.ticker)
         if row is None or not verdict_at_least("underweight", row.get("rating") or ""):
             continue
-        src = row.get("source") or "unrecorded source"
-        model = row.get("model") or "unrecorded model"
+        src = row.get("source") or T["rating_source_missing"]
+        model = row.get("model") or T["rating_model_missing"]
         stop = row.get("stop_loss")
-        stop_str = f"{stop:.2f}" if stop is not None else "not recorded"
-        sentence = (
-            f"{h.ticker}'s newest rating is {row['rating']} ({row.get('date')}, "
-            f"{src}/{model}): decide — kill it, rewrite the thesis, or hold with a "
-            f"written reason. The report's stop was {stop_str}."
+        stop_str = f"{stop:.2f}" if stop is not None else T["rating_stop_missing"]
+        sentence = T["rating_decide"].format(
+            ticker=h.ticker, rating=row["rating"], date=row.get("date"),
+            src=src, model=model, stop=stop_str,
         )
         rating_details = {
             "rating": row["rating"], "rating_date": row.get("date"),
@@ -616,10 +909,7 @@ def propose(
     if not scored:
         alerts.append(ProposalCard(
             action="ALERT",
-            reason=(
-                "No current holding has a screener score, so no incumbent can be "
-                "objectively ranked weakest — run the screener before evaluating swaps."
-            ),
+            reason=T["no_score_alert"],
         ))
     else:
         used: set[str] = set()
@@ -646,22 +936,16 @@ def propose(
             auto = [t for t in (c.ticker, incumbent.ticker) if t in auto_scored]
             disclosure = ""
             if len(auto) == 2:
-                disclosure = (
-                    f" Auto-filled score(s): {', '.join(auto)} — a percentile rank among "
-                    f"the {auto_scored[auto[0]]} names in {pool_name}, so this gap is a "
-                    f"rank distance within that pool, not a difference in screener scores."
+                disclosure = T["disclosure_both"].format(
+                    names=", ".join(auto), n=auto_scored[auto[0]], pool=pool_name,
                 )
             elif auto:
                 # One operand is a percentile in that pool and the other is a hand-typed
                 # number that was never put on it, so the subtraction spans two scales and
                 # is not a rank distance in either (R14).
                 hand = c.ticker if auto[0] == incumbent.ticker else incumbent.ticker
-                disclosure = (
-                    f" Auto-filled score(s): {auto[0]} — a percentile rank among the "
-                    f"{auto_scored[auto[0]]} names in {pool_name}. {hand}'s score is "
-                    f"hand-typed and not on that scale, so this gap subtracts two different "
-                    f"scales: it is not a rank distance, and {hand}'s own rank in that pool "
-                    f"would give a different number."
+                disclosure = T["disclosure_one"].format(
+                    auto=auto[0], n=auto_scored[auto[0]], pool=pool_name, hand=hand,
                 )
             # The bridge between step 3 and step 4: the ranking is a momentum composite
             # and does not read setup_type (tasks/TODO.md T39), so a thesis-intact
@@ -669,42 +953,36 @@ def propose(
             # than letting both halves of the run go silent about the same position.
             note = thesis_note.get(incumbent.ticker)
             bridge = (
-                f" Monitoring checked {incumbent.ticker} this run: it is a "
-                f"{incumbent.setup_type} and {note}."
+                T["swap_bridge"].format(
+                    incumbent=incumbent.ticker, setup_type=incumbent.setup_type, note=note,
+                )
                 if note else ""
             )
             # Selling a position this run already forced a decision on is one of that
             # card's three options, not a fourth: without this the same run told the user
             # to add to it per plan and to sell it, with neither card naming the other.
             if incumbent.ticker in decided:
-                bridge += (
-                    f" {incumbent.ticker} is also {decided[incumbent.ticker]} from its "
-                    f"entry price and has a DECIDE card above: this SWAP is the 'kill it' "
-                    f"option on that card, not a fourth one."
+                bridge += T["swap_decided_addendum"].format(
+                    incumbent=incumbent.ticker, loss=decided[incumbent.ticker],
                 )
             # Sizing on a SWAP is the incumbent's, and the card says whose it is. The buy
             # is a name the user has not opened: a Candidate carries no entry or
             # invalidation price (cli.py builds it from a screen, not from a plan), so the
             # percent-risk cap has nothing to read on that side. What can be sized is the
             # slot being freed.
-            target, cap_clause, why = target_weight(ips, incumbent)
-            sizing = (
-                f" Sizing is {incumbent.ticker}'s: its target weight is {target:.1%} of "
-                f"NAV — {why}. {c.ticker} has no entry or invalidation price on file, so "
-                f"nothing here sizes the buy — record them and it gets the same caps."
+            target, cap_clause, why = target_weight(ips, incumbent, T)
+            sizing = T["swap_sizing"].format(
+                incumbent=incumbent.ticker, target=target, why=why, challenger=c.ticker,
             )
             swaps.append(ProposalCard(
                 action="SWAP",
                 sell=incumbent.ticker,
                 buy=c.ticker,
-                reason=(
-                    f"Challenger {c.ticker} scores {c.final_score:.3f} vs incumbent "
-                    f"{incumbent.ticker}'s {incumbent.score:.3f} — a gap of {gap:.3f}, above "
-                    f"your IPS turnover hurdle of {ips.turnover.hurdle:.3f} plus estimated "
-                    f"round-trip friction of {friction_pct:.3f}%. {c.ticker}'s verdict is "
-                    f"'{verdict}', at or above your floor of '{floor}'."
-                    f"{sizing}{bridge}{disclosure}"
-                ),
+                reason=T["swap_main"].format(
+                    challenger=c.ticker, c_score=c.final_score, incumbent=incumbent.ticker,
+                    i_score=incumbent.score, gap=gap, hurdle=ips.turnover.hurdle,
+                    friction=friction_pct, verdict=verdict, floor=floor,
+                ) + sizing + bridge + disclosure,
                 ips_clauses=[
                     "turnover.hurdle", "turnover.verdict_floor",
                     f"friction.{friction_field}", cap_clause,
@@ -731,10 +1009,8 @@ def propose(
     if suppressed:
         kept.append(ProposalCard(
             action="ALERT",
-            reason=(
-                f"{len(suppressed)} additional swap(s) cleared the hurdle but were suppressed "
-                f"by your IPS turnover limit of {ips.turnover.max_swaps_per_week} swaps/week "
-                f"({swaps_this_week} already made this week)."
+            reason=T["suppressed_alert"].format(
+                n=len(suppressed), limit=ips.turnover.max_swaps_per_week, made=swaps_this_week,
             ),
             ips_clauses=["turnover.max_swaps_per_week"],
             details={"suppressed_count": len(suppressed)},
@@ -743,4 +1019,10 @@ def propose(
     # decisions after alerts: a DECIDE quotes the thesis ALERT above it ("see the ALERT
     # above") when the same run broke that position's thesis. SCALE goes after TRIMs
     # (both are cap enforcement) and before the challenger-driven SWAP cards.
-    return alerts + decisions + trims + scale_cards + kept
+    result = alerts + decisions + trims + scale_cards + kept
+    # TASK-22: every card renders `reason` in `lang_key` (English by construction unless
+    # `lang`/`ips.lang` resolved to Chinese above) — tag it here, once, rather than at
+    # every `ProposalCard(...)` call site above.
+    for card in result:
+        card.lang = lang_key
+    return result

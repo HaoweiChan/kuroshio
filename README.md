@@ -131,6 +131,11 @@ above your floor of 'neutral'.
 - per your IPS: turnover.hurdle, turnover.verdict_floor, friction.us_roundtrip_pct
 ```
 
+Every card body renders in the IPS `lang` field (`en` default) — pass `--lang zh` (or
+`zh-TW`/`zh_TW`) to `propose`/`book` to override it, in Traditional Chinese, per card;
+tickers, theme names, `setup_type` values, IPS clause keys, dates and numbers stay
+verbatim in either language.
+
 That is one card out of the five the same run produced. The whole set, rendered on the demo
 page — a theme-budget breach, a hard-cap trim, two swaps, and the swap the weekly turnover
 limit suppressed:

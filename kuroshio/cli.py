@@ -567,6 +567,7 @@ def _run_propose(
     swaps_this_week: int = 0,
     provider_name: str | None = None,
     no_ledger: bool = False,
+    lang: str | None = None,
 ):
     """Core of ``propose``: (cards, None) on success, (None, message_lines) on an
     invalid IPS or a bad holdings/candidates/universe/provider input.
@@ -602,10 +603,9 @@ def _run_propose(
 
     # TASK-7: with a universe, an auto-filled score is a percentile of that cross-section
     # rather than of "your own files" — the SWAP card names which pool it came from.
-    pool_name = (
-        f"the universe in {Path(universe_file).name}" if universe_file
-        else "your own files"
-    )
+    # TASK-22: just the file's basename (or None) — propose() renders the surrounding
+    # phrase itself, in whatever language its card is written in.
+    pool_source = Path(universe_file).name if universe_file else None
 
     # The user is no longer the integration layer: anything without a hand-typed
     # score gets one from the screener, and a holding a monitoring rule can read gets
@@ -670,10 +670,11 @@ def _run_propose(
         holdings, challengers, ips, market,
         verdicts=verdicts, swaps_this_week=swaps_this_week, themes=themes,
         auto_scored=auto_scored, prices=prices, ma50=ma50, asof=asof,
-        pool_name=pool_name, book_vol=book_vol,
+        pool_source=pool_source, book_vol=book_vol,
         running_high=running_high, atr14=atr14, min_close=min_close,
         last_stop=_logged_stops(holdings, asof),
         ratings_held=_held_ratings(holdings, market, asof),
+        lang=lang,
     )
     _log_ratchets(cards, market, asof, no_ledger=no_ledger)
     return cards, None
@@ -799,7 +800,7 @@ def cmd_propose(args: argparse.Namespace) -> int:
         args.ips, args.holdings, args.market,
         candidates_path=args.candidates, universe_file=args.universe_file,
         swaps_this_week=args.swaps_this_week, provider_name=args.provider,
-        no_ledger=args.no_ledger,
+        no_ledger=args.no_ledger, lang=args.lang,
     )
     if problems is not None:
         # IPS validate() problems are plain (stdout, no prefix, ips-validate style);
@@ -1130,6 +1131,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         cards, problems = _run_propose(
             args.ips, str(holdings_path), args.market,
             universe_file=args.universe_file, provider_name=args.provider,
+            lang=args.lang,
         )
         if problems is not None:
             propose_text = "\n".join(problems)
@@ -1254,6 +1256,7 @@ def main(argv: list[str] | None = None) -> int:
     p_propose.add_argument("--market", choices=sorted(PROFILES), required=True)
     p_propose.add_argument("--provider")
     p_propose.add_argument("--candidates")
+    p_propose.add_argument("--lang", help="card language; default: the IPS `lang` field")
     p_propose.add_argument(
         "--universe-file",
         help="cross-section for auto-filled scores: a newline ticker list, or a "

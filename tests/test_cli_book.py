@@ -115,6 +115,25 @@ def test_book_attack_floor_rejects_an_unknown_value(tmp_path, no_network, capsys
     assert "invalid choice" in capsys.readouterr().err
 
 
+def test_book_lang_option_is_passed_to_its_in_process_propose(tmp_path, monkeypatch):
+    """TASK-22: `kuroshio book --lang zh` must hand its own `--lang` to the in-process
+    `_run_propose` call, so propose()'s cards resolve to the same language as book.md's
+    own labels (both fall back to the IPS `lang` field the same way when `--lang` is
+    unset). `test_propose_lang_zh_option_renders_chinese_cards` (test_cli.py) and the
+    `core/allocator/engine.py` zh test suite already prove `lang="zh"` renders Chinese
+    cards end to end; this proves `book` actually passes it through."""
+    calls = {}
+
+    def fake(ips_path, holdings_path, market, **kw):
+        calls.update(kw)
+        return [], None
+
+    monkeypatch.setattr(cli, "_run_propose", fake)
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out, "--lang", "zh")) == 0
+    assert calls["lang"] == "zh"
+
+
 def test_book_survives_a_propose_that_cannot_run(tmp_path, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("no network here")
