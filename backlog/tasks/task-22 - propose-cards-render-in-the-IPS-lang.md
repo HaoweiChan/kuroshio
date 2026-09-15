@@ -1,7 +1,7 @@
 ---
 id: TASK-22
 title: 'propose cards render in the IPS lang (zh = Traditional Chinese)'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-15'
 labels: []

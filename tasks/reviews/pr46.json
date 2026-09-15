@@ -12,5 +12,16 @@
     "acceptance": "For a holding with an entry_price but no invalidation_price below it, the zh clause no longer claims the entry price is missing; a zh test with entry_price set and invalidation_price None (or >= entry) asserts it."
    }
   ]
+ },
+ "call2": {
+  "result": "APPROVED",
+  "verifications": [
+   {
+    "id": "R1",
+    "status": "VERIFIED",
+    "evidence": "tw_base_no_stop reworded to negate the entry+invalidation pair; two new zh tests cover invalidation None / == entry / > entry with entry_price set; 413/413 at f35376d"
+   }
+  ],
+  "new_findings": []
  }
 }
