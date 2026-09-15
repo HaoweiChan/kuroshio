@@ -229,43 +229,43 @@ CARD_TEXT: dict[str, dict[str, str]] = {
             "{hard_cap:.1%}。減碼到 NAV 的 {target:.1%} — {why}。"
         ),
         "scale_reason": (
-            "整個 book 近 {window} 個交易日的已實現波動是 {book_vol:.1f}%（年化），"
-            "超過你 IPS 的 book 波動目標 {target:.1f}%。把總曝險縮到 {scale:.0%}"
-            "（每個部位依比例賣出 {inv_scale:.0%}）讓 book 回到目標。"
+            "整個組合近 {window} 個交易日的已實現波動是 {book_vol:.1f}%（年化），"
+            "超過你 IPS 的組合波動目標 {target:.1f}%。把總曝險縮到 {scale:.0%}"
+            "（每個部位依比例賣出 {inv_scale:.0%}）讓組合回到目標。"
         ),
         "ratchet_alert": (
             "{ticker} 的停損上調到 {trail:.2f}：自 {entry_date} 以來的最高價是 "
-            "{peak:.2f}，扣掉 {mult:g}x ATR14（{atr:.2f}）之後高於{was_clause}"
-            "目前起監控 {trail:.2f}，停損只會往上調，不會往下調 — 之後的 run 會從"
+            "{peak:.2f}，扣掉 {mult:g} 倍 ATR14（{atr:.2f}）之後高於{was_clause}"
+            "目前起監控 {trail:.2f}，停損只會往上調，不會往下調 — 之後的檢查會從"
             "停損帳本讀回這個水位。"
         ),
         "ratchet_was_known": "原本在看的 {was:.2f}。",
         "ratchet_was_none": "原本記錄的水位 — 你沒有記過。",
-        "setup_named": "setup_type 為 '{setup_type}'",
-        "setup_missing": "沒有 setup_type",
+        "setup_named": "進場型態為「{setup_type}」",
+        "setup_missing": "沒有進場型態",
         "no_price_session": "這個交易日沒有價格",
         "entry_recorded": "進場價 {entry_price:.2f}，目前距進場 {chg:+.1%}",
         "entry_missing": "沒有記錄進場價",
-        "no_ma50": "這檔 trend_add 沒有 MA50 — 交易日數不到 {ma_trend} 天",
+        "no_ma50": "這檔趨勢加碼沒有 MA50 — 交易日數不到 {ma_trend} 天",
         "trend_intact": "趨勢仍然成立 — {at}，現價在 50 日均線 {ma:.2f} 之上或持平",
         "trend_broken": (
-            "{ticker} 當初以 trend_add 進場，趨勢已經走壞：{at}，低於 50 日均線 "
+            "{ticker} 當初以趨勢加碼進場，趨勢已經走壞：{at}，低於 50 日均線 "
             "{ma:.2f}（{entry}）。當初進場的理由已經不成立。"
         ),
-        "trail_known": "{stop:.2f}（這次 run 剛把停損上調到這裡，見上方 ALERT）",
-        "trail_earlier": "{stop:.2f}（之前的 run 已經把停損上調到這裡）",
-        "trail_recorded": "{stop:.2f}（你記錄的、會讓 thesis 失效的水位）",
+        "trail_known": "{stop:.2f}（這次檢查剛把停損上調到這裡，見上方警示）",
+        "trail_earlier": "{stop:.2f}（之前的檢查已經把停損上調到這裡）",
+        "trail_recorded": "{stop:.2f}（你記錄的、會讓投資論點失效的水位）",
         "trail_breached": (
-            "{ticker} 當初以 trend_add 進場，移動停損已經跌破：{at}，跌到或跌破 "
+            "{ticker} 當初以趨勢加碼進場，移動停損已經跌破：{at}，跌到或跌破 "
             "{level}（{entry}）。當初進場的理由已經不成立。"
         ),
-        "no_invalidation": "這檔 {setup_type} 沒有 invalidation_price — 無從判斷是否跌破",
+        "no_invalidation": "這檔 {setup_type} 沒有失效價 — 無從判斷是否跌破",
         "invalidation_intact": "失效價 {stop:.2f} 尚未跌破 — {at}",
         "invalidation_breached": (
             "{ticker} 當初以 {setup_type} 進場，失效價已經跌破：{at}，跌到或跌破 "
             "{level}（{entry}）。"
         ),
-        "thesis_broke_note": "這次 run 判定 thesis 已經失效 — 見上方 ALERT",
+        "thesis_broke_note": "這次檢查判定投資論點已經失效 — 見上方警示",
         "mae_lead_recovered": (
             "{ticker} 曾經跌到距進場價 {entry_price:.2f} 的 {chg:+.1%} — 自 "
             "{entry_date} 以來最低收在 {worst:.2f}，目前已經回到{at}"
@@ -273,37 +273,37 @@ CARD_TEXT: dict[str, dict[str, str]] = {
         "mae_lead_current": "{ticker} 距進場價 {entry_price:.2f} 為 {chg:+.1%}，{at}",
         "mae_reason": (
             "{lead} — 已經到達或超過你 IPS 的最大不利偏移 (MAE) {mae_pct:.1f}%。"
-            "該做決定了：出清、依照當初計畫加碼，或重寫 thesis 並記錄下來。"
+            "該做決定了：出清、依照當初計畫加碼，或重寫投資論點並記錄下來。"
             "維持不動不是這三個選項之一。"
         ),
-        "mae_monitor_note": " 這次 run 檢查了 {ticker}：它是 {setup_type}，{note}。",
-        "mae_gap_no_entry": "沒有 entry_price，所以不追蹤從進場以來的虧損",
-        "mae_gap_bad_entry": "entry_price {entry_price} 不是一個價格，所以不追蹤從進場以來的虧損",
-        "entry_date_note": "entry date 只是追蹤起點，不是成交",
+        "mae_monitor_note": " 這次檢查了 {ticker}：它是 {setup_type}，{note}。",
+        "mae_gap_no_entry": "沒有進場價，所以不追蹤從進場以來的虧損",
+        "mae_gap_bad_entry": "進場價 {entry_price} 不是一個價格，所以不追蹤從進場以來的虧損",
+        "entry_date_note": "進場日期只是追蹤起點，不是成交",
         "missing_price_alert": (
             "這個交易日有 {n}/{total} 個部位缺價 — 沒有比對停損、趨勢或虧損規則："
             "{names}。它們上次調整的停損仍然有效，只是今天沒有檢查。"
         ),
         "coverage_summary": "有 {n} 個部位沒有被完整監控。",
         "coverage_unmonitored": (
-            "沒有任何規則在看 {names}：thesis 規則靠 setup_type 派工，虧損規則"
-            "需要進場價，缺少規則要讀的東西就不會被檢查 — 這次 run 對它們沒有任何結論。"
+            "沒有任何規則在看 {names}：投資論點規則靠進場型態派工，虧損規則"
+            "需要進場價，缺少規則要讀的東西就不會被檢查 — 這次檢查對它們沒有任何結論。"
         ),
         "coverage_partial": (
-            "部分監控：這幾檔這次 run 有一條規則能跑、另一條不能 — {names}。"
+            "部分監控：這幾檔這次檢查有一條規則能跑、另一條不能 — {names}。"
         ),
         "rating_stop_missing": "沒有記錄",
-        "rating_source_missing": "來源未記錄",
-        "rating_model_missing": "模型未記錄",
+        "rating_source_missing": "未記錄來源",
+        "rating_model_missing": "未記錄模型",
         "rating_decide": (
             "{ticker} 最新評級是 {rating}（{date}，{src}/{model}）：該做決定了 — "
-            "出清、重寫 thesis，或寫下理由後續抱。報告裡的停損是 {stop}。"
+            "出清、重寫投資論點，或寫下理由後續抱。報告裡的停損是 {stop}。"
         ),
         "no_score_alert": (
             "目前沒有任何持股有篩選分數，無法客觀排出最弱的持股 — 先跑篩選，再評估換倉。"
         ),
         "pool_own": "你自己的檔案",
-        "pool_universe": "{file} 這份 universe 名單",
+        "pool_universe": "{file} 這份股池名單",
         "swap_main": (
             "候選 {challenger} 分數 {c_score:.3f}，對比持股 {incumbent} 的 "
             "{i_score:.3f} — 差距 {gap:.3f}，超過你 IPS 的換倉門檻 {hurdle:.3f} "
@@ -313,11 +313,11 @@ CARD_TEXT: dict[str, dict[str, str]] = {
         "swap_sizing": (
             " 倉位大小照 {incumbent} 算：目標權重是 NAV 的 {target:.1%} — {why}。"
             "{challenger} 沒有記錄進場價或失效價，這裡沒有東西能拿來算買進的倉位 — "
-            "補上之後就會套用同樣的 cap。"
+            "補上之後就會套用同樣的上限。"
         ),
-        "swap_bridge": " 這次 run 檢查了 {incumbent}：它是 {setup_type}，{note}。",
+        "swap_bridge": " 這次檢查了 {incumbent}：它是 {setup_type}，{note}。",
         "swap_decided_addendum": (
-            " {incumbent} 距進場價也已經 {loss}，上面有一張 DECIDE 卡：這張 SWAP "
+            " {incumbent} 距進場價也已經 {loss}，上面有一張決策卡：這張換倉"
             "是那張卡的「出清」選項，不是第四個選項。"
         ),
         "disclosure_both": (
@@ -351,6 +351,48 @@ def _text(lang_key: str) -> dict[str, str]:
     """The template table for `lang_key`, English-backed like `labels()`: a key a
     translation has not filled in yet falls through to English rather than KeyError."""
     return {**CARD_TEXT["en"], **CARD_TEXT.get(lang_key, {})}
+
+
+# TASK-23: setup_type and rating/verdict values are data interpolated into a reason
+# string, not template text — CARD_TEXT above only covers the words around them. Same
+# fallback shape as `_text()`: a value this table doesn't know renders as itself, so an
+# unrecognized setup_type or rating never disappears or KeyErrors.
+SETUP_NAMES: dict[str, dict[str, str]] = {
+    "zh": {
+        "trend_add": "趨勢加碼",
+        "pullback_add": "回檔加碼",
+        "value_dip": "價值低接",
+        "other": "其他",
+    },
+}
+# ips/schema.py's VERDICT_ORDER plus "hold" (the LLM agents' name for "neutral", see
+# `_rank`) — `verdict_at_least` compares case-insensitively, so this table does too.
+RATING_NAMES: dict[str, dict[str, str]] = {
+    "zh": {
+        "buy": "買進",
+        "overweight": "增持",
+        "hold": "中立",
+        "neutral": "中立",
+        "underweight": "減持",
+        "sell": "賣出",
+    },
+}
+
+
+def _setup_name(setup_type: str | None, lang_key: str) -> str | None:
+    """`setup_type` rendered in `lang_key`, or itself when there's no entry for it (an
+    unknown setup_type, or `lang_key == "en"`)."""
+    if setup_type is None:
+        return setup_type
+    return SETUP_NAMES.get(lang_key, {}).get(setup_type, setup_type)
+
+
+def _rating_name(value: str | None, lang_key: str) -> str | None:
+    """`value` (a rating or verdict) rendered in `lang_key`, case-insensitively, or
+    itself when there's no entry for it."""
+    if value is None:
+        return value
+    return RATING_NAMES.get(lang_key, {}).get(value.lower(), value)
 
 
 def _price_phrase(price: float, asof: str | None, T: dict[str, str] | None = None) -> str:
@@ -670,7 +712,8 @@ def propose(
     for h in holdings:
         if h.setup_type not in MONITORED_SETUPS:
             thesis_gap[h.ticker] = (
-                T["setup_named"].format(setup_type=h.setup_type) if h.setup_type
+                T["setup_named"].format(setup_type=_setup_name(h.setup_type, lang_key))
+                if h.setup_type
                 else T["setup_missing"]
             )
             continue
@@ -712,13 +755,16 @@ def propose(
             details = {"invalidation_price": stop}
         else:  # value_dip | pullback_add — the recorded level, never MA distance
             if stop is None:
-                thesis_gap[h.ticker] = T["no_invalidation"].format(setup_type=h.setup_type)
+                thesis_gap[h.ticker] = T["no_invalidation"].format(
+                    setup_type=_setup_name(h.setup_type, lang_key),
+                )
                 continue
             if price > stop:
                 thesis_note[h.ticker] = T["invalidation_intact"].format(stop=stop, at=at)
                 continue
             reason = T["invalidation_breached"].format(
-                ticker=h.ticker, setup_type=h.setup_type, at=at, level=level, entry=entry,
+                ticker=h.ticker, setup_type=_setup_name(h.setup_type, lang_key),
+                at=at, level=level, entry=entry,
             )
             details = {"invalidation_price": stop}
         thesis_note[h.ticker] = T["thesis_broke_note"]
@@ -774,7 +820,9 @@ def propose(
             )
         )
         monitor_note = (
-            T["mae_monitor_note"].format(ticker=h.ticker, setup_type=h.setup_type, note=note)
+            T["mae_monitor_note"].format(
+                ticker=h.ticker, setup_type=_setup_name(h.setup_type, lang_key), note=note,
+            )
             if note else ""
         )
         decisions.append(ProposalCard(
@@ -884,7 +932,7 @@ def propose(
         stop = row.get("stop_loss")
         stop_str = f"{stop:.2f}" if stop is not None else T["rating_stop_missing"]
         sentence = T["rating_decide"].format(
-            ticker=h.ticker, rating=row["rating"], date=row.get("date"),
+            ticker=h.ticker, rating=_rating_name(row["rating"], lang_key), date=row.get("date"),
             src=src, model=model, stop=stop_str,
         )
         rating_details = {
@@ -954,7 +1002,8 @@ def propose(
             note = thesis_note.get(incumbent.ticker)
             bridge = (
                 T["swap_bridge"].format(
-                    incumbent=incumbent.ticker, setup_type=incumbent.setup_type, note=note,
+                    incumbent=incumbent.ticker,
+                    setup_type=_setup_name(incumbent.setup_type, lang_key), note=note,
                 )
                 if note else ""
             )
@@ -981,7 +1030,8 @@ def propose(
                 reason=T["swap_main"].format(
                     challenger=c.ticker, c_score=c.final_score, incumbent=incumbent.ticker,
                     i_score=incumbent.score, gap=gap, hurdle=ips.turnover.hurdle,
-                    friction=friction_pct, verdict=verdict, floor=floor,
+                    friction=friction_pct, verdict=_rating_name(verdict, lang_key),
+                    floor=_rating_name(floor, lang_key),
                 ) + sizing + bridge + disclosure,
                 ips_clauses=[
                     "turnover.hurdle", "turnover.verdict_floor",
