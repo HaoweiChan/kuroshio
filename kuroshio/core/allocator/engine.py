@@ -204,9 +204,16 @@ CARD_TEXT: dict[str, dict[str, str]] = {
             "「{theme}」主題的有效曝險是 {exp:.1%}，超過你 IPS 的主題預算 {cap:.1%}。"
             "曝險回到預算內之前，掛在這個主題的候選標的只能跟同主題的持股換倉。"
         ),
+        # pr46 R1: picked whenever the (entry, invalidation-below-entry) PAIR is
+        # incomplete — entry is None OR invalidation is None OR invalidation >= entry —
+        # not only when entry itself is missing. "沒有一組進場價與低於進場價的失效價"
+        # negates the pair as a unit ("no [entry + invalidation-below-entry] pair"),
+        # never independently asserting the entry price is the one that's absent — the
+        # same genericness as the English "without an entry price and an invalidation
+        # price below it".
         "tw_base_no_stop": (
-            "你 IPS 的基礎單一部位上限 {position_pct:.1f}%（佔 NAV）— 沒有進場價、"
-            "也沒有低於進場價的失效價，風險比例上限沒有距離可以計算"
+            "你 IPS 的基礎單一部位上限 {position_pct:.1f}%（佔 NAV）— 沒有一組進場價"
+            "與低於進場價的失效價可以拿來算距離，風險比例上限沒有距離可以計算"
         ),
         "tw_risk_binds": (
             "風險比例上限生效：以 {entry:.2f} 進場到 {invalidation:.2f} 失效價的距離"

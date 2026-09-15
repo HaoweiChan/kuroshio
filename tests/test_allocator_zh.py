@@ -92,6 +92,46 @@ def test_hard_cap_trim_zh_base_cap_no_stop():
     assert_zh(zh, must_contain=["OVER", "8.0%", "30.0%"])
 
 
+def test_target_weight_zh_no_stop_reason_does_not_claim_entry_price_missing():
+    """R1 (pr46 verifier, HIGH): `tw_base_no_stop` is picked whenever the (entry price,
+    invalidation price below it) PAIR is incomplete — `entry is None or invalidation is
+    None or invalidation >= entry` — not only when the entry price itself is missing. A
+    holding that carries a real entry_price, with only the invalidation half absent or
+    not below entry, must not get a reason claiming the entry price is missing (the
+    English doesn't: "without an entry price and an invalidation price below it" names
+    the pair, not a specific missing field)."""
+    from kuroshio.core.allocator.engine import _text, target_weight
+
+    ips = make_ips(**{"caps.position_pct": 10})
+    T_zh = _text("zh")
+    for invalidation in (None, 101.885, 200.0):  # None, == entry, > entry
+        h = Holding(ticker="NOW", weight=0.06, entry_price=101.885, invalidation_price=invalidation)
+        _, clause, why = target_weight(ips, h, T_zh)
+        assert clause == "caps.position_pct"
+        assert "沒有進場價" not in why, (invalidation, why)
+        assert _ENGLISH_RUN.search(why) is None, why
+
+
+def test_hard_cap_trim_zh_base_cap_no_stop_with_entry_price_but_no_qualifying_invalidation():
+    """Same bug, end to end through a TRIM card: an entry_price is on file, but the
+    invalidation_price is either absent or not below entry, so target_weight() still
+    falls back to the no-distance-to-size-against reason — it must not claim the entry
+    price itself is missing."""
+    for invalidation in (None, 101.885, 200.0):
+        holdings = [
+            Holding(
+                ticker="NOW", weight=0.30, score=0.5,
+                entry_price=101.885, invalidation_price=invalidation,
+            )
+        ]
+        ips = make_ips(**{"caps.position_pct": 10})
+        en = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
+        zh = next(c for c in propose(holdings, [], ips, "us", lang="zh") if c.action == "TRIM")
+        assert_same_shape(en, zh)
+        assert_zh(zh, must_contain=["NOW", "10.0%"])
+        assert "沒有進場價" not in zh.reason, (invalidation, zh.reason)
+
+
 def test_hard_cap_trim_zh_risk_cap_binds():
     holdings = [
         Holding(ticker="OVER", weight=0.30, score=0.5, entry_price=100.0, invalidation_price=90.0)
