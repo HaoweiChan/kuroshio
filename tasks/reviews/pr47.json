@@ -18,5 +18,21 @@
     "acceptance": "every conditional zh clause rendered by a zh case through assert_no_latin; rating-veto case with source=None/model=None shows 未記錄來源/未記錄模型"
    }
   ]
+ },
+ "call2": {
+  "result": "APPROVED",
+  "verifications": [
+   {
+    "id": "R1",
+    "status": "VERIFIED",
+    "evidence": "test_downstream_zh_phrases_pinned fails under each phrase mutation"
+   },
+   {
+    "id": "R2",
+    "status": "VERIFIED",
+    "evidence": "eight mutations each turn the new zh case red; fallbacks now 未記錄來源/未記錄模型"
+   }
+  ],
+  "new_findings": []
  }
 }

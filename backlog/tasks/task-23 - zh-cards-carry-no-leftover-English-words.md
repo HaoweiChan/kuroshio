@@ -1,7 +1,7 @@
 ---
 id: TASK-23
 title: 'zh cards carry no leftover English words'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-09-15'
 labels: []
