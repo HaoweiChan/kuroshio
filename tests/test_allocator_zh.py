@@ -18,9 +18,21 @@ from kuroshio.core.allocator import propose
 from kuroshio.core.ips import IPS
 from kuroshio.types import Candidate, Holding, ProposalCard
 
-# a run of three lowercase english words separated by single spaces — the probe's own
-# regex (task-22's Probe: line), reused here so the unit tests catch what it would.
-_ENGLISH_RUN = re.compile(r"[a-z]{2,} [a-z]{2,} [a-z]{2,}")
+# TASK-23: the allowed acronyms (task's Description list), with an optional numeric
+# suffix so "ATR14"/"MA50" strip as one token rather than leaving a bare "ATR"/"MA"
+# behind. Order matters: "MAE" before "MA" so "MAE" doesn't strip as "MA" + a stray "E".
+_ALLOWED_ACRONYM = re.compile(r"\b(?:IPS|NAV|MAE|ATR|MA)\d*\b")
+
+
+def assert_no_latin(text: str, *, allowed: list[str] = ()) -> None:
+    """TASK-23 AC #1's shared helper: strip the allowed acronyms and any
+    caller-supplied fixture identifiers (tickers, themes, recorded source/model
+    names, filenames), then assert no Latin letter is left. Dates and numbers need no
+    separate stripping — they carry no Latin letters to begin with."""
+    stripped = _ALLOWED_ACRONYM.sub("", text)
+    for token in allowed:
+        stripped = stripped.replace(token, "")
+    assert re.search(r"[A-Za-z]", stripped) is None, (text, stripped)
 
 
 def make_ips(**overrides) -> IPS:
@@ -38,8 +50,8 @@ def cand(ticker, final_score, **kw):
     return Candidate(ticker=ticker, date="2026-07-12", rank=1, final_score=final_score, **kw)
 
 
-def assert_zh(card: ProposalCard, *, must_contain: list[str] = ()):
-    assert _ENGLISH_RUN.search(card.reason) is None, card.reason
+def assert_zh(card: ProposalCard, *, allowed: list[str] = (), must_contain: list[str] = ()):
+    assert_no_latin(card.reason, allowed=allowed)
     for s in must_contain:
         assert s in card.reason, card.reason
 
@@ -77,7 +89,7 @@ def test_theme_budget_alert_zh():
     en = next(c for c in propose(holdings, [], make_ips(), "us") if c.action == "ALERT")
     zh = next(c for c in propose(holdings, [], make_ips(), "us", lang="zh") if c.action == "ALERT")
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["ai", "30.0%", "20.0%"])
+    assert_zh(zh, allowed=["ai"], must_contain=["ai", "30.0%", "20.0%"])
 
 
 # --- 2. hard-cap TRIM, all three target_weight variants ---------------------------
@@ -89,7 +101,7 @@ def test_hard_cap_trim_zh_base_cap_no_stop():
     en = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
     zh = next(c for c in propose(holdings, [], ips, "us", lang="zh") if c.action == "TRIM")
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["OVER", "8.0%", "30.0%"])
+    assert_zh(zh, allowed=["OVER"], must_contain=["OVER", "8.0%", "30.0%"])
 
 
 def test_target_weight_zh_no_stop_reason_does_not_claim_entry_price_missing():
@@ -109,7 +121,7 @@ def test_target_weight_zh_no_stop_reason_does_not_claim_entry_price_missing():
         _, clause, why = target_weight(ips, h, T_zh)
         assert clause == "caps.position_pct"
         assert "沒有進場價" not in why, (invalidation, why)
-        assert _ENGLISH_RUN.search(why) is None, why
+        assert_no_latin(why)
 
 
 def test_hard_cap_trim_zh_base_cap_no_stop_with_entry_price_but_no_qualifying_invalidation():
@@ -128,7 +140,7 @@ def test_hard_cap_trim_zh_base_cap_no_stop_with_entry_price_but_no_qualifying_in
         en = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
         zh = next(c for c in propose(holdings, [], ips, "us", lang="zh") if c.action == "TRIM")
         assert_same_shape(en, zh)
-        assert_zh(zh, must_contain=["NOW", "10.0%"])
+        assert_zh(zh, allowed=["NOW"], must_contain=["NOW", "10.0%"])
         assert "沒有進場價" not in zh.reason, (invalidation, zh.reason)
 
 
@@ -140,7 +152,10 @@ def test_hard_cap_trim_zh_risk_cap_binds():
     en = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
     zh = next(c for c in propose(holdings, [], ips, "us", lang="zh") if c.action == "TRIM")
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["5.0%", "caps.risk_budget_pct" in zh.ips_clauses and "100.00"])
+    assert_zh(
+        zh, allowed=["OVER"],
+        must_contain=["5.0%", "caps.risk_budget_pct" in zh.ips_clauses and "100.00"],
+    )
 
 
 def test_hard_cap_trim_zh_base_cap_tighter_than_risk():
@@ -151,7 +166,7 @@ def test_hard_cap_trim_zh_base_cap_tighter_than_risk():
     en = next(c for c in propose(holdings, [], ips, "us") if c.action == "TRIM")
     zh = next(c for c in propose(holdings, [], ips, "us", lang="zh") if c.action == "TRIM")
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["10.0%"])
+    assert_zh(zh, allowed=["OVER"], must_contain=["10.0%"])
 
 
 # --- 3. book vol SCALE -------------------------------------------------------------
@@ -188,7 +203,7 @@ def test_ratchet_alert_zh_no_prior_stop():
         if c.details.get("ratchet")
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["T", "135.00", "150.00", "2026-01-05"])
+    assert_zh(zh, allowed=["T"], must_contain=["T", "135.00", "150.00", "2026-01-05"])
 
 
 def test_ratchet_alert_zh_prior_stop_known():
@@ -206,6 +221,7 @@ def test_ratchet_alert_zh_prior_stop_known():
         if c.details.get("ratchet")
     )
     assert_same_shape(en, zh)
+    assert_zh(zh, allowed=["T"])
     assert "120.00" in zh.reason
 
 
@@ -241,7 +257,7 @@ def test_trend_add_ma_break_alert_zh():
         propose(thesis_portfolio(), [], make_ips(), "us", prices=BELOW_MA, ma50=MA50, lang="zh")
     )
     assert_same_shape(en["TREND"], zh["TREND"])
-    assert_zh(zh["TREND"], must_contain=["TREND", "80.00", "100.00"])
+    assert_zh(zh["TREND"], allowed=["TREND"], must_contain=["TREND", "80.00", "100.00"])
 
 
 def test_value_dip_and_pullback_invalidation_breach_alert_zh():
@@ -252,7 +268,7 @@ def test_value_dip_and_pullback_invalidation_breach_alert_zh():
     )
     for ticker in ("DIP", "ADD"):
         assert_same_shape(en[ticker], zh[ticker])
-        assert_zh(zh[ticker], must_contain=[ticker])
+        assert_zh(zh[ticker], allowed=[ticker], must_contain=[ticker])
     assert "85.00" in zh["DIP"].reason
 
 
@@ -273,7 +289,7 @@ def test_trend_add_trailing_stop_breach_alert_zh_level_variants():
     breach_en = next(c for c in en if not c.details.get("ratchet"))
     breach_zh = next(c for c in zh if not c.details.get("ratchet"))
     assert_same_shape(breach_en, breach_zh)
-    assert_zh(breach_zh, must_contain=["T", "135.00"])
+    assert_zh(breach_zh, allowed=["T"], must_contain=["T", "135.00"])
 
     # level variant c: the recorded invalidation_price, never ratcheted (trail is lower).
     holdings2 = [
@@ -291,7 +307,7 @@ def test_trend_add_trailing_stop_breach_alert_zh_level_variants():
         if c.details.get("ticker") == "T"
     )
     assert_same_shape(en2, zh2)
-    assert_zh(zh2, must_contain=["140.00"])
+    assert_zh(zh2, allowed=["T"], must_contain=["140.00"])
 
 
 # --- 9. DECIDE (max adverse excursion), both lead variants + monitor-note ----------
@@ -310,7 +326,7 @@ def test_mae_decide_zh_current_price_lead():
         if c.action == "DECIDE"
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["LOSER", "-20.0%", "100.00", "80.00", "-15.0%"])
+    assert_zh(zh, allowed=["LOSER"], must_contain=["LOSER", "-20.0%", "100.00", "80.00", "-15.0%"])
 
 
 def test_mae_decide_zh_recovered_lead_and_monitor_note():
@@ -329,7 +345,10 @@ def test_mae_decide_zh_recovered_lead_and_monitor_note():
         if c.action == "DECIDE"
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["LOSER", "60.00", "2026-01-01", "value_dip"])
+    # TASK-23: "value_dip" itself must translate through the zh setup-name table
+    # (value_dip -> 價值低接) rather than stay a raw English field value, so this
+    # pinned assertion is updated from the English literal to its Chinese name.
+    assert_zh(zh, allowed=["LOSER"], must_contain=["LOSER", "60.00", "2026-01-01", "價值低接"])
     assert "Monitoring checked" not in zh.reason
 
 
@@ -351,7 +370,7 @@ def test_missing_price_alert_zh():
         if c.details.get("missing") is not None
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["GONE", "1", "2"])
+    assert_zh(zh, allowed=["GONE", "OK"], must_contain=["GONE", "1", "2"])
 
 
 # --- 11. coverage ALERT: unmonitored-only, partial-only, and both ------------------
@@ -372,7 +391,7 @@ def test_coverage_alert_zh_unmonitored_and_partial():
         if c.details.get("unmonitored") or c.details.get("partially_monitored")
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["LEGACY", "NOENTRY", "2"])
+    assert_zh(zh, allowed=["LEGACY", "NOENTRY"], must_contain=["LEGACY", "NOENTRY", "2"])
 
 
 def test_coverage_alert_zh_partial_only():
@@ -389,7 +408,7 @@ def test_coverage_alert_zh_partial_only():
         if c.details.get("partially_monitored")
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["OPTOUT", "1"])
+    assert_zh(zh, allowed=["OPTOUT"], must_contain=["OPTOUT", "1"])
 
 
 # --- 12. rating veto DECIDE: plain, folded with MAE, and "not recorded" stop -------
@@ -408,7 +427,13 @@ def test_rating_veto_decide_zh():
         if c.action == "DECIDE"
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["T", "Sell", "2026-08-20", "claude-session", "claude-opus-4", "42.00"])
+    # TASK-23: the rating value renders through the zh rating-name table (Sell -> 賣出)
+    # rather than staying the raw English rating string, so this pinned assertion is
+    # updated from the English literal to its Chinese name.
+    assert_zh(
+        zh, allowed=["T", "claude-session", "claude-opus-4"],
+        must_contain=["T", "賣出", "2026-08-20", "claude-session", "claude-opus-4", "42.00"],
+    )
 
 
 def test_rating_veto_decide_zh_no_stop_recorded():
@@ -418,7 +443,7 @@ def test_rating_veto_decide_zh_no_stop_recorded():
         c for c in propose(holdings, [], make_ips(), "us", lang="zh", ratings_held={"T": row})
         if c.action == "DECIDE"
     )
-    assert_zh(zh)
+    assert_zh(zh, allowed=["T", "claude-session", "claude-opus-4"])
     assert "not recorded" not in zh.reason
 
 
@@ -431,7 +456,11 @@ def test_mae_and_rating_veto_fold_into_one_decide_card_zh():
     )
     assert_same_shape(en, zh)
     assert zh.details["kind"] == "mae+rating"
-    assert_zh(zh, must_contain=["LOSER", "-20.0%", "Sell"])
+    # TASK-23: same rating-name translation as test_rating_veto_decide_zh above.
+    assert_zh(
+        zh, allowed=["LOSER", "claude-session", "claude-opus-4"],
+        must_contain=["LOSER", "-20.0%", "賣出"],
+    )
 
 
 # --- 13. no-score ALERT -------------------------------------------------------------
@@ -461,7 +490,9 @@ def test_swap_card_zh_plain():
         if c.action == "SWAP"
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["XXX", "AAA", "0.950", "0.850", "neutral"])
+    # TASK-23: the default verdict "neutral" renders through the zh rating-name table
+    # (neutral -> 中立), so this pinned assertion is updated from the English literal.
+    assert_zh(zh, allowed=["XXX", "AAA"], must_contain=["XXX", "AAA", "0.950", "0.850", "中立"])
 
 
 def test_swap_card_zh_bridge_and_decided_addendum():
@@ -479,7 +510,7 @@ def test_swap_card_zh_bridge_and_decided_addendum():
         if c.action == "SWAP"
     )
     assert_same_shape(en, zh)
-    assert_zh(zh, must_contain=["LOSER", "-30.0%", "NEW"])
+    assert_zh(zh, allowed=["LOSER", "OK", "NEW"], must_contain=["LOSER", "-30.0%", "NEW"])
 
 
 def test_swap_card_zh_disclosure_both_and_one_auto_filled():
@@ -495,7 +526,7 @@ def test_swap_card_zh_disclosure_both_and_one_auto_filled():
         if c.action == "SWAP"
     )
     assert_same_shape(en_both, zh_both)
-    assert_zh(zh_both, must_contain=["AAA", "XXX", "40"])
+    assert_zh(zh_both, allowed=["AAA", "XXX"], must_contain=["AAA", "XXX", "40"])
     assert "your own files" not in zh_both.reason
 
     one_kw = dict(auto_scored={"XXX": 40}, pool_source="universe.txt")
@@ -507,7 +538,10 @@ def test_swap_card_zh_disclosure_both_and_one_auto_filled():
         if c.action == "SWAP"
     )
     assert_same_shape(en_one, zh_one)
-    assert_zh(zh_one, must_contain=["XXX", "AAA", "universe.txt"])
+    assert_zh(
+        zh_one, allowed=["AAA", "XXX", "universe.txt"],
+        must_contain=["XXX", "AAA", "universe.txt"],
+    )
     assert "the universe in" not in zh_one.reason
 
 
@@ -531,6 +565,71 @@ def test_suppressed_swaps_alert_zh():
     )
     assert_same_shape(en, zh)
     assert_zh(zh, must_contain=["1"])
+
+
+# --- AC #2: setup_type and rating/verdict values render through the zh tables ------
+
+
+def test_setup_name_zh_table_and_unknown_fallback():
+    from kuroshio.core.allocator.engine import _setup_name
+
+    assert _setup_name("trend_add", "zh") == "趨勢加碼"
+    assert _setup_name("pullback_add", "zh") == "回檔加碼"
+    assert _setup_name("value_dip", "zh") == "價值低接"
+    assert _setup_name("other", "zh") == "其他"
+    # an unknown setup_type falls back to itself, in zh as in en
+    assert _setup_name("mystery_setup", "zh") == "mystery_setup"
+    # English is byte-for-byte unaffected: every value passes through unchanged
+    for value in ("trend_add", "pullback_add", "value_dip", "other", "mystery_setup"):
+        assert _setup_name(value, "en") == value
+    assert _setup_name(None, "zh") is None
+
+
+def test_rating_name_zh_table_case_insensitive_and_unknown_fallback():
+    from kuroshio.core.allocator.engine import _rating_name
+
+    pairs = [
+        ("Buy", "買進"), ("BUY", "買進"), ("Overweight", "增持"),
+        ("Hold", "中立"), ("Neutral", "中立"), ("Underweight", "減持"), ("Sell", "賣出"),
+    ]
+    for value, zh in pairs:
+        assert _rating_name(value, "zh") == zh
+    # an unknown rating/verdict falls back to itself, case preserved
+    assert _rating_name("Mystery", "zh") == "Mystery"
+    # English is byte-for-byte unaffected
+    assert _rating_name("Sell", "en") == "Sell"
+    assert _rating_name(None, "zh") is None
+
+
+def test_setup_type_and_rating_render_zh_in_cards():
+    """End to end: a thesis ALERT quotes the zh setup name, and a SWAP quotes the zh
+    verdict — not the raw English value propose() was handed."""
+    trend = [
+        Holding(ticker="T1", weight=0.05, score=0.5, setup_type="trend_add", entry_price=100.0)
+    ]
+    pullback = [
+        Holding(
+            ticker="T2", weight=0.05, score=0.5, setup_type="pullback_add",
+            entry_price=50.0, invalidation_price=44.0,
+        )
+    ]
+    zh_trend = thesis_alerts(
+        propose(trend, [], make_ips(), "us", prices={"T1": 90.0}, ma50={"T1": 100.0}, lang="zh")
+    )
+    assert "趨勢加碼" in zh_trend["T1"].reason
+    zh_pullback = thesis_alerts(
+        propose(pullback, [], make_ips(), "us", prices={"T2": 43.0}, ma50={}, lang="zh")
+    )
+    assert "回檔加碼" in zh_pullback["T2"].reason
+
+    holdings = [Holding(ticker="AAA", weight=0.15, score=0.85)]
+    zh_swap = next(
+        c for c in propose(
+            holdings, [cand("XXX", 0.95)], make_ips(**{"turnover.hurdle": 0.05}), "us", lang="zh",
+        )
+        if c.action == "SWAP"
+    )
+    assert "中立" in zh_swap.reason and "neutral" not in zh_swap.reason
 
 
 # --- AC #2: lang resolution ----------------------------------------------------------
