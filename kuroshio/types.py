@@ -73,6 +73,16 @@ class Holding:
         return self.weight * self.leverage
 
 
+# The three `to_markdown()` detail-line labels, by language — TASK-22. The `### ` head
+# line and every other word `propose()` did not translate stay English regardless: only
+# these three labels read `lang`, so this table is deliberately tiny (contrast
+# `core/allocator/engine.CARD_TEXT`, which holds every card `reason`).
+_DETAIL_LABELS: dict[str, dict[str, str]] = {
+    "en": {"score_gap": "score gap", "friction": "est. friction", "ips": "per your IPS"},
+    "zh": {"score_gap": "評分差距", "friction": "預估摩擦成本", "ips": "依你的 IPS"},
+}
+
+
 @dataclass
 class ProposalCard:
     action: str  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
@@ -83,6 +93,10 @@ class ProposalCard:
     score_gap: float | None = None
     friction_pct: float | None = None
     details: dict = field(default_factory=dict)
+    # TASK-22: the language `reason` was rendered in — set by `core.allocator.propose()`
+    # on every card it returns, English by default so a card built by hand (as most
+    # tests do) renders exactly as it always did.
+    lang: str = "en"
 
     def to_markdown(self) -> str:
         heads = {
@@ -96,11 +110,12 @@ class ProposalCard:
             "ALERT": "ALERT",
         }
         head = heads[self.action]
+        labels = {**_DETAIL_LABELS["en"], **_DETAIL_LABELS.get(self.lang, {})}
         lines = [f"### {head}", "", self.reason]
         if self.score_gap is not None:
-            lines.append(f"- score gap: {self.score_gap:+.3f}")
+            lines.append(f"- {labels['score_gap']}: {self.score_gap:+.3f}")
         if self.friction_pct is not None:
-            lines.append(f"- est. friction: {self.friction_pct:.3f}%")
+            lines.append(f"- {labels['friction']}: {self.friction_pct:.3f}%")
         if self.ips_clauses:
-            lines.append(f"- per your IPS: {', '.join(self.ips_clauses)}")
+            lines.append(f"- {labels['ips']}: {', '.join(self.ips_clauses)}")
         return "\n".join(lines)

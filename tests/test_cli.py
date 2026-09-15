@@ -117,6 +117,30 @@ def test_propose_emits_trim_card_for_hard_cap_breach(tmp_path, capsys, monkeypat
     assert "position_hard_pct" in out
 
 
+def test_propose_lang_zh_option_renders_chinese_cards(tmp_path, capsys, monkeypatch):
+    """TASK-22 AC #3: `--lang zh` overrides the IPS's own `lang` (en here) and the card
+    body renders in Traditional Chinese — the `### ` head and IPS clause key stay put."""
+    _use_stub(monkeypatch)
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text("- {ticker: OVER, weight: 0.30, score: 0.5}\n")
+
+    code = main(
+        [
+            "propose",
+            "--ips", str(EXAMPLES / "ips-balanced.md"),
+            "--holdings", str(holdings),
+            "--market", "us",
+            "--lang", "zh",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "### TRIM OVER" in out
+    assert "position_hard_pct" in out
+    assert "OVER 目前佔 NAV" in out
+    assert "依你的 IPS" in out  # to_markdown()'s "per your IPS" label, translated too
+
+
 def test_propose_no_candidates_still_runs(tmp_path, capsys, monkeypatch):
     _use_stub(monkeypatch)  # ips-balanced.md's book_vol_target_pct needs a panel fetch
     holdings = tmp_path / "holdings.yml"
