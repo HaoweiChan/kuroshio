@@ -31,7 +31,8 @@ this session's own subscription quota instead of an API bill (still finite
 
 1. The `kuroshio` MCP server must be connected — an entry among your
    available MCP tools, wired via `.mcp.json` at the repo root
-   (`.venv/bin/python -m kuroshio.cli mcp`). If it isn't connected, stop
+   (`kuroshio.cli mcp` on the main checkout's `.venv`, found through git's
+   common dir so a worktree session connects too). If it isn't connected, stop
    and tell the owner to restart the session rather than falling back to
    any other data path.
 2. **The paid path is forbidden here.** Never invoke `kuroshio research`,
