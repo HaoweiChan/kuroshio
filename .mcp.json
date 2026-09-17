@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "kuroshio": {
-      "command": ".venv/bin/python",
-      "args": ["-m", "kuroshio.cli", "mcp"]
+      "command": "sh",
+      "args": [
+        "-c",
+        "exec \"$(git rev-parse --path-format=absolute --git-common-dir)/../.venv/bin/python\" -m kuroshio.cli mcp"
+      ]
     }
   }
 }
