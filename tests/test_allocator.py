@@ -283,7 +283,7 @@ def thesis_alerts(cards) -> dict[str, ProposalCard]:
     return {
         c.details["ticker"]: c
         for c in cards
-        if c.action == "ALERT" and "ticker" in c.details
+        if c.action in ("ALERT", "EXIT") and "ticker" in c.details
     }
 
 
@@ -505,7 +505,7 @@ def test_swap_selling_an_incumbent_whose_thesis_broke_agrees_with_the_alert():
     assert set(thesis_alerts(cards)) == {"DIP"}
     swap = next(c for c in cards if c.action == "SWAP")
     assert swap.sell == "DIP"
-    assert "its thesis broke this run — see the ALERT above" in swap.reason
+    assert "its exit level broke this run — see the EXIT card above" in swap.reason
     assert "intact" not in swap.reason
 
 
@@ -697,19 +697,17 @@ def test_a_position_watched_only_by_the_mae_rule_is_not_called_unwatched():
     )
 
 
-def test_the_decide_card_quotes_what_thesis_monitoring_concluded():
-    """A position can be past the threshold and in breach of its invalidation price at
-    once. Both cards ship — they answer different questions — so the DECIDE quotes step
-    3's conclusion instead of the two cards talking past each other about one ticker."""
+def test_a_breached_exit_level_is_an_exit_order_not_a_decision():
+    """A position past the MAE threshold AND through the invalidation price it was opened
+    with: the exit was written down in advance, so the run says execute it — one EXIT,
+    first in the list, and no three-way DECIDE for the same ticker. With the level intact
+    the MAE DECIDE still ships and quotes what monitoring concluded."""
     breached = [h for h in thesis_portfolio() if h.ticker == "DIP"]  # entry 100, invalidation 85
     cards = propose(breached, [], make_ips(), "us", prices={"DIP": 84.0}, ma50=MA50)
-    assert set(thesis_alerts(cards)) == {"DIP"}
-    card = decides(cards)[0]
-    assert card.reason.endswith(
-        " Monitoring checked DIP this run: it is a value_dip and its thesis broke this "
-        "run — see the ALERT above."
-    )
-    assert cards.index(thesis_alerts(cards)["DIP"]) < cards.index(card)  # "above" is true
+    assert [(c.action, c.sell) for c in cards if c.action in ("EXIT", "DECIDE")] == [("EXIT", "DIP")]
+    assert cards[0].action == "EXIT"
+    assert cards[0].reason.endswith("sell the whole position. Nothing to decide — execute it.")
+    assert "### EXIT DIP" in cards[0].to_markdown()
 
     intact = [Holding(
         ticker="DIP", weight=0.05, score=0.2, setup_type="value_dip",

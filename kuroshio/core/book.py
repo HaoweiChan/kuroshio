@@ -12,6 +12,8 @@ The rules, in the order they apply (all of them options on `BookRules`):
   `Underweight` and unrated names are dropped. With a scores ledger (`scores_rows`) a rating
   also dies at the first `fundamentals.next_earnings_date` that falls after it: the print the
   rating did not see. Without one, only the day TTL applies.
+  A name whose screen close is at or below its rating's `stop_loss` is dropped too: the
+  thesis that rating priced is invalidated until a newer rating resets the stop.
 * **Weight** — `min(base, caps.position_pct, percent-risk)` where percent-risk is
   `caps.risk_budget_pct` of NAV spread over the entry-to-invalidation distance, times the PM
   size multiplier for that name.
@@ -179,6 +181,12 @@ def build_book(
             skipped.append((row["rank"], t, ind, rating if rat else "not researched"))
             continue
         entry, stop = row["factors"]["close"], rat.get("stop_loss")
+        if stop is not None and entry <= stop:
+            # the rating's own invalidation is breached: its thesis is dead until a new
+            # rating says otherwise. Before this, target_weight read stop >= entry as "no
+            # stop" and gave the name full base weight.
+            skipped.append((row["rank"], t, ind, f"{rating} below its stop {stop:.2f}"))
+            continue
         w, cap = target_weight(entry, stop)
         if pm_size.get(t, 1.0) < 1.0:
             w, cap = round(w * pm_size[t], 4), f"{cap} x {pm_size[t]:g} (PM size)"

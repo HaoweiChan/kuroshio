@@ -107,7 +107,11 @@ CARD_TEXT: dict[str, dict[str, str]] = {
             "{ticker} was opened as a {setup_type} and its invalidation price is "
             "breached: {at}, at or below the {level} ({entry})."
         ),
-        "thesis_broke_note": "its thesis broke this run — see the ALERT above",
+        "thesis_broke_note": "its exit level broke this run — see the EXIT card above",
+        "exit_instruction": (
+            " This is the exit you wrote down when you opened it: sell the whole position. "
+            "Nothing to decide — execute it."
+        ),
         "mae_lead_recovered": (
             "{ticker} fell to {chg:+.1%} from your entry price of "
             "{entry_price:.2f} — its lowest close since {entry_date} was {worst:.2f}, "
@@ -265,7 +269,8 @@ CARD_TEXT: dict[str, dict[str, str]] = {
             "{ticker} 當初以 {setup_type} 進場，失效價已經跌破：{at}，跌到或跌破 "
             "{level}（{entry}）。"
         ),
-        "thesis_broke_note": "這次檢查判定投資論點已經失效 — 見上方警示",
+        "thesis_broke_note": "這次檢查已經跌破出場條件 — 見上方出場卡",
+        "exit_instruction": " 這是你開倉時就寫好的出場條件：全數出清。不用再決定，直接執行。",
         "mae_lead_recovered": (
             "{ticker} 曾經跌到距進場價 {entry_price:.2f} 的 {chg:+.1%} — 自 "
             "{entry_date} 以來最低收在 {worst:.2f}，目前已經回到{at}"
@@ -654,6 +659,7 @@ def propose(
     # read back from the stop ledger by the caller). Comparing only against the recorded
     # level let a widening ATR14 under an unchanged high walk the stop back down.
     live_stop: dict[str, float] = {}   # ticker -> the invalidation price this run watches
+    exits: list[ProposalCard] = []
     for h in holdings:
         levels = [x for x in (h.invalidation_price, last_stop.get(h.ticker)) if x is not None]
         if levels:
@@ -768,9 +774,12 @@ def propose(
             )
             details = {"invalidation_price": stop}
         thesis_note[h.ticker] = T["thesis_broke_note"]
-        alerts.append(ProposalCard(
-            action="ALERT",
-            reason=reason,
+        # the level was written down when the position was opened, so breaching it is an
+        # instruction, not a question: EXIT, and no MAE / rating DECIDE for the same name.
+        exits.append(ProposalCard(
+            action="EXIT",
+            sell=h.ticker,
+            reason=reason + T["exit_instruction"],
             details={
                 "ticker": h.ticker, "setup_type": h.setup_type,
                 "entry_price": entry_price, "price": price, "asof": asof, **details,
@@ -789,6 +798,7 @@ def propose(
     decided: dict[str, str] = {}   # ticker -> its loss, for the SWAP card in step 4 to quote
     mae_pct = ips.caps.max_adverse_excursion_pct
     decisions: list[ProposalCard] = []
+    exited = {c.sell for c in exits}
     for h in holdings:
         price, entry_price = prices.get(h.ticker), _entry_price(h)
         if price is None:
@@ -800,6 +810,8 @@ def propose(
                 else T["mae_gap_bad_entry"].format(entry_price=h.entry_price)
             )
             continue
+        if h.ticker in exited:
+            continue  # its written exit already fired — the three-way decision is moot
         low = min_close.get(h.ticker)
         worst = price if low is None else min(price, low)
         if not _past_threshold(worst, entry_price, mae_pct):
@@ -925,7 +937,7 @@ def propose(
     # forced one this run, the rating sentence folds into that card instead of a second.
     for h in holdings:
         row = ratings_held.get(h.ticker)
-        if row is None or not verdict_at_least("underweight", row.get("rating") or ""):
+        if h.ticker in exited or row is None or not verdict_at_least("underweight", row.get("rating") or ""):
             continue
         src = row.get("source") or T["rating_source_missing"]
         model = row.get("model") or T["rating_model_missing"]
@@ -1069,7 +1081,7 @@ def propose(
     # decisions after alerts: a DECIDE quotes the thesis ALERT above it ("see the ALERT
     # above") when the same run broke that position's thesis. SCALE goes after TRIMs
     # (both are cap enforcement) and before the challenger-driven SWAP cards.
-    result = alerts + decisions + trims + scale_cards + kept
+    result = exits + alerts + decisions + trims + scale_cards + kept
     # TASK-22: every card renders `reason` in `lang_key` (English by construction unless
     # `lang`/`ips.lang` resolved to Chinese above) — tag it here, once, rather than at
     # every `ProposalCard(...)` call site above.

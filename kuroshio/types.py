@@ -85,7 +85,7 @@ _DETAIL_LABELS: dict[str, dict[str, str]] = {
 
 @dataclass
 class ProposalCard:
-    action: str  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
+    action: str  # "EXIT" | "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
     reason: str
     sell: str | None = None
     buy: str | None = None
@@ -108,6 +108,8 @@ class ProposalCard:
             # the user's three — so its ticker comes from details, not from `sell`.
             "DECIDE": f"DECIDE {self.details.get('ticker', '')}".strip(),
             "ALERT": "ALERT",
+            # EXIT is a written exit level that broke: the plan says sell it all.
+            "EXIT": f"EXIT {self.sell}",
         }
         head = heads[self.action]
         labels = {**_DETAIL_LABELS["en"], **_DETAIL_LABELS.get(self.lang, {})}
