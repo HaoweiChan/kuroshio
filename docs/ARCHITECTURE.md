@@ -421,11 +421,13 @@ argparse subcommands:
   and prints realized rank-IC / top-k forward return / per-rating hit rate; see `core/ledger`.
 - `kuroshio book --screen s.json --ratings r.jsonl --ips ips.md --out DIR [--scores s.jsonl]
   [--meta meta.json] [--nav N] [--positions p.csv] [--pm-size m.json] [--locked l.json]
-  [--provider yfinance] [--core-n 15 ...]` — the mechanical book (`core/book.py`): the screen
+  [--themes t.json] [--provider yfinance] [--core-n 15 ...]` — the mechanical book (`core/book.py`): the screen
   ranking walked under a per-theme cap, the rating veto (day TTL, plus the earnings expiry when
   `--scores` supplies `fundamentals.next_earnings_date`), `min(base, caps.position_pct,
   percent-risk)` weights times the PM multiplier, the attack-budget overflow sleeve, and
-  owner-locked positions at their live weight. Writes holdings.yml, book.json, book.md,
+  owner-locked positions at their live weight. Every placement and every attack doubling
+  spends the IPS theme budget (`caps.theme_caps`, else `caps.theme_pct`) in rank order,
+  locked positions first; a theme is the `--themes` label for the ticker, else its industry. Writes holdings.yml, book.json, book.md,
   alloc.md and propose.out; propose runs in-process through the same `_run_propose` the
   `propose` subcommand uses, and a propose that cannot run is recorded in propose.out rather
   than losing the book. No network unless `--provider` asks for the MA50 / book-vol columns.

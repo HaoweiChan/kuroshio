@@ -22,6 +22,10 @@ The rules, in the order they apply (all of them options on `BookRules`):
   below the floor is skipped and the next qualifying overflow name by rank takes the slot.
   Whatever is left of `attack_budget_pct` raises the highest-ranked core names to twice base.
   Concentration, not leverage.
+* **Theme budget** — every placement and every doubling spends the IPS theme budget
+  (`caps.theme_caps` for a named theme, else `caps.theme_pct`), locked positions counted
+  first, in rank order: a name is shrunk to the room left, or skipped under 1%. A theme is
+  the owner's `themes` label for the ticker (`--themes`), else its industry.
 * **Locked** — positions the owner marked as not-the-book's-business ride along at their live
   weight, so `propose` sees the real concentration.
 """
@@ -40,6 +44,7 @@ from kuroshio.core.ips import verdict_at_least
 from kuroshio.site.labels import labels
 
 VETO = {"sell", "underweight"}
+MIN_THEME_ROOM = 0.01  # less theme budget than this left -> the name is skipped, not shrunk
 
 
 @dataclass(frozen=True)
@@ -118,12 +123,13 @@ def build_book(
     nav: float | None = None,
     pm_size: dict | None = None,
     locked: dict | None = None,
+    themes: dict | None = None,
     market: str = "us",
     ips_name: str = "",
     rules: BookRules = BookRules(),
 ) -> dict:
     """Everything the outputs are rendered from: core/attack/locked/skipped + the alloc."""
-    meta, pm_size, locked = meta or {}, pm_size or {}, locked or {}
+    meta, pm_size, locked, themes = meta or {}, pm_size or {}, locked or {}, themes or {}
     positions = positions or []
     base, budget = rules.base_pct / 100, rules.attack_budget_pct / 100
     asof = screen_rows[0]["date"]
@@ -162,6 +168,29 @@ def build_book(
                 w, cap = pr, f"percent-risk ({risk_budget:.0%} NAV / {(entry - stop) / entry:.0%} stop)"
         return round(w, 4), cap
 
+    locked_recs = []
+    if locked and nav:
+        for p in positions:
+            if p["symbol"] in locked and p["market_value"]:
+                spec = locked[p["symbol"]]
+                theme = spec.get("theme", "locked") if isinstance(spec, dict) else str(spec)
+                note = spec.get("note", "") if isinstance(spec, dict) else ""
+                price = p["market_value"] / p["quantity"] if p["quantity"] else None
+                locked_recs.append({
+                    "ticker": p["symbol"], "weight": round(p["market_value"] / nav, 4),
+                    "market_value": p["market_value"], "qty": p["quantity"], "price": price,
+                    "avg_cost": p["average_price"], "theme": theme, "note": note,
+                })
+
+    # IPS theme budget: effective weight per theme, locked positions included, spent in rank
+    # order. A theme is the owner's `themes` label for the ticker, else its industry.
+    theme_used: dict[str, float] = {}
+    for x in locked_recs:
+        theme_used[x["theme"]] = theme_used.get(x["theme"], 0) + x["weight"]
+
+    def theme_room(theme: str) -> float:
+        return ips.caps.theme_caps.get(theme, ips.caps.theme_pct) / 100 - theme_used.get(theme, 0)
+
     core: list[dict] = []
     attack: list[dict] = []
     skipped: list[tuple] = []
@@ -198,16 +227,34 @@ def build_book(
             "final_score": row.get("final_score"),
         }
         if per_theme.get(ind, 0) < rules.core_per_theme and len(core) < rules.core_n:
-            per_theme[ind] = per_theme.get(ind, 0) + 1
-            core.append(rec)
+            slot = "core"
         elif len(attack) < rules.attack_n and per_theme.get(ind, 0) >= rules.core_per_theme:
             # the veto above is the core rule; the floor is an attack-only conviction gate —
             # a name below it does not take the slot, so the next overflow name by rank does.
-            if verdict_at_least(rating, rules.attack_floor):
-                attack.append({**rec, "theme": "attack"})
-            else:
+            if not verdict_at_least(rating, rules.attack_floor):
                 skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
                 continue
+            slot = "attack"
+        else:
+            slot = None
+        if slot:
+            theme = themes.get(t) or ind
+            room = theme_room(theme)
+            if room < MIN_THEME_ROOM:
+                cap_pct = ips.caps.theme_caps.get(theme, ips.caps.theme_pct)
+                skipped.append((row["rank"], t, ind, f"theme budget full ({theme} {cap_pct:g}%)"))
+                continue
+            if rec["weight"] > room:
+                rec["weight"], rec["cap"] = round(room, 4), f"theme budget ({theme})"
+            rec["budget_theme"] = theme
+            if t in themes:
+                rec["ips_theme"] = theme  # the owner's vocabulary, safe to hand to propose
+            theme_used[theme] = theme_used.get(theme, 0) + rec["weight"]
+            if slot == "core":
+                per_theme[ind] = per_theme.get(ind, 0) + 1
+                core.append(rec)
+            else:
+                attack.append({**rec, "theme": "attack"})
         if len(core) >= rules.core_n and len(attack) >= rules.attack_n:
             break
 
@@ -226,26 +273,18 @@ def build_book(
     for rec in core:
         if used + base > budget + 1e-9:
             break
-        if rec["cap"].startswith("percent") or "PM size" in rec["cap"]:
+        if rec["cap"].startswith(("percent", "theme budget")) or "PM size" in rec["cap"]:
             continue
-        rec["weight"] = round(min(2 * base, position_pct), 4)
-        rec["cap"] = f"attack {min(2 * base, position_pct):.0%}"
+        # doubling spends theme budget too: raise only as far as the theme has room
+        new = round(min(2 * base, position_pct, rec["weight"] + theme_room(rec["budget_theme"])), 4)
+        if new <= rec["weight"]:
+            continue
+        theme_used[rec["budget_theme"]] += new - rec["weight"]
+        used += new - rec["weight"]
+        rec["weight"] = new
+        rec["cap"] = f"attack {new:.0%}"
         rec["sleeve"] = "attack"
-        used += base
 
-    locked_recs = []
-    if locked and nav:
-        for p in positions:
-            if p["symbol"] in locked and p["market_value"]:
-                spec = locked[p["symbol"]]
-                theme = spec.get("theme", "locked") if isinstance(spec, dict) else str(spec)
-                note = spec.get("note", "") if isinstance(spec, dict) else ""
-                price = p["market_value"] / p["quantity"] if p["quantity"] else None
-                locked_recs.append({
-                    "ticker": p["symbol"], "weight": round(p["market_value"] / nav, 4),
-                    "market_value": p["market_value"], "qty": p["quantity"], "price": price,
-                    "avg_cost": p["average_price"], "theme": theme, "note": note,
-                })
     gross = sum(x["weight"] for x in core + attack + locked_recs)
 
     # NAV alone is enough to size the book in money; positions only add the "held now" diff
@@ -342,7 +381,8 @@ def holdings_yaml(book: dict) -> str:
 
     holdings = [
         {
-            "ticker": x["ticker"], "weight": x["weight"], "theme": x.get("theme", x["industry"]),
+            "ticker": x["ticker"], "weight": x["weight"],
+            "theme": x.get("ips_theme") or x.get("theme", x["industry"]),
             "entry_price": round(x["entry"], 2), "entry_date": book["asof"],
             "setup_type": "pullback_add",
             "thesis": f"screen rank {x['rank']} on {book['asof']}; "
@@ -366,13 +406,14 @@ def candidates_yaml(book: dict) -> str:
     """candidates.yml beside holdings.yml: every core+attack name (not locked — an
     owner-locked position is not a challenger) as a row `_candidates_from_yaml` reads,
     so the actual-portfolio `propose --candidates` pass gets the book's names as
-    challengers. `final_score` is the screen row's own, on the incumbents' scale; no
-    `theme` — the book's yfinance industries and the desk's holdings themes are
-    different vocabularies."""
+    challengers. `final_score` is the screen row's own, on the incumbents' scale. `theme`
+    only for a name the owner's `themes` map labels: the book's yfinance industries and
+    the desk's holdings themes are different vocabularies."""
     import yaml
 
     candidates = [
-        {"ticker": x["ticker"], "final_score": x["final_score"], "verdict": x["rating"]}
+        {"ticker": x["ticker"], "final_score": x["final_score"], "verdict": x["rating"],
+         **({"theme": x["ips_theme"]} if x.get("ips_theme") else {})}
         for x in book["core"] + book["attack"]
     ]
     return yaml.safe_dump(candidates, sort_keys=False, allow_unicode=True)

@@ -6,6 +6,7 @@ real NAV, a real broker's symbol list, or an absolute path.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import tomllib
@@ -26,10 +27,13 @@ FIXTURE_WORDS = {"NAV", "PM", "EQUITY", "ETF", "R", "US"}
 
 
 def _book_dir(tmp_path: Path) -> Path:
+    ips = parse_ips(str(ROOT / "examples" / "ips-balanced.md"))
+    # theme budget opened up: the site tests render the fixture, not the budget rule
+    ips = dataclasses.replace(ips, caps=dataclasses.replace(ips.caps, theme_pct=100))
     book = bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(ROOT / "examples" / "ips-balanced.md")),
+        ips,
         meta=json.loads((FIX / "meta.json").read_text()),
         scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
         positions=bk.load_positions(FIX / "positions.csv"),
