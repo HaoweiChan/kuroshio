@@ -1090,6 +1090,23 @@ def _price_columns(book, provider_name: str):
     return out, vol, BOOK_VOL_WINDOW
 
 
+def _write_track(book: dict, out: Path, market: str, provider_name: str) -> None:
+    """track.json: the raw-return record of every saved book beside `out` (its dated
+    siblings) plus this one — see kuroshio/core/track.py."""
+    from kuroshio.core import track
+    from kuroshio.providers import get_provider
+
+    books = track.load_books(out.parent, current=book)
+    bench = get_profile(market).benchmark
+    tickers = sorted({t for _, w in books for t in w})
+    if bench:  # first: providers/yf.py filters the panel to its first resolved ticker
+        tickers = [bench] + [t for t in tickers if t != bench]
+    days = (datetime.date.today() - datetime.date.fromisoformat(books[0][0])).days + 10
+    close = get_provider(provider_name).fetch_panel(tickers, days).close
+    tr = track.track(books, close, bench)
+    (out / "track.json").write_text(json.dumps(tr, indent=1), encoding="utf-8")
+
+
 def cmd_book(args: argparse.Namespace) -> int:
     from kuroshio.core import book as bookmod
     from kuroshio.core.ips import parse_ips
@@ -1152,6 +1169,11 @@ def cmd_book(args: argparse.Namespace) -> int:
         book, out, propose_text=propose_text, lang=args.lang,
         ma50=ma50, book_vol=vol, vol_window=window,
     )
+    if args.provider:
+        try:
+            _write_track(book, out, args.market, args.provider)
+        except Exception as exc:  # noqa: BLE001 — the track record is a side output
+            print(f"warning: track record unavailable: {exc}", file=sys.stderr)
     print(
         f"{book['asof']}: core {len(book['core'])} · attack {len(book['attack'])} · "
         f"skipped {len(book['skipped'])} · gross {book['gross']:.1%} -> {out}"

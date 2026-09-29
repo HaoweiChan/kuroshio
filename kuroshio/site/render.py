@@ -6,6 +6,7 @@ tests/test_site.py, plus `site.css` for what only the generated pages need):
 
 * `index.html`    — the book: stats, holdings, concentration + IPS, propose cards, the cuts
 * `alloc.html`    — the book in money on the NAV the positions file carried
+* `track.html`    — the raw-return record of every saved book (when `track.json` is there)
 * `reports.html`  — every research report, newest first
 * `reports/<TICKER>/<date>.html` — one report
 
@@ -153,6 +154,7 @@ def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: st
         for key, href, label in (
             ("book", "index.html", "book_page_title"),
             ("alloc", "alloc.html", "nav_page_title"),
+            ("track", "track.html", "track_page_title"),
             ("reports", "reports.html", "reports_page_title"),
         )
     )
@@ -436,6 +438,103 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     )
 
 
+TRACK_LINES = (("book", "var(--fg)", ""), ("core", "var(--warn)", ""),
+               ("attack", "var(--accent)", ""), ("bench", "var(--muted)", "4 4"))
+
+
+def _ret(x, na: str = "n/a") -> str:
+    """A return to one decimal — `_pct(sign=True)` rounds a +0.4% day to +0%."""
+    return f"{x:+.1%}" if x is not None else na
+
+
+def _track_chart(series: list[dict], lb: dict) -> str:
+    """Cumulative raw return, one polyline per line in TRACK_LINES, zero line dashed."""
+    if len(series) < 2:
+        return ""
+    vals = [s[k] for s in series for k, _, _ in TRACK_LINES if s.get(k) is not None] + [0.0]
+    lo, hi = min(vals), max(vals)
+    span = (hi - lo) or 1.0
+    w, h, pad = 720, 240, 8
+    x = lambda i: pad + i * (w - 2 * pad) / (len(series) - 1)  # noqa: E731
+    y = lambda v: pad + (hi - v) * (h - 2 * pad) / span  # noqa: E731
+    lines = "".join(
+        f"<polyline fill='none' stroke='{color}' stroke-width='2' stroke-dasharray='{dash}' "
+        f"points='{' '.join(f'{x(i):.1f},{y(s[k]):.1f}' for i, s in enumerate(series))}'/>"
+        for k, color, dash in TRACK_LINES
+    )
+    legend = "".join(
+        f"<span class='meta' style='margin-right:16px'><b style='color:{c}'>—</b> "
+        f"{esc(lb['track_' + k].format(bench=''))} {_ret(series[-1][k])}</span>"
+        for k, c, _ in TRACK_LINES
+    )
+    return (
+        f"<svg viewBox='0 0 {w} {h}' style='width:100%;height:auto' role='img' "
+        f"aria-label='{esc(lb['track_chart'])}'>"
+        f"<line x1='0' x2='{w}' y1='{y(0):.1f}' y2='{y(0):.1f}' stroke='var(--line)' stroke-dasharray='2 3'/>"
+        f"{lines}</svg><div>{legend}</div>"
+        f"<div class='meta'>{esc(series[0]['date'])} → {esc(series[-1]['date'])} · "
+        f"{esc(lb['track_range'].format(lo=lo, hi=hi))}</div>"
+    )
+
+
+def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
+    from kuroshio.core.track import summary
+
+    s = summary(tr)
+    stats = [
+        (_ret(s["book"], lb["na"]), lb["track_book"]),
+        (_ret(s["core"], lb["na"]), lb["track_core"]),
+        (_ret(s["attack"], lb["na"]), lb["track_attack"]),
+        (_ret(s["bench"], lb["na"]), lb["track_bench"].format(bench=tr["benchmark"] or "-")),
+    ] + [
+        (_pct(s[f"hit_{k}"], na=lb["na"]),
+         lb["track_hit"].format(sleeve=lb[k] if k != "all" else lb["all"], n=s[f"n_{k}"],
+                                avg=_ret(s[f"avg_{k}"], lb["na"])))
+        for k in ("all", "core", "attack")
+    ]
+    eps = sorted(tr["episodes"], key=lambda e: (not e["open"], e["entry_date"]))
+    rows = "".join(
+        f"<tr data-s='{'attack' if 'attack' in e['sleeves'] else 'core'}'>"
+        f"<td class='tk'>{link(e['ticker'])}</td>"
+        f"<td style='text-align:left'>{' → '.join(esc(lb[x]) for x in e['sleeves'])}</td>"
+        f"<td>{esc(e['entry_date'])}</td><td>{_money(e['entry'], lb['na'])}</td>"
+        f"<td>{esc(lb['track_open']) if e['open'] else esc(e['exit_date'] or '')}</td>"
+        f"<td>{_money(e['exit'], lb['na'])}</td><td>{e['books']}</td>"
+        f"<td class='{'pos' if (e['ret'] or 0) >= 0 else 'neg'}' "
+        f"data-v='{e['ret'] if e['ret'] is not None else ''}'>"
+        f"{_ret(e['ret'], esc(lb['na']))}</td></tr>"
+        for e in eps
+    )
+    heads = ["ticker", "track_sleeve", "track_entry_date", "track_entry", "track_exit_date",
+             "track_exit", "track_books", "track_ret"]
+    r = book["rules"]
+    rules = [
+        (lb["track_rule_slots"], f"{r['attack_n']}"),
+        (lb["track_rule_budget"], f"{r['attack_budget_pct']:.0f}%"),
+        (lb["track_rule_floor"], esc(r["attack_floor"].capitalize())),
+        (lb["track_rule_double"], f"{min(2 * r['base_pct'], book['ips']['position_pct']):.0f}%"),
+        (lb["track_rule_hold"], esc(lb["track_rule_hold_v"])),
+    ]
+    lede = lb["track_lede"].format(since=tr["since"], asof=tr["asof"], n=tr["books"])
+    return (
+        f"<div class='hero small'><h1>{esc(lb['track_page_title'])}</h1>"
+        f"<p class='lede'>{esc(lede)}</p></div>"
+        "<div class='panel'><div class='stats'>"
+        + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
+        + "</div></div>"
+        + _section("CUMULATIVE", lb["track_chart"], lb["track_chart_lede"],
+                   f"<div class='panel'>{_track_chart(tr['series'], lb)}</div>")
+        + _section("POSITIONS", lb["track_eps_head"], lb["track_eps_lede"],
+                   "<div class='panel'><div class='toolbar'>"
+                   + _chips([("all", lb["all"]), ("core", lb["core"]), ("attack", lb["attack"])], "s")
+                   + "</div><div class='tablebox'><table><thead><tr>"
+                   + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
+                   + f"</tr></thead><tbody>{rows}</tbody></table></div></div>")
+        + _section("ATTACK SLEEVE", lb["track_rules_head"], lb["track_rules_lede"],
+                   _kv_panel(lb["attack"], rules))
+    )
+
+
 # --- one report page ----------------------------------------------------------
 
 
@@ -699,6 +798,14 @@ def render_site(
         if alloc_body:
             (build / "alloc.html").write_text(
                 _shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, css, lb, active="alloc"),
+                encoding="utf-8",
+            )
+        track_path = book_dir / "track.json"
+        if track_path.exists():
+            (build / "track.html").write_text(
+                _shell(lb["track_page_title"],
+                       _track_page(json.loads(track_path.read_text()), book, lb, link),
+                       css, lb, active="track"),
                 encoding="utf-8",
             )
         held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}

@@ -118,6 +118,44 @@ LABELS: dict[str, dict[str, str]] = {
         "nav_page_title": "NAV allocation",
         "book_page_title": "Book",
         "reports_page_title": "Research reports",
+        "track_page_title": "Track record",
+        "track_lede": (
+            "Raw price returns of what the book recommended, not your NAV: each day is the "
+            "weight-averaged return of the names in that day's book, normalised by their summed "
+            "weight, so cash and account size never enter it. {n} books, {since} to {asof}."
+        ),
+        "track_book": "Book, cumulative",
+        "track_core": "Core sleeve",
+        "track_attack": "Attack sleeve",
+        "track_bench": "Benchmark {bench}",
+        "track_hit": "{sleeve} hit rate · {n} positions · avg {avg}",
+        "track_chart": "Cumulative raw return",
+        "track_chart_lede": "Held from each book's close until the next book replaces it.",
+        "track_range": "range {lo:+.1%} to {hi:+.1%}",
+        "track_eps_head": "Every recommended position",
+        "track_eps_lede": (
+            "Entered at the close of the first book that carried the name, exited at the close "
+            "of the first book that dropped it; still-held names are marked to the latest close."
+        ),
+        "track_sleeve": "Sleeve",
+        "track_entry_date": "In since",
+        "track_entry": "Entry",
+        "track_exit_date": "Out",
+        "track_exit": "Exit / last",
+        "track_books": "Books",
+        "track_ret": "Return",
+        "track_open": "held",
+        "track_rules_head": "How the attack sleeve works",
+        "track_rules_lede": (
+            "Overflow names the per-theme cap pushed out of the core, plus the top core names "
+            "the leftover budget doubles. Rebuilt from scratch every day."
+        ),
+        "track_rule_slots": "Overflow slots",
+        "track_rule_budget": "Attack budget",
+        "track_rule_floor": "Minimum rating (overflow)",
+        "track_rule_double": "Top-up weight (core names)",
+        "track_rule_hold": "Holding period",
+        "track_rule_hold_v": "none — in the sleeve only while the day's ranking puts it there",
         "book_lede": (
             "Screen ranking -> rating veto -> IPS weights. Mechanical output, not investment advice; "
             "whether to trade any of it is your decision."
@@ -301,6 +339,40 @@ LABELS: dict[str, dict[str, str]] = {
         "nav_page_title": "NAV 分配",
         "book_page_title": "Book",
         "reports_page_title": "研究報告",
+        "track_page_title": "績效",
+        "track_lede": (
+            "book 建議部位的原始價格報酬，不是你的 NAV：每天的報酬 = 當天 book 裡各檔報酬依建議權重加權、"
+            "再除以權重總和，所以現金和帳戶大小都不影響。共 {n} 份 book，{since} 至 {asof}。"
+        ),
+        "track_book": "整體 book 累積",
+        "track_core": "核心倉",
+        "track_attack": "攻擊倉",
+        "track_bench": "基準 {bench}",
+        "track_hit": "{sleeve}勝率 · {n} 筆 · 平均 {avg}",
+        "track_chart": "累積原始報酬",
+        "track_chart_lede": "每份 book 從它的收盤持有到下一份 book 取代它為止。",
+        "track_range": "區間 {lo:+.1%} 至 {hi:+.1%}",
+        "track_eps_head": "每一筆建議部位",
+        "track_eps_lede": (
+            "進場 = 第一份列入它的 book 當天收盤；出場 = 第一份把它剔除的 book 當天收盤；"
+            "仍在 book 的用最新收盤計。"
+        ),
+        "track_sleeve": "倉別",
+        "track_entry_date": "進入",
+        "track_entry": "進場價",
+        "track_exit_date": "出場",
+        "track_exit": "出場／現價",
+        "track_books": "天數（份）",
+        "track_ret": "報酬",
+        "track_open": "持有中",
+        "track_rules_head": "攻擊倉怎麼運作",
+        "track_rules_lede": "被同主題上限擠出核心的名字，加上用剩餘預算加倍的前段核心名字。每天從頭重建。",
+        "track_rule_slots": "溢出名額",
+        "track_rule_budget": "攻擊預算",
+        "track_rule_floor": "最低評級（溢出名字）",
+        "track_rule_double": "加倍後權重（核心名字）",
+        "track_rule_hold": "持有期間",
+        "track_rule_hold_v": "沒有固定期間 — 只要當天排名還把它放在攻擊倉就留著",
         "book_lede": "篩選排名 → 評級否決 → IPS 權重。機械輸出，不是投資建議；下不下單是你的決定。",
         "reports_lede": "研究流程寫出的每一份報告，新的在前。",
         "report_lede": "完整研究報告。",
