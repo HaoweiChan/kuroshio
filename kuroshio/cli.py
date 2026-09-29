@@ -1129,6 +1129,7 @@ def cmd_book(args: argparse.Namespace) -> int:
             nav=args.nav,
             pm_size=bookmod.load_json(args.pm_size),
             locked=bookmod.load_json(args.locked),
+            themes=bookmod.load_json(args.themes),
             market=args.market,
             rules=rules,
             ips_name=Path(args.ips).name,
@@ -1347,6 +1348,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_book.add_argument("--pm-size", help="JSON of {ticker: multiplier} to size a name down")
     p_book.add_argument("--locked", help="JSON of {ticker: {theme, note}} the book must not resize")
+    p_book.add_argument(
+        "--themes",
+        help="JSON of {ticker: theme} in the IPS's theme vocabulary; the theme budget "
+             "(caps.theme_pct / theme_caps) is spent per theme, unlisted names use their industry",
+    )
     p_book.add_argument("--universe-file", help="cross-section for propose's auto-filled scores")
     p_book.add_argument(
         "--provider", help="price provider for the MA50 and book-vol columns (default: no fetch)"

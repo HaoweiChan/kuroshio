@@ -17,6 +17,7 @@ attack budget / 45-day TTL):
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -30,12 +31,19 @@ FIX = Path(__file__).parent / "fixtures"
 IPS = Path(__file__).parent.parent / "examples" / "ips-balanced.md"
 
 
+def _ips(theme_pct: float = 100):
+    """The example IPS with the theme budget opened up, so the fixture tests exercise the
+    other rules; the theme-budget tests pass the real 20%."""
+    ips = parse_ips(str(IPS))
+    return dataclasses.replace(ips, caps=dataclasses.replace(ips.caps, theme_pct=theme_pct))
+
+
 @pytest.fixture
 def built():
     return bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(IPS)),
+        _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
         scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
         positions=bk.load_positions(FIX / "positions.csv"),
@@ -118,7 +126,7 @@ def test_candidates_yaml_empty_book_writes_an_empty_list():
     book = bk.build_book(
         [{"ticker": "Z1", "date": "2026-01-05", "rank": 1, "factors": {"close": 10.0}}],
         [],  # no ratings -> Z1 is "not researched", skipped
-        parse_ips(str(IPS)),
+        _ips(),
     )
     assert book["core"] == [] and book["attack"] == []
     assert yaml.safe_load(bk.candidates_yaml(book)) == []
@@ -180,7 +188,7 @@ def test_attack_floor_hold_reproduces_todays_behaviour(built):
     same = bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(IPS)),
+        _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
         scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
         positions=bk.load_positions(FIX / "positions.csv"),
@@ -209,7 +217,7 @@ def test_attack_floor_skips_a_below_floor_overflow_and_the_next_name_by_rank_tak
         {"date": "2026-01-02", "market": "us", "ticker": "W3", "rating": "Overweight"},
     ]
     rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=0)
-    book = bk.build_book(screen_rows, ratings_rows, parse_ips(str(IPS)), rules=rules)
+    book = bk.build_book(screen_rows, ratings_rows, _ips(), rules=rules)
     assert [r["ticker"] for r in book["core"]] == ["W1"]
     assert [r["ticker"] for r in book["attack"]] == ["W3"]
     reason = {r[1]: r[3] for r in book["skipped"]}
@@ -228,7 +236,7 @@ def test_rules_are_options_not_constants():
     book = bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(IPS)),
+        _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
         scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
         rules=bk.BookRules(core_n=2, core_per_theme=1, attack_n=1, attack_budget_pct=0),
@@ -241,7 +249,7 @@ def test_without_scores_only_the_day_ttl_applies():
     book = bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(IPS)),
+        _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
     )
     assert "FFF" in {r["ticker"] for r in book["core"] + book["attack"]}
@@ -289,7 +297,7 @@ def test_needs_research_orders_held_names_first_then_screen_names_by_rank():
     ]
     rules = bk.BookRules(core_n=10, core_per_theme=10, attack_n=0, attack_budget_pct=0)
     book = bk.build_book(
-        screen_rows, ratings_rows, parse_ips(str(IPS)), scores_rows=scores_rows, rules=rules,
+        screen_rows, ratings_rows, _ips(), scores_rows=scores_rows, rules=rules,
     )
     assert bk.needs_research(book) == {
         "asof": "2026-02-01",
@@ -310,7 +318,7 @@ def test_needs_research_writes_an_empty_list_never_a_missing_file(tmp_path):
     """AC #3: nothing to research still writes the file, with an empty `research` list."""
     screen_rows = [{"ticker": "Z1", "date": "2026-01-05", "rank": 1, "factors": {"close": 10.0}}]
     ratings_rows = [{"date": "2026-01-02", "market": "us", "ticker": "Z1", "rating": "Buy"}]
-    book = bk.build_book(screen_rows, ratings_rows, parse_ips(str(IPS)))
+    book = bk.build_book(screen_rows, ratings_rows, _ips())
     assert book["skipped"] == [] and book["review"] == []
     assert bk.needs_research(book) == {"asof": "2026-01-05", "research": []}
     bk.write_book(book, tmp_path)
@@ -325,7 +333,7 @@ def test_nav_alone_still_allocates_it_is_positions_that_add_the_diff():
     book = bk.build_book(
         bk.load_screen(FIX / "screen.json"),
         bk.load_jsonl(FIX / "ratings.jsonl"),
-        parse_ips(str(IPS)),
+        _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
         nav=100000.0,
     )
@@ -358,7 +366,42 @@ def test_a_name_closing_at_or_below_its_rating_stop_is_dropped_not_given_base_we
             {**r, "stop_loss": stop} if r["ticker"] == "AAA" else r
             for r in bk.load_jsonl(FIX / "ratings.jsonl")
         ]
-        book = bk.build_book(screen, ratings, parse_ips(str(IPS)),
+        book = bk.build_book(screen, ratings, _ips(),
                              meta=json.loads((FIX / "meta.json").read_text()))
         assert "AAA" not in {r["ticker"] for r in book["core"] + book["attack"]}
         assert {r[1]: r[3] for r in book["skipped"]}["AAA"] == f"Buy below its stop {stop:.2f}"
+
+
+def _budget_book(ips, themes=None):
+    return bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), ips,
+        meta=json.loads((FIX / "meta.json").read_text()),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+        positions=bk.load_positions(FIX / "positions.csv"), nav=100000.0,
+        pm_size=json.loads((FIX / "pm_size.json").read_text()),
+        locked=json.loads((FIX / "locked.json").read_text()), themes=themes,
+    )
+
+
+def test_the_attack_top_up_stops_at_the_ips_theme_budget():
+    """Widgets at 20%: AAA 5 + BBB 5 + DDD 2 + III 5 = 17% placed, so doubling AAA can
+    only spend the 3% left and BBB gets nothing — before, both went to 10% (27% Widgets)."""
+    book = _budget_book(_ips(theme_pct=20))
+    assert (_w(book, "AAA"), _w(book, "BBB"), _w(book, "III")) == (0.08, 0.05, 0.05)
+    assert {r["ticker"]: r["cap"] for r in book["core"]}["AAA"] == "attack 8%"
+    widgets = sum(r["weight"] for r in book["core"] + book["attack"] if r["industry"] == "Widgets")
+    assert widgets == pytest.approx(0.20)
+
+
+def test_a_locked_position_spends_its_theme_budget_first_and_the_themes_map_names_the_theme():
+    """ZZZ is locked at 9% in 'locked-theme'; mapping III there leaves it the budget's rest."""
+    ips = _ips()
+    for cap, expect in ((9.5, None), (12, 0.03)):
+        tight = dataclasses.replace(ips, caps=dataclasses.replace(ips.caps, theme_caps={"locked-theme": cap}))
+        book = _budget_book(tight, themes={"III": "locked-theme"})
+        if expect is None:
+            assert {r[1]: r[3] for r in book["skipped"]}["III"] == "theme budget full (locked-theme 9.5%)"
+        else:
+            assert _w(book, "III") == expect
+            assert "theme: locked-theme" in bk.holdings_yaml(book)
+            assert "theme: locked-theme" in bk.candidates_yaml(book)
