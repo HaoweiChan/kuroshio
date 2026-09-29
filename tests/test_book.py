@@ -346,3 +346,19 @@ def test_needs_research_stale_rating_with_a_far_off_print_is_reported_as_stale()
         rules=bk.BookRules(core_n=10, core_per_theme=10, attack_n=0, attack_budget_pct=0),
     )
     assert [r["reason"] for r in bk.needs_research(book)["research"]] == ["rating 24 days old"]
+
+
+def test_a_name_closing_at_or_below_its_rating_stop_is_dropped_not_given_base_weight():
+    """AAA closes at 100 with a Buy and stop 90. Moving the stop to 100 (touched) or 120
+    (through it) must drop AAA; before this, target_weight read stop >= entry as "no stop"
+    and handed the name full base weight."""
+    screen = bk.load_screen(FIX / "screen.json")
+    for stop in (100.0, 120.0):
+        ratings = [
+            {**r, "stop_loss": stop} if r["ticker"] == "AAA" else r
+            for r in bk.load_jsonl(FIX / "ratings.jsonl")
+        ]
+        book = bk.build_book(screen, ratings, parse_ips(str(IPS)),
+                             meta=json.loads((FIX / "meta.json").read_text()))
+        assert "AAA" not in {r["ticker"] for r in book["core"] + book["attack"]}
+        assert {r[1]: r[3] for r in book["skipped"]}["AAA"] == f"Buy below its stop {stop:.2f}"

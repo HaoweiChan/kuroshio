@@ -80,6 +80,9 @@ cleared entry + 2R — trails its invalidation price at `caps.trail_atr_mult` AT
 running high since entry (default 3), never downward. On top of that, one rule
 reads no setup at all: a position whose worst close since `entry_date` is at or past
 `caps.max_adverse_excursion_pct` from its entry (default -15%) gets a DECIDE card — kill it, add to it per the plan, or rewrite the thesis.
+A position through the exit level it was opened with (its invalidation price, the ratcheted
+stop, or a `trend_add`'s 50-day line) gets an EXIT card instead: the plan was written in
+advance, so the card says sell it all rather than asking.
 Holding it unchanged is not one of the three. Positions missing the fields a rule reads are
 named on a card instead of quietly going unwatched. This applies only to a session that
 actually fetched prices: a book with no monitored `setup_type`, no `entry_price`, and no
@@ -199,7 +202,7 @@ flowchart LR
     I["your IPS.md<br/><small>caps · hurdle</small>"] --> AL
     S --> AL["core/allocator/<br/><small>challenger vs<br/>incumbent</small>"]
     V --> AL
-    AL --> C["ProposalCard<br/><small>SWAP · TRIM<br/>DECIDE · ALERT</small>"]
+    AL --> C["ProposalCard<br/><small>EXIT · SWAP · TRIM<br/>DECIDE · ALERT</small>"]
     C --> O["CLI · Discord"]
 ```
 

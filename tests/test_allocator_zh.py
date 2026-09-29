@@ -248,7 +248,7 @@ MA50 = {"TREND": 100.0, "DIP": 100.0, "ADD": 52.0}
 
 
 def thesis_alerts(cards):
-    return {c.details["ticker"]: c for c in cards if c.action == "ALERT" and "ticker" in c.details}
+    return {c.details["ticker"]: c for c in cards if c.action in ("ALERT", "EXIT") and "ticker" in c.details}
 
 
 def test_trend_add_ma_break_alert_zh():

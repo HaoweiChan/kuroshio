@@ -78,7 +78,7 @@ class Holding:
 
 @dataclass
 class ProposalCard:
-    action: str                  # "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
+    action: str                  # "EXIT" | "SWAP" | "TRIM" | "SCALE" | "DECIDE" | "ALERT"
     sell: str | None
     buy: str | None
     reason: str                  # one paragraph, human-readable
@@ -248,8 +248,10 @@ Pure function. v1 logic:
    closes, not prices a market printed. The card states the loss, the entry price, the price
    it read and the threshold it compared them against, and reconstructs no trigger price:
    a printed level the comparison does not use is what three review rounds of this rule went
-   on. A position that also broke its thesis this run gets both
-   cards, and the DECIDE quotes what step 3 concluded so the two do not talk past each other.
+   on. A position that broke its thesis this run gets no DECIDE at all: its exit level was
+   written down when it was opened, so step 3 issues an EXIT card (sell the whole position,
+   listed first) instead of an ALERT, and neither MAE nor the rating veto asks the
+   three-way question about it. A DECIDE that does ship quotes what step 3 concluded.
    `entry_price` 0 or negative is not an entry price and is treated as absent. The
    comparison is against this session's price, not the low since entry, so a position that
    fell past the level and recovered is not decided on (tasks/TODO.md T52).

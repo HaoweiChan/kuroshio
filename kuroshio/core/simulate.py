@@ -238,7 +238,7 @@ def simulate(
                 )
 
                 for card in cards:
-                    if card.action == "DECIDE":
+                    if card.action in ("DECIDE", "EXIT"):
                         ticker = card.details.get("ticker")
                         h = next((x for x in holdings if x.ticker == ticker), None)
                         if h is None:
@@ -248,7 +248,7 @@ def simulate(
                         cost = h.weight * (roundtrip_pct / 100) / 2
                         total_cost += cost
                         trades.append({
-                            "date": asof, "action": "DECIDE", "sell": ticker, "buy": None,
+                            "date": asof, "action": card.action, "sell": ticker, "buy": None,
                             "weight": h.weight, "cost": cost,
                         })
                     elif card.action == "TRIM":
