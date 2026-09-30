@@ -141,8 +141,9 @@ def _chips(values: list[tuple[str, str]], attr: str) -> str:
 
 
 def _section(kicker: str, title: str, lede: str, inner: str) -> str:
+    kick = f"<div class='kicker'>{esc(kicker)}</div>" if kicker else ""
     return (
-        f"<section><div class='sec-head'><div class='kicker'>{esc(kicker)}</div>"
+        f"<section><div class='sec-head'>{kick}"
         f"<h2>{esc(title)}</h2><p>{esc(lede)}</p></div>{inner}</section>"
     )
 
@@ -165,7 +166,7 @@ def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: st
         f"<title>{esc(title)}</title><link rel='icon' href='{up}logo.svg'>"
         f"<style>{css}</style></head><body>"
         f"<header><div class='wrap'><div class='brand'>"
-        f"<img src='{up}logo.svg' alt=''>Kuro<span>shio</span></div>"
+        f"<img src='{up}logo.svg' alt=''>Kuroshio<span lang='zh-Hant'>黑潮</span></div>"
         f"<nav>{nav}<a href='{GITHUB}'>GitHub</a></nav></div></header>"
         f"<div class='wrap'>{body}</div>"
         f"<footer><div class='wrap'><p>{esc(lb['disclaimer'])}</p>"
@@ -316,8 +317,10 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
         f"<td style='text-align:left'><span class='meta'>{esc(str(r[3]))}</span></td></tr>"
         for r in book["skipped"]
     )
+    left = " style='text-align:left'"  # the text columns' cells are left-aligned; so are their heads
     skipped_heads = "".join(
-        f"<th data-sort>{esc(lb[h])}</th>" for h in ("rank", "ticker", "industry", "rating")
+        f"<th data-sort{left if h in ('industry', 'rating') else ''}>{esc(lb[h])}</th>"
+        for h in ("rank", "ticker", "industry", "rating")
     )
     skipped_panel = (
         "<div class='panel'><div class='toolbar'>"
@@ -405,21 +408,21 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     rules = book["rules"]
     return (
         f"<div class='hero small'><h1>{esc(lb['nav_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['alloc_lede'].format(nav=nav, asof=book['asof']))}</p></div>"
+        f"<p class='lede'>{esc(lb['portfolio_lede'].format(asof=book['asof']))}</p></div>"
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
-        + _section("ALLOCATION", lb["alloc_title"].format(asof=book["asof"]), "",
+        + _section("", lb["portfolio_head"], "",
                    "<div class='panel'><div class='tablebox'><table><thead><tr>"
                    + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
                    + f"</tr></thead><tbody>{rows}</tbody></table></div></div>")
-        + _section("LOCKED", lb["locked_head"], lb["locked_lede"],
+        + _section("", lb["locked_head"], lb["locked_lede"],
                    "<div class='panel'><div class='tablebox'><table><thead><tr>"
                    + "".join(f"<th>{esc(lb[h])}</th>" for h in lheads)
                    + "</tr></thead><tbody>"
                    + (locked_rows or f"<tr><td colspan=6>{esc(lb['none'])}</td></tr>")
                    + "</tbody></table></div></div>")
-        + _section("DISPOSALS", lb["disposals_head"],
+        + _section("", lb["disposals_head"],
                    lb["disposals_lede"].format(total=sum(v for _, v, _ in alloc["sells"])),
                    "<div class='panel'><div class='tablebox'><table><thead><tr>"
                    + "".join(f"<th data-sort>{esc(lb[h])}</th>"
@@ -427,7 +430,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
                    + "</tr></thead><tbody>"
                    + (sells or f"<tr><td colspan=3>{esc(lb['none'])}</td></tr>")
                    + "</tbody></table></div></div>")
-        + _section("RESEARCH QUEUE", lb["queue_head"], "",
+        + _section("", lb["queue_head"], "",
                    "<div class='panel'>"
                    + _chip_list(lb["unrated_head"], unrated, lb)
                    + _chip_list(
@@ -522,15 +525,15 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
-        + _section("CUMULATIVE", lb["track_chart"], lb["track_chart_lede"],
-                   f"<div class='panel'>{_track_chart(tr['series'], lb)}</div>")
-        + _section("POSITIONS", lb["track_eps_head"], lb["track_eps_lede"],
+        + _section("", lb["track_chart"], lb["track_chart_lede"],
+                   f"<div class='panel chart'>{_track_chart(tr['series'], lb)}</div>")
+        + _section("", lb["track_eps_head"], lb["track_eps_lede"],
                    "<div class='panel'><div class='toolbar'>"
                    + _chips([("all", lb["all"]), ("core", lb["core"]), ("attack", lb["attack"])], "s")
                    + "</div><div class='tablebox'><table><thead><tr>"
                    + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
                    + f"</tr></thead><tbody>{rows}</tbody></table></div></div>")
-        + _section("ATTACK SLEEVE", lb["track_rules_head"], lb["track_rules_lede"],
+        + _section("", lb["track_rules_head"], lb["track_rules_lede"],
                    _kv_panel(lb["attack"], rules))
     )
 

@@ -84,9 +84,14 @@ LABELS: dict[str, dict[str, str]] = {
         "risk_entry": "Entry prices are the {asof} close — real fills will differ.",
         # --- alloc.md / alloc page ---
         "alloc_title": "Book allocation on NAV — screen {asof}",
+        "portfolio_head": "Target positions",
         "alloc_lede": (
             "NAV **{nav:,.0f}** from the positions file you passed. Shares = floor(NAV x weight / "
             "the {asof} close). Mechanical output, not investment advice."
+        ),
+        "portfolio_lede": (
+            "Today's book sized to your account: whole shares of each name at the {asof} close, "
+            "next to what you hold now."
         ),
         "nav": "NAV",
         "cash": "Cash",
@@ -115,7 +120,7 @@ LABELS: dict[str, dict[str, str]] = {
         "unrated_head": "Unrated in the screened top names",
         "review_head": "Due for a re-rating (older than {days} days, or earnings within {warn} days)",
         # --- site ---
-        "nav_page_title": "NAV allocation",
+        "nav_page_title": "Portfolio",
         "book_page_title": "Book",
         "reports_page_title": "Research reports",
         "track_page_title": "Track record",
@@ -177,9 +182,9 @@ LABELS: dict[str, dict[str, str]] = {
         "turnover_hurdle": "turnover hurdle",
         "verdict_floor": "verdict floor",
         "max_swaps": "max swaps / week",
-        "step_holdings": "STEP 1 · HOLDINGS",
-        "step_policy": "STEP 2 · POLICY",
-        "step_vetoes": "STEP 3 · VETOES",
+        "step_holdings": "Step 1 · Holdings",
+        "step_policy": "Step 2 · Policy",
+        "step_vetoes": "Step 3 · Vetoes",
         "policy_head": "Concentration and IPS",
         "policy_lede": (
             "Theme budgets and the per-name cap come from your IPS; the cards are what propose "
@@ -308,9 +313,13 @@ LABELS: dict[str, dict[str, str]] = {
         ),
         "risk_entry": "進場價是 {asof} 收盤，實際成交會不同。",
         "alloc_title": "Book 在 NAV 上的分配 — 篩選日 {asof}",
+        "portfolio_head": "目標部位",
         "alloc_lede": (
             "NAV **{nav:,.0f}**，來自你傳入的持倉檔。股數 = floor(NAV × 權重 ÷ {asof} 收盤)。"
             "機械輸出，不是投資建議。"
+        ),
+        "portfolio_lede": (
+            "把今天的 book 換算到你的帳戶：每檔以 {asof} 收盤價計算的整數股數，對照你目前的持股。"
         ),
         "nav": "NAV",
         "cash": "現金",
@@ -336,7 +345,7 @@ LABELS: dict[str, dict[str, str]] = {
         "queue_head": "研究佇列",
         "unrated_head": "篩選前段裡尚未評級的名字",
         "review_head": "該重評的（評級超過 {days} 天，或 {warn} 天內財報）",
-        "nav_page_title": "NAV 分配",
+        "nav_page_title": "投資組合",
         "book_page_title": "Book",
         "reports_page_title": "研究報告",
         "track_page_title": "績效",
@@ -391,9 +400,9 @@ LABELS: dict[str, dict[str, str]] = {
         "turnover_hurdle": "換股門檻",
         "verdict_floor": "評級下限",
         "max_swaps": "每週最多換股",
-        "step_holdings": "STEP 1 · 持倉",
-        "step_policy": "STEP 2 · 政策",
-        "step_vetoes": "STEP 3 · 否決",
+        "step_holdings": "步驟 1 · 持倉",
+        "step_policy": "步驟 2 · 政策",
+        "step_vetoes": "步驟 3 · 否決",
         "policy_head": "集中度與 IPS",
         "policy_lede": "theme 預算與單一部位上限來自你的 IPS；卡片是 propose 對這本 book 的意見。",
         "holdings_lede": "核心沿篩選排名走並受 theme 上限限制；攻擊是被擠出的領漲股；鎖定是你自己的部位。",

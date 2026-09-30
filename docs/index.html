@@ -6,13 +6,16 @@
 <title>Kuroshio — quantamental portfolio engine</title>
 <meta name="description" content="Open-source quantamental portfolio engine: multi-factor screening, LLM research, and IPS-driven rebalancing proposals. The engine never executes trades.">
 <link rel="icon" href="logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Schibsted+Grotesk:wght@400..900&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header>
   <div class="wrap">
-    <div class="brand"><img src="logo.svg" alt="">Kuro<span>shio</span></div>
+    <div class="brand"><img src="logo.svg" alt="">Kuroshio<span lang="zh-Hant">黑潮</span></div>
     <nav>
       <a href="#screen">Screen</a>
       <a href="#propose">Propose</a>
@@ -26,6 +29,24 @@
 <div class="wrap">
 
   <div class="hero">
+    <div class="current" aria-hidden="true">
+      <svg viewBox="0 0 1100 560" preserveAspectRatio="xMaxYMid slice">
+        <defs><linearGradient id="therm" x1="0" x2="1" y1="1" y2="0">
+          <stop offset="0" stop-color="var(--t-cold)" stop-opacity="0"/>
+          <stop offset=".45" stop-color="var(--accent)" stop-opacity=".55"/>
+          <stop offset="1" stop-color="var(--t-warm)" stop-opacity=".8"/>
+        </linearGradient></defs>
+        <g stroke="url(#therm)">
+          <path d="M40 540 C300 520 380 420 560 400 S860 300 1100 150"/>
+          <path d="M80 560 C330 540 420 450 600 430 S900 330 1100 200" opacity=".85"/>
+          <path d="M0 500 C270 480 360 380 520 360 S820 250 1100 100" opacity=".85"/>
+          <path d="M140 560 C380 555 470 480 650 460 S940 370 1100 250" opacity=".6"/>
+          <path d="M0 450 C240 440 330 330 480 310 S780 190 1100 50" opacity=".6"/>
+          <path d="M220 560 C440 560 520 510 700 495 S980 420 1100 305" opacity=".35"/>
+          <path d="M0 395 C200 390 300 280 440 255 S740 130 1060 0" opacity=".35"/>
+        </g>
+      </svg>
+    </div>
     <h1>TradingAgents for your whole portfolio.</h1>
     <p class="lede">
       Kuroshio is an open-source <strong>quantamental portfolio engine</strong>: multi-factor
@@ -41,27 +62,27 @@
       <span class="badge">US &amp; TW markets</span>
     </div>
 <pre class="install"><span class="c"># zero-key path: yfinance data, pure-quant scoring</span>
-pip install "kuroshio[yfinance]"
-kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,NFLX</pre>
+<span class="p">$ </span>pip install "kuroshio[yfinance]"
+<span class="p">$ </span>kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,NFLX</pre>
     <div class="cta">
       <a class="btn primary" href="https://github.com/HaoweiChan/kuroshio">View on GitHub</a>
-      <a class="btn ghost" href="#screen">See real output ↓</a>
+      <a class="btn ghost" href="#screen">See a real run</a>
     </div>
   </div>
 
   <div class="pillars">
     <div class="pillar">
-      <h3><em>1.</em> Screen</h3>
+      <h3><em>1</em>Screen</h3>
       <p>Stage-1 breakout gates, then cross-sectional percentile scoring across momentum, volume,
          relative strength and market-specific factors. Pure functions — no network, no DB.</p>
     </div>
     <div class="pillar">
-      <h3><em>2.</em> Research</h3>
+      <h3><em>2</em>Research</h3>
       <p>A componentized TradingAgents pipeline runs analyst debate per holding. Facets are
          TTL-cached, so a daily run over a whole portfolio costs cents rather than dollars.</p>
     </div>
     <div class="pillar">
-      <h3><em>3.</em> Propose</h3>
+      <h3><em>3</em>Propose</h3>
       <p>Your IPS — a markdown file with caps, hurdles and friction — decides. The allocator emits
          SWAP / TRIM / ALERT cards, each citing the exact clause that triggered it.</p>
     </div>
@@ -72,7 +93,7 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
 <section id="screen">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Step 1 · kuroshio screen</div>
+      <div class="kicker">$ kuroshio screen</div>
       <h2>The screener, on a real session</h2>
       <p>Everything below is the actual JSON output of <code>kuroshio screen --json</code>, captured
          on the session shown and frozen into this page. Click a column to sort; toggle a flag to filter.</p>
@@ -93,7 +114,7 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
 <section id="propose">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Step 3 · kuroshio propose</div>
+      <div class="kicker">$ kuroshio propose</div>
       <h2>Policy, not vibes</h2>
       <p>An example portfolio is checked against <code>examples/ips-balanced.md</code>. Holding weights
          are illustrative; every score is the engine's real output for this session. The cards below are
@@ -101,7 +122,7 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
     </div>
     <div class="two">
       <div>
-        <div class="panel" style="margin-bottom:16px">
+        <div class="panel">
           <h4>Example portfolio</h4>
           <div class="hold"><span class="th">name</span><span class="th">weight</span><span class="th">score</span></div>
           <div id="holdings"></div>
@@ -119,7 +140,7 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
 <section id="backtest">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Validation · kuroshio backtest</div>
+      <div class="kicker">$ kuroshio backtest</div>
       <h2>Walk-forward, not curve-fit</h2>
       <p>Weekly rebalances over the trailing year, 20-day forward returns, top-5 basket, scored only on
          data available at each rebalance date.</p>
@@ -138,7 +159,7 @@ kuroshio screen --market us --tickers NVDA,AMD,AVGO,MSFT,META,LLY,XOM,JPM,COST,N
 <section id="arch">
   <div class="wrap">
     <div class="sec-head">
-      <div class="kicker">Architecture</div>
+      <div class="kicker">kuroshio/</div>
       <h2>Pure compute, thin IO</h2>
       <p>Core logic never imports a data vendor. Providers are plugins, screening and allocation are pure
          functions over plain dataclasses, and every edge (CLI, Discord) is an adapter at the boundary.</p>
@@ -281,7 +302,8 @@ function renderTable() {
     t.appendChild(el('td', null, r.rank));
     t.appendChild(el('td', 'tk', r.ticker));
     const fs = el('td', 'bar');
-    const fill = el('i'); fill.style.width = Math.max(2, r.final_score * 96) + '%';
+    const fill = el('i'); fill.style.width = `calc((100% - 80px) * ${Math.max(.02, r.final_score)})`;
+    fill.style.setProperty('--s', r.final_score);
     fs.appendChild(fill); fs.appendChild(el('span', null, r.final_score.toFixed(3)));
     t.appendChild(fs);
     facs.forEach(k => t.appendChild(el('td', null, k in r.scores ? r.scores[k].toFixed(2) : '·')));
@@ -378,6 +400,7 @@ B.quintiles.forEach(q => {
   box.appendChild(el('div', 'v', '+' + q.ret.toFixed(2) + '%'));
   const col = el('div', 'col');
   col.style.height = Math.max(3, (q.ret / maxQ) * 100) + '%';
+  col.style.setProperty('--s', q.ret / maxQ);
   box.appendChild(col);
   box.appendChild(el('div', 'lb', `${q.q} · n=${q.n}`));
   $('#quints').appendChild(box);
