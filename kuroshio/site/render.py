@@ -7,6 +7,7 @@ tests/test_site.py, plus `site.css` for what only the generated pages need):
 * `index.html`    — the book: stats, holdings, concentration + IPS, propose cards, the cuts
 * `alloc.html`    — the book in money on the NAV the positions file carried
 * `track.html`    — the raw-return record of every saved book (when `track.json` is there)
+* `methodology.html` — the owner's own methodology document (`--methodology`), rendered as is
 * `reports.html`  — every research report, newest first
 * `reports/<TICKER>/<date>.html` — one report
 
@@ -155,6 +156,7 @@ def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: st
             ("book", "index.html", "book_page_title"),
             ("alloc", "alloc.html", "nav_page_title"),
             ("track", "track.html", "track_page_title"),
+            ("method", "methodology.html", "methodology_page_title"),
             ("reports", "reports.html", "reports_page_title"),
         )
     )
@@ -759,11 +761,29 @@ def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, ou
     return "".join(rows)
 
 
+def _methodology_page(text: str, lb: dict) -> str:
+    """One markdown document, one column, a contents list built from its `## ` headings."""
+    text = _strip_leading_h1(text)
+    heads = re.findall(r"^## (.+)$", text, flags=re.M)
+    anchors = [f"m{i}" for i in range(len(heads))]
+    for h, a in zip(heads, anchors):
+        text = text.replace(f"## {h}", f'<h2 id="{a}">{esc(h)}</h2>', 1)
+    toc = "".join(f"<li><a href='#{a}'>{esc(h)}</a></li>" for h, a in zip(heads, anchors))
+    return (
+        f"<div class='hero small'><h1>{esc(lb['methodology_page_title'])}</h1>"
+        f"<p class='lede'>{esc(lb['methodology_lede'])}</p></div>"
+        # <ul>: the document numbers its own headings, an <ol> would number them twice
+        + (f"<div class='panel'><h4>{esc(lb['methodology_toc'])}</h4><ul>{toc}</ul></div>" if toc else "")
+        + f"<div class='report-body-single md methodology'>{_markdown(text)}</div>"
+    )
+
+
 def render_site(
     book_dir: str | Path,
     reports_dir: str | Path | None,
     out_dir: str | Path,
     lang: str | None = None,
+    methodology: str | Path | None = None,
 ) -> list[Path]:
     """Render `book_dir` (+ an optional report tree) into `out_dir`; returns the pages written."""
     book_dir, out_dir = Path(book_dir), Path(out_dir)
@@ -798,6 +818,13 @@ def render_site(
         if alloc_body:
             (build / "alloc.html").write_text(
                 _shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, css, lb, active="alloc"),
+                encoding="utf-8",
+            )
+        if methodology and Path(methodology).exists():
+            (build / "methodology.html").write_text(
+                _shell(lb["methodology_page_title"],
+                       _methodology_page(Path(methodology).read_text(encoding="utf-8"), lb),
+                       css, lb, active="method"),
                 encoding="utf-8",
             )
         track_path = book_dir / "track.json"

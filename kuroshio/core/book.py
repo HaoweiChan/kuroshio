@@ -13,7 +13,11 @@ The rules, in the order they apply (all of them options on `BookRules`):
   also dies at the first `fundamentals.next_earnings_date` that falls after it: the print the
   rating did not see. Without one, only the day TTL applies.
   A name whose screen close is at or below its rating's `stop_loss` is dropped too: the
-  thesis that rating priced is invalidated until a newer rating resets the stop.
+  thesis that rating priced is invalidated until a newer rating resets the stop. With a
+  price history (`closes`) that holds for any close since the rating date, not just today's:
+  a name that broke its stop and closed back above it the next day stays out until it is
+  re-rated (on S&P names 2014-2026, ~2/3 of stop-outs close back above within 5 sessions,
+  and re-entry timing did not change forward returns — waiting only removes the churn).
 * **Weight** — `min(base, caps.position_pct, percent-risk)` where percent-risk is
   `caps.risk_budget_pct` of NAV spread over the entry-to-invalidation distance, times the PM
   size multiplier for that name.
@@ -112,6 +116,13 @@ def load_positions(path: str | Path | None) -> list[dict]:
 # --- the rules ---------------------------------------------------------------
 
 
+def stopped_out(history: dict | None, rating_date: str, asof: str, stop: float) -> str | None:
+    """The first session after `rating_date` (through `asof`) that closed at or below `stop`,
+    from a {date: close} history; None when there was none or no history was given."""
+    return next((d for d, c in sorted((history or {}).items())
+                 if rating_date < d <= asof and c is not None and c <= stop), None)
+
+
 def build_book(
     screen_rows: list[dict],
     ratings_rows: list[dict],
@@ -124,6 +135,7 @@ def build_book(
     pm_size: dict | None = None,
     locked: dict | None = None,
     themes: dict | None = None,
+    closes: dict | None = None,
     market: str = "us",
     ips_name: str = "",
     rules: BookRules = BookRules(),
@@ -215,6 +227,9 @@ def build_book(
             # rating says otherwise. Before this, target_weight read stop >= entry as "no
             # stop" and gave the name full base weight.
             skipped.append((row["rank"], t, ind, f"{rating} below its stop {stop:.2f}"))
+            continue
+        if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
+            skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
             continue
         w, cap = target_weight(entry, stop)
         if pm_size.get(t, 1.0) < 1.0:
@@ -364,6 +379,9 @@ def needs_research(book: dict) -> dict:
     for rank, ticker, _ind, why in sorted(book["skipped"], key=lambda s: s[0]):
         if why == "not researched":
             research.append({"ticker": ticker, "rank": rank, "reason": why, "rating_date": None})
+        elif " stopped out " in why:
+            research.append({"ticker": ticker, "rank": rank, "reason": why.split(" ", 1)[1],
+                             "rating_date": None})
         elif m := _VOID_RE.match(why):
             research.append({
                 "ticker": ticker, "rank": rank, "reason": f"rating void: {m['void']}",

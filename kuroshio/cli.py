@@ -1107,6 +1107,31 @@ def _write_track(book: dict, out: Path, market: str, provider_name: str) -> None
     (out / "track.json").write_text(json.dumps(tr, indent=1), encoding="utf-8")
 
 
+def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_days: int) -> dict | None:
+    """{ticker: {date: close}} for the screen's names over the rating TTL, so the book can tell a
+    name that broke its stop since its rating from one that never did. Only with --provider;
+    a failed fetch falls back to today's close alone, with a warning."""
+    if not provider_name:
+        return None
+    from kuroshio.core import book as bookmod
+    from kuroshio.providers import get_provider
+
+    try:
+        rows = bookmod.load_screen(screen_path)
+        tickers = [r["ticker"] for r in rows]
+        bench = get_profile(market).benchmark
+        if bench:  # first: providers/yf.py filters the panel to its first resolved ticker
+            tickers = [bench] + [t for t in tickers if t != bench]
+        close = get_provider(provider_name).fetch_panel(tickers, ttl_days * 2 + 10, end=rows[0]["date"]).close
+        days = [str(d)[:10] for d in close.index]  # the yfinance panel may index by str or Timestamp
+        return {t: {d: (None if c != c else float(c)) for d, c in zip(days, close[t].tolist())}
+                for t in close.columns}
+    except Exception as exc:  # noqa: BLE001 — the stop history only tightens the veto
+        print(f"warning: stop history unavailable, the stop veto reads today's close only: {exc}",
+              file=sys.stderr)
+        return None
+
+
 def cmd_book(args: argparse.Namespace) -> int:
     from kuroshio.core import book as bookmod
     from kuroshio.core.ips import parse_ips
@@ -1130,6 +1155,7 @@ def cmd_book(args: argparse.Namespace) -> int:
             pm_size=bookmod.load_json(args.pm_size),
             locked=bookmod.load_json(args.locked),
             themes=bookmod.load_json(args.themes),
+            closes=_stop_history(args.screen, args.market, args.provider, rules.ttl_days),
             market=args.market,
             rules=rules,
             ips_name=Path(args.ips).name,
@@ -1186,7 +1212,7 @@ def cmd_site(args: argparse.Namespace) -> int:
     from kuroshio.site.render import render_site
 
     try:
-        pages = render_site(args.book, args.reports, args.out, lang=args.lang)
+        pages = render_site(args.book, args.reports, args.out, lang=args.lang, methodology=args.methodology)
     except OSError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1377,6 +1403,7 @@ def main(argv: list[str] | None = None) -> int:
     p_site.add_argument("--reports", help="a `kuroshio research --out` tree (<TICKER>/<date>/)")
     p_site.add_argument("--out", required=True, help="output directory (swapped in atomically)")
     p_site.add_argument("--lang", help="default: the book's IPS `lang` field; unknown -> en")
+    p_site.add_argument("--methodology", help="a markdown file rendered as methodology.html")
     p_site.set_defaults(func=cmd_site)
 
     p_mcp = sub.add_parser(
