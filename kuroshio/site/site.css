@@ -8,6 +8,9 @@
 .md p, .md li { color: var(--fg); }
 .md table { font-size: 12.5px; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { text-align: left; }
+/* methodology tables are prose: wrap them instead of scrolling a sentence off-screen */
+.methodology table { display: table; width: 100%; }
+.methodology th, .methodology td { white-space: normal; min-width: 7em; vertical-align: top; }
 .md code { font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
 .md pre { background: var(--panel-2); padding: 10px 12px; border-radius: 8px; overflow-x: auto; font-size: 12.5px; }
 .md blockquote { border-left: 3px solid var(--line); margin: 0; padding: 2px 14px; color: var(--muted); }

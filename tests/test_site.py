@@ -374,3 +374,15 @@ def test_the_raw_tab_toggle_is_keyed_by_data_tab_not_position(site):
     assert [key for _, key in tabs] == ["overview", "research", "debates", "decision", "raw"]
     assert [on for on, _ in tabs] == [" on", "", "", "", ""]
     assert "s.dataset.tab === id" in render.REPORT_JS
+
+
+def test_a_methodology_document_becomes_its_own_page_with_a_contents_list(tmp_path):
+    doc = tmp_path / "method.md"
+    doc.write_text("# Method\n\n## Entries\n\nBuy the top ranks.\n\n"
+                   "## Exits\n\n| a | b |\n|---|---|\n| 1 | 2 |\n")
+    out = tmp_path / "site"
+    render.render_site(_book_dir(tmp_path), FIX / "reports", out, methodology=doc)
+    page = (out / "methodology.html").read_text()
+    assert "<a href='#m0'>Entries</a>" in page and '<h2 id="m1">Exits</h2>' in page and "<table>" in page
+    render.render_site(_book_dir(tmp_path), FIX / "reports", out)
+    assert not (out / "methodology.html").exists()

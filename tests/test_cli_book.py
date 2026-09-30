@@ -172,3 +172,21 @@ def test_site_unknown_lang_falls_back_to_english_instead_of_exiting(tmp_path, no
     assert cli.main(["site", "--book", str(book), "--out", str(site), "--lang", "ja"]) == 0
     index = (site / "index.html").read_text()
     assert "Holdings" in index and "持倉" not in index
+
+
+def test_stop_history_reads_a_panel_indexed_by_date_strings(monkeypatch):
+    """yfinance panels come back indexed by 'YYYY-MM-DD' strings; the first cut called .date()
+    on them and silently fell back to today's close."""
+    import pandas as pd
+
+    from kuroshio.types import Panel
+
+    class Fake:
+        def fetch_panel(self, tickers, days, end=None):
+            close = pd.DataFrame({t: [95.0, 89.0] for t in tickers}, index=["2026-01-02", "2026-01-05"])
+            return Panel(close=close, volume=close, institutional=None)
+
+    monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: Fake())
+    hist = cli._stop_history(str(Path(__file__).parent / "fixtures" / "screen.json"), "us", "fake", 45)
+    assert hist["AAA"] == {"2026-01-02": 95.0, "2026-01-05": 89.0}
+    assert cli._stop_history("unused", "us", None, 45) is None

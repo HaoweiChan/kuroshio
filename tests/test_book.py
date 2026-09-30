@@ -405,3 +405,21 @@ def test_a_locked_position_spends_its_theme_budget_first_and_the_themes_map_name
             assert _w(book, "III") == expect
             assert "theme: locked-theme" in bk.holdings_yaml(book)
             assert "theme: locked-theme" in bk.candidates_yaml(book)
+
+
+def test_a_name_that_broke_its_stop_since_the_rating_waits_for_a_new_rating():
+    """AAA: Buy on 2026-01-02, stop 90, screen close 100 on 2026-01-05. A close of 89 on
+    01-02 itself is the rating's own session (the stop was set after it) and does not count;
+    89 on 01-03 does, even though the name is back at 100 today."""
+    screen, ratings = bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl")
+
+    def build(history):
+        return bk.build_book(screen, ratings, _ips(), meta=json.loads((FIX / "meta.json").read_text()),
+                             closes={"AAA": history})
+
+    assert "AAA" in {r["ticker"] for r in build({"2026-01-02": 89.0, "2026-01-05": 100.0})["core"]}
+    book = build({"2026-01-02": 95.0, "2026-01-03": 89.0, "2026-01-05": 100.0})
+    assert "AAA" not in {r["ticker"] for r in book["core"] + book["attack"]}
+    assert {r[1]: r[3] for r in book["skipped"]}["AAA"] == "Buy stopped out 2026-01-03; needs a new rating"
+    queue = {r["ticker"]: r["reason"] for r in bk.needs_research(book)["research"]}
+    assert queue["AAA"] == "stopped out 2026-01-03; needs a new rating"

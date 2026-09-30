@@ -118,6 +118,11 @@ LABELS: dict[str, dict[str, str]] = {
         "nav_page_title": "NAV allocation",
         "book_page_title": "Book",
         "reports_page_title": "Research reports",
+        "methodology_page_title": "Methodology",
+        "methodology_lede": (
+            "The rules the book, its cards and the daily message follow, in the owner's words."
+        ),
+        "methodology_toc": "Contents",
         "track_page_title": "Track record",
         "track_lede": (
             "Raw price returns of what the book recommended, not your NAV: each day is the "
@@ -339,6 +344,9 @@ LABELS: dict[str, dict[str, str]] = {
         "nav_page_title": "NAV 分配",
         "book_page_title": "Book",
         "reports_page_title": "研究報告",
+        "methodology_page_title": "方法論",
+        "methodology_lede": "book、卡片與每日通知遵循的規則，以及這些規則的研究依據。",
+        "methodology_toc": "目錄",
         "track_page_title": "績效",
         "track_lede": (
             "book 建議部位的原始價格報酬，不是你的 NAV：每天的報酬 = 當天 book 裡各檔報酬依建議權重加權、"
