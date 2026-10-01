@@ -15,7 +15,7 @@ Every page is written once per language: the book's language at the root, each o
 `<lang>/` with the same layout, and a header toggle on each page links to its counterpart.
 
 Relative links only, so the tree works over `file://`, any static server, or a mount. The
-build happens in a sibling `<out>.new` directory and is swapped in at the end, so a server
+build happens in a sibling `<out>.new-*` directory of its own and is swapped in at the end, so a server
 never sees a half-written tree. No user data is read from anywhere but the two input
 directories, and nothing is written outside `out_dir`.
 """
@@ -27,6 +27,7 @@ import html
 import json
 import re
 import shutil
+import tempfile
 from importlib import resources
 from pathlib import Path
 
@@ -343,7 +344,7 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
 
     return (
         f"<div class='hero small'><h1>{esc(lb['book_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['book_lede'])}</p><div class='badges'>"
+        "<div class='badges'>"
         f"<span class='badge on'>{esc(book['asof'])}</span>"
         f"<span class='badge'>{len(holdings) + len(book['locked'])} {esc(lb['book_names'])}</span>"
         f"<span class='badge'>{len(reports)} {esc(lb['reports_page_title'])}</span></div></div>"
@@ -418,8 +419,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     ]
     rules = book["rules"]
     return (
-        f"<div class='hero small'><h1>{esc(lb['nav_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['portfolio_lede'].format(asof=book['asof']))}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['nav_page_title'])}</h1></div>"
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
@@ -529,10 +529,8 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         (lb["track_rule_double"], f"{min(2 * r['base_pct'], book['ips']['position_pct']):.0f}%"),
         (lb["track_rule_hold"], esc(lb["track_rule_hold_v"])),
     ]
-    lede = lb["track_lede"].format(since=tr["since"], asof=tr["asof"], n=tr["books"])
     return (
-        f"<div class='hero small'><h1>{esc(lb['track_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lede)}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['track_page_title'])}</h1></div>"
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
@@ -784,8 +782,7 @@ def _methodology_page(text: str, lb: dict) -> str:
         text = text.replace(f"## {h}", f'<h2 id="{a}">{esc(h)}</h2>', 1)
     toc = "".join(f"<li><a href='#{a}'>{esc(h)}</a></li>" for h, a in zip(heads, anchors))
     return (
-        f"<div class='hero small'><h1>{esc(lb['methodology_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['methodology_lede'])}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['methodology_page_title'])}</h1></div>"
         # <ul>: the document numbers its own headings, an <ol> would number them twice
         + (f"<div class='panel'><h4>{esc(lb['methodology_toc'])}</h4><ul>{toc}</ul></div>" if toc else "")
         + f"<div class='report-body-single md methodology'>{_markdown(text)}</div>"
@@ -871,15 +868,16 @@ def render_site(
         )
         (root / "reports.html").write_text(
             shell(lb["reports_page_title"],
-                  f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
-                  f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
+                  f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1></div>{panel}",
                   "reports", "reports.html"),
             encoding="utf-8",
         )
 
-    build = out_dir.with_name(out_dir.name + ".new")
-    shutil.rmtree(build, ignore_errors=True)
-    build.mkdir(parents=True)
+    # a scratch directory of this build's own: two builds at once (cron and a manual run) used to
+    # share `<out>.new`, and one wiped the other's half-written tree before it was swapped in
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    build = Path(tempfile.mkdtemp(prefix=out_dir.name + ".new-", dir=out_dir.parent))
+    build.chmod(0o755)  # mkdtemp is 0700; the served tree keeps the usual directory mode
 
     # a failure anywhere in here must not leave `<out>.new` behind
     try:
@@ -888,8 +886,7 @@ def render_site(
         write_tree(build / other, labels(other), (other, ""))
 
         # swap: a server or a mount never sees a half-written tree
-        old = out_dir.with_name(out_dir.name + ".old")
-        shutil.rmtree(old, ignore_errors=True)
+        old = build.with_name(build.name.replace(".new-", ".old-"))
         if out_dir.exists():
             out_dir.rename(old)
         build.rename(out_dir)

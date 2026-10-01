@@ -9,6 +9,8 @@
 .md table { font-size: 12.5px; display: block; overflow-x: auto; max-width: 100%; }
 .md th, .md td { text-align: left; }
 /* methodology tables are prose: wrap them instead of scrolling a sentence off-screen */
+/* and the document fills the column, like the contents panel above it */
+.md.methodology { max-width: none; }
 .methodology table { display: table; width: 100%; }
 .methodology th, .methodology td { white-space: normal; min-width: 7em; vertical-align: top; }
 .md code { font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
@@ -149,3 +151,11 @@ header .lang {
   color: var(--fg); font-size: 13px; font-weight: 650; text-decoration: none;
 }
 header .lang:hover { border-color: var(--accent); color: var(--accent); }
+
+/* the book hero's date and counts are facts, not controls: a plain meta line, not pills */
+.hero.small .badges { gap: 0; margin-bottom: 0; }
+.hero.small .badge, .hero.small .badge.on {
+  padding: 0; border: 0; border-radius: 0; background: none; font-size: 14px; color: var(--muted);
+}
+.hero.small .badge.on { color: var(--fg); font-family: var(--mono); font-size: 13.5px; }
+.hero.small .badge + .badge::before { content: "·"; margin: 0 10px; color: var(--line-2); }
