@@ -488,3 +488,47 @@ def test_a_wide_stop_shrinks_the_top_up_instead_of_forbidding_it():
     caps = {r["ticker"]: r["cap"] for r in book["core"]}
     assert (_w(book, "AAA"), _w(book, "BBB"), _w(book, "DDD")) == (0.10, 0.10, 0.04)
     assert caps["DDD"] == "attack 4%" and "PM size" in caps["GGG"]  # the PM cut is still not doubled
+
+
+def _wide_screen(n: int = 6, stop: float | None = None):
+    """T1..Tn, one industry each, all Buy at 100 — nothing but the sizing rules binds."""
+    screen = [{"ticker": f"T{i}", "date": "2026-01-05", "rank": i, "final_score": 1 - i / 100,
+               "factors": {"close": 100.0}, "industry": f"I{i}"} for i in range(1, n + 1)]
+    ratings = [{"date": "2026-01-02", "market": "us", "ticker": f"T{i}", "rating": "Buy",
+                **({"stop_loss": stop} if stop else {})} for i in range(1, n + 1)]
+    return screen, ratings
+
+
+def test_the_tier_sizes_the_top_names_on_its_own_base_and_risk_budget():
+    rules = bk.BookRules(attack_budget_pct=0.0, tier_n=2)
+    book = bk.build_book(*_wide_screen(), _ips(), rules=rules)
+    assert [(r["ticker"], r["weight"], r.get("tier", False)) for r in book["core"][:3]] == [
+        ("T1", 0.075, True), ("T2", 0.075, True), ("T3", 0.05, False)]
+    # a 20% stop: 1.35% / 20% = 6.75% for the tier, 1% / 20% = 5% for the rest
+    book = bk.build_book(*_wide_screen(stop=80.0), _ips(), rules=rules)
+    assert [_w(book, t) for t in ("T1", "T3")] == [0.0675, 0.05]
+    assert book["core"][0]["cap"] == "percent-risk (1.35% NAV / 20% stop)"
+    # off by default
+    assert _w(bk.build_book(*_wide_screen(), _ips()), "T1") == 0.1  # plain 5%, attack-doubled
+
+
+def test_a_tier_incumbent_keeps_the_tier_inside_the_buffer_only():
+    """tier 2, buffer 2 -> yesterday's tier names stay while inside the top 4 core names."""
+    rules = bk.BookRules(attack_budget_pct=0.0, tier_n=2)
+
+    def tier(*held):
+        prev = {"attack": [], "core": [{"ticker": t, "tier": True} for t in held]}
+        book = bk.build_book(*_wide_screen(), _ips(), rules=rules, prev_book=prev)
+        return [r["ticker"] for r in book["core"] if r.get("tier")]
+
+    assert tier() == ["T1", "T2"]
+    assert tier("T4") == ["T1", "T4"]          # inside the buffer: kept, the rest by rank
+    assert tier("T5") == ["T1", "T2"]          # outside: back to the plain tier
+
+
+def test_gross_never_passes_100_percent_and_the_lowest_ranks_give_way():
+    rules = bk.BookRules(base_pct=10.0, attack_budget_pct=0.0)
+    book = bk.build_book(*_wide_screen(12), _ips(), rules=rules)
+    assert book["gross"] == pytest.approx(1.0)
+    assert [r["ticker"] for r in book["core"]] == [f"T{i}" for i in range(1, 11)]
+    assert {r[1]: r[3] for r in book["skipped"]}["T12"] == "Buy gross cap 100%"
