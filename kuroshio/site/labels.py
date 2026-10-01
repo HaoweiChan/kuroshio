@@ -11,6 +11,8 @@ from __future__ import annotations
 LABELS: dict[str, dict[str, str]] = {
     "en": {
         # --- shared ---
+        "html_lang": "en",
+        "lang_switch": "中文",  # the header toggle names the language it switches TO
         "disclaimer": (
             "Mechanical output, not investment advice. Kuroshio proposes; it never places an order. "
             "Whether to trade any of this is your decision."
@@ -257,6 +259,8 @@ LABELS: dict[str, dict[str, str]] = {
         "role_decision": "Portfolio manager",
     },
     "zh": {
+        "html_lang": "zh-Hant",
+        "lang_switch": "EN",
         "disclaimer": "機械輸出，不是投資建議。Kuroshio 只提案，從不下單；下不下單是你的決定。",
         "none": "（無）",
         "na": "n/a",
