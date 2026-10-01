@@ -91,10 +91,6 @@ LABELS: dict[str, dict[str, str]] = {
             "NAV **{nav:,.0f}** from the positions file you passed. Shares = floor(NAV x weight / "
             "the {asof} close). Mechanical output, not investment advice."
         ),
-        "portfolio_lede": (
-            "Today's book sized to your account: whole shares of each name at the {asof} close, "
-            "next to what you hold now."
-        ),
         "nav": "NAV",
         "cash": "Cash",
         "cash_now": "Cash (now)",
@@ -126,16 +122,8 @@ LABELS: dict[str, dict[str, str]] = {
         "book_page_title": "Book",
         "reports_page_title": "Research reports",
         "methodology_page_title": "Methodology",
-        "methodology_lede": (
-            "The rules the book, its cards and the daily message follow, in the owner's words."
-        ),
         "methodology_toc": "Contents",
         "track_page_title": "Track record",
-        "track_lede": (
-            "Raw price returns of what the book recommended, not your NAV: each day is the "
-            "weight-averaged return of the names in that day's book, normalised by their summed "
-            "weight, so cash and account size never enter it. {n} books, {since} to {asof}."
-        ),
         "track_book": "Book, cumulative",
         "track_core": "Core sleeve",
         "track_attack": "Attack sleeve",
@@ -168,11 +156,6 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rule_double": "Top-up weight (core names)",
         "track_rule_hold": "Holding period",
         "track_rule_hold_v": "none — in the sleeve only while the day's ranking puts it there",
-        "book_lede": (
-            "Screen ranking -> rating veto -> IPS weights. Mechanical output, not investment advice; "
-            "whether to trade any of it is your decision."
-        ),
-        "reports_lede": "Every report the research pipeline wrote, newest first.",
         "report_lede": "Full research report.",
         "book_names": "Book names",
         "gross": "Gross exposure",
@@ -327,9 +310,6 @@ LABELS: dict[str, dict[str, str]] = {
             "NAV **{nav:,.0f}**，來自你傳入的持倉檔。股數 = floor(NAV × 權重 ÷ {asof} 收盤)。"
             "機械輸出，不是投資建議。"
         ),
-        "portfolio_lede": (
-            "把今天的 book 換算到你的帳戶：每檔以 {asof} 收盤價計算的整數股數，對照你目前的持股。"
-        ),
         "nav": "NAV",
         "cash": "現金",
         "cash_now": "現金（現在）",
@@ -358,13 +338,8 @@ LABELS: dict[str, dict[str, str]] = {
         "book_page_title": "Book",
         "reports_page_title": "研究報告",
         "methodology_page_title": "方法論",
-        "methodology_lede": "book、卡片與每日通知遵循的規則，以及這些規則的研究依據。",
         "methodology_toc": "目錄",
         "track_page_title": "績效",
-        "track_lede": (
-            "book 建議部位的原始價格報酬，不是你的 NAV：每天的報酬 = 當天 book 裡各檔報酬依建議權重加權、"
-            "再除以權重總和，所以現金和帳戶大小都不影響。共 {n} 份 book，{since} 至 {asof}。"
-        ),
         "track_book": "整體 book 累積",
         "track_core": "核心倉",
         "track_attack": "攻擊倉",
@@ -394,8 +369,6 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rule_double": "加倍後權重（核心名字）",
         "track_rule_hold": "持有期間",
         "track_rule_hold_v": "沒有固定期間 — 只要當天排名還把它放在攻擊倉就留著",
-        "book_lede": "篩選排名 → 評級否決 → IPS 權重。機械輸出，不是投資建議；下不下單是你的決定。",
-        "reports_lede": "研究流程寫出的每一份報告，新的在前。",
         "report_lede": "完整研究報告。",
         "book_names": "book 持股",
         "gross": "總曝險",

@@ -344,7 +344,7 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
 
     return (
         f"<div class='hero small'><h1>{esc(lb['book_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['book_lede'])}</p><div class='badges'>"
+        "<div class='badges'>"
         f"<span class='badge on'>{esc(book['asof'])}</span>"
         f"<span class='badge'>{len(holdings) + len(book['locked'])} {esc(lb['book_names'])}</span>"
         f"<span class='badge'>{len(reports)} {esc(lb['reports_page_title'])}</span></div></div>"
@@ -419,8 +419,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     ]
     rules = book["rules"]
     return (
-        f"<div class='hero small'><h1>{esc(lb['nav_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['portfolio_lede'].format(asof=book['asof']))}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['nav_page_title'])}</h1></div>"
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
@@ -530,10 +529,8 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         (lb["track_rule_double"], f"{min(2 * r['base_pct'], book['ips']['position_pct']):.0f}%"),
         (lb["track_rule_hold"], esc(lb["track_rule_hold_v"])),
     ]
-    lede = lb["track_lede"].format(since=tr["since"], asof=tr["asof"], n=tr["books"])
     return (
-        f"<div class='hero small'><h1>{esc(lb['track_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lede)}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['track_page_title'])}</h1></div>"
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
@@ -785,8 +782,7 @@ def _methodology_page(text: str, lb: dict) -> str:
         text = text.replace(f"## {h}", f'<h2 id="{a}">{esc(h)}</h2>', 1)
     toc = "".join(f"<li><a href='#{a}'>{esc(h)}</a></li>" for h, a in zip(heads, anchors))
     return (
-        f"<div class='hero small'><h1>{esc(lb['methodology_page_title'])}</h1>"
-        f"<p class='lede'>{esc(lb['methodology_lede'])}</p></div>"
+        f"<div class='hero small'><h1>{esc(lb['methodology_page_title'])}</h1></div>"
         # <ul>: the document numbers its own headings, an <ol> would number them twice
         + (f"<div class='panel'><h4>{esc(lb['methodology_toc'])}</h4><ul>{toc}</ul></div>" if toc else "")
         + f"<div class='report-body-single md methodology'>{_markdown(text)}</div>"
@@ -872,8 +868,7 @@ def render_site(
         )
         (root / "reports.html").write_text(
             shell(lb["reports_page_title"],
-                  f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
-                  f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
+                  f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1></div>{panel}",
                   "reports", "reports.html"),
             encoding="utf-8",
         )
