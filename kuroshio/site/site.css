@@ -141,3 +141,11 @@ tr.hide { display: none; }
 .chart svg { margin-bottom: 10px; }
 /* the stats panel already separates the hero from the first section */
 .wrap > .panel + section { border-top: 0; padding-top: 40px; }
+
+/* language toggle: outside the nav so it stays on screen when the nav scrolls on a phone */
+header nav { min-width: 0; }
+header .lang {
+  flex: none; padding: 4px 11px; border: 1px solid var(--line-2); border-radius: 999px;
+  color: var(--fg); font-size: 13px; font-weight: 650; text-decoration: none;
+}
+header .lang:hover { border-color: var(--accent); color: var(--accent); }

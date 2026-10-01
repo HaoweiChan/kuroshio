@@ -386,3 +386,30 @@ def test_a_methodology_document_becomes_its_own_page_with_a_contents_list(tmp_pa
     assert "<a href='#m0'>Entries</a>" in page and '<h2 id="m1">Exits</h2>' in page and "<table>" in page
     render.render_site(_book_dir(tmp_path), FIX / "reports", out)
     assert not (out / "methodology.html").exists()
+
+
+def test_every_page_has_a_counterpart_in_the_other_language_and_links_to_it(site):
+    """The book's language is the root tree, the other one lives under `<lang>/`, and each
+    page's header toggle opens the same page in the other tree."""
+    other = [d.name for d in site.iterdir() if d.is_dir() and d.name in LABELS]
+    assert len(other) == 1
+    sub = site / other[0]
+    root_pages = {p.relative_to(site) for p in site.rglob("*.html") if sub not in p.parents}
+    sub_pages = {p.relative_to(sub) for p in sub.rglob("*.html")}
+    assert root_pages == sub_pages and len(root_pages) >= 5
+    for page in site.rglob("*.html"):
+        html = page.read_text()
+        hrefs = re.findall(r"<a class='lang' href='([^']+)'>", html)
+        assert len(hrefs) == 1, page
+        target = (page.parent / hrefs[0]).resolve()
+        mirror = (sub / page.relative_to(site)) if sub not in page.parents else (site / page.relative_to(sub))
+        assert target == mirror.resolve(), (page, hrefs[0])
+    assert f"<html lang='{LABELS[other[0]]['html_lang']}'>" in (sub / "index.html").read_text()
+
+
+def test_the_language_given_is_the_root_tree(tmp_path):
+    out = tmp_path / "site"
+    render.render_site(_book_dir(tmp_path), FIX / "reports", out, lang="zh-TW")
+    assert "<html lang='zh-Hant'>" in (out / "index.html").read_text()
+    assert "<html lang='en'>" in (out / "en" / "index.html").read_text()
+    assert ">EN</a>" in (out / "index.html").read_text()

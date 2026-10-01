@@ -11,6 +11,9 @@ tests/test_site.py, plus `site.css` for what only the generated pages need):
 * `reports.html`  — every research report, newest first
 * `reports/<TICKER>/<date>.html` — one report
 
+Every page is written once per language: the book's language at the root, each other one under
+`<lang>/` with the same layout, and a header toggle on each page links to its counterpart.
+
 Relative links only, so the tree works over `file://`, any static server, or a mount. The
 build happens in a sibling `<out>.new` directory and is swapped in at the end, so a server
 never sees a half-written tree. No user data is read from anywhere but the two input
@@ -27,7 +30,7 @@ import shutil
 from importlib import resources
 from pathlib import Path
 
-from kuroshio.site.labels import labels
+from kuroshio.site.labels import LABELS, labels
 
 GITHUB = "https://github.com/HaoweiChan/kuroshio"
 RATINGS = ("Buy", "Overweight", "Hold", "Underweight", "Sell")
@@ -149,8 +152,14 @@ def _section(kicker: str, title: str, lede: str, inner: str) -> str:
     )
 
 
-def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: str = "") -> str:
+def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: str = "",
+           page: str = "index.html", tree: tuple[str, str] = ("", "")) -> str:
+    """`depth` is the page's depth in its language tree; `tree` is (this tree's dir, the other
+    language's dir), "" meaning the site root, and `page` its path in the tree for the toggle."""
+    here, there = tree
     up = "../" * depth
+    site = up + ("../" if here else "")  # the site root: logo.svg, and the other language's tree
+    switch = f"<a class='lang' href='{site}{there + '/' if there else ''}{page}'>{esc(lb['lang_switch'])}</a>"
     nav = "".join(
         f"<a href='{up}{href}' class='{'on' if key == active else ''}'>{esc(lb[label])}</a>"
         for key, href, label in (
@@ -163,13 +172,13 @@ def _shell(title: str, body: str, css: str, lb: dict, depth: int = 0, active: st
     )
     when = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     return (
-        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<!doctype html><html lang='{lb['html_lang']}'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{esc(title)}</title><link rel='icon' href='{up}logo.svg'>"
+        f"<title>{esc(title)}</title><link rel='icon' href='{site}logo.svg'>"
         f"<style>{css}</style></head><body>"
         f"<header><div class='wrap'><div class='brand'>"
-        f"<img src='{up}logo.svg' alt=''>Kuroshio<span lang='zh-Hant'>黑潮</span></div>"
-        f"<nav>{nav}<a href='{GITHUB}'>GitHub</a></nav></div></header>"
+        f"<img src='{site}logo.svg' alt=''>Kuroshio<span lang='zh-Hant'>黑潮</span></div>"
+        f"<nav>{nav}<a href='{GITHUB}'>GitHub</a></nav>{switch}</div></header>"
         f"<div class='wrap'>{body}</div>"
         f"<footer><div class='wrap'><p>{esc(lb['disclaimer'])}</p>"
         f"<p class='disc'>{esc(lb['generated'].format(when=when))}</p></div></footer>{JS}</body></html>"
@@ -728,7 +737,8 @@ def _report_body(ticker: str, date: str, meta: dict, files: dict, complete: str,
     return f"<div class='report'>{hero}<div class='tabs'>{bar}</div>{bodies}</div>{REPORT_JS}"
 
 
-def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, out: Path, css: str) -> str:
+def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, out: Path, css: str,
+                  tree: tuple[str, str] = ("", "")) -> str:
     """Write one page per report and return the rows of the report index."""
     rows = []
     for ticker, dated in sorted(reports.items()):
@@ -751,7 +761,8 @@ def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, ou
             page = out / "reports" / ticker / f"{date}.html"
             page.parent.mkdir(parents=True, exist_ok=True)
             page.write_text(
-                _shell(f"{ticker} {date} — {rating}", body, css, lb, depth=2, active="reports"),
+                _shell(f"{ticker} {date} — {rating}", body, css, lb, depth=2, active="reports",
+                       page=f"reports/{ticker}/{date}.html", tree=tree),
                 encoding="utf-8",
             )
             rows.append(
@@ -781,6 +792,12 @@ def _methodology_page(text: str, lb: dict) -> str:
     )
 
 
+def _lang_key(lang: str | None) -> str:
+    """The LABELS key `labels()` resolves `lang` to: exact, then its base language, then en."""
+    lang = (lang or "en").lower().replace("_", "-")
+    return lang if lang in LABELS else lang.split("-")[0] if lang.split("-")[0] in LABELS else "en"
+
+
 def render_site(
     book_dir: str | Path,
     reports_dir: str | Path | None,
@@ -788,16 +805,24 @@ def render_site(
     lang: str | None = None,
     methodology: str | Path | None = None,
 ) -> list[Path]:
-    """Render `book_dir` (+ an optional report tree) into `out_dir`; returns the pages written."""
+    """Render `book_dir` (+ an optional report tree) into `out_dir`; returns the pages written.
+
+    `lang` (default: the book's) is the root tree; every other language gets `<lang>/`."""
     book_dir, out_dir = Path(book_dir), Path(out_dir)
     reports_dir = Path(reports_dir) if reports_dir else None
     book = json.loads((book_dir / "book.json").read_text())
-    lb = labels(lang or book.get("lang"))
+    primary = _lang_key(lang or book.get("lang"))
+    # ponytail: one toggle target — the first other language; a third language needs a menu
+    other = next(k for k in LABELS if k != primary)
     css = _css()
     propose_path = book_dir / "propose.out"
     propose = propose_path.read_text().strip() if propose_path.exists() else ""
+    method_text = (Path(methodology).read_text(encoding="utf-8")
+                   if methodology and Path(methodology).exists() else None)
+    track = json.loads((book_dir / "track.json").read_text()) if (book_dir / "track.json").exists() else None
 
     reports = _collect_reports(reports_dir)
+    held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}
 
     def link(ticker: str, depth: int = 0) -> str:
         if ticker not in reports:
@@ -805,41 +830,35 @@ def render_site(
         href = f"{'../' * depth}reports/{esc(ticker)}/{esc(reports[ticker][0][0])}.html"
         return f"<a href='{href}'>{esc(ticker)}</a>"
 
-    build = out_dir.with_name(out_dir.name + ".new")
-    shutil.rmtree(build, ignore_errors=True)
-    (build / "reports").mkdir(parents=True)
+    def write_tree(root: Path, lb: dict, tree: tuple[str, str]) -> None:
+        (root / "reports").mkdir(parents=True)
 
-    # a failure anywhere in here must not leave `<out>.new` behind
-    try:
-        (build / "logo.svg").write_text(_logo(), encoding="utf-8")
-        (build / "index.html").write_text(
-            _shell(f"{lb['book_page_title']} {book['asof']}",
-                   _book_page(book, propose, reports, lb, link), css, lb, active="book"),
+        def shell(title: str, body: str, active: str, page: str) -> str:
+            return _shell(title, body, css, lb, active=active, page=page, tree=tree)
+
+        (root / "index.html").write_text(
+            shell(f"{lb['book_page_title']} {book['asof']}",
+                  _book_page(book, propose, reports, lb, link), "book", "index.html"),
             encoding="utf-8",
         )
         alloc_body = _alloc_page(book, lb, link)
         if alloc_body:
-            (build / "alloc.html").write_text(
-                _shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, css, lb, active="alloc"),
+            (root / "alloc.html").write_text(
+                shell(f"{lb['nav_page_title']} {book['asof']}", alloc_body, "alloc", "alloc.html"),
                 encoding="utf-8",
             )
-        if methodology and Path(methodology).exists():
-            (build / "methodology.html").write_text(
-                _shell(lb["methodology_page_title"],
-                       _methodology_page(Path(methodology).read_text(encoding="utf-8"), lb),
-                       css, lb, active="method"),
+        if method_text is not None:
+            (root / "methodology.html").write_text(
+                shell(lb["methodology_page_title"], _methodology_page(method_text, lb),
+                      "method", "methodology.html"),
                 encoding="utf-8",
             )
-        track_path = book_dir / "track.json"
-        if track_path.exists():
-            (build / "track.html").write_text(
-                _shell(lb["track_page_title"],
-                       _track_page(json.loads(track_path.read_text()), book, lb, link),
-                       css, lb, active="track"),
+        if track is not None:
+            (root / "track.html").write_text(
+                shell(lb["track_page_title"], _track_page(track, book, lb, link), "track", "track.html"),
                 encoding="utf-8",
             )
-        held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}
-        rows = _report_pages(reports, reports_dir, held, lb, build, css)
+        rows = _report_pages(reports, reports_dir, held, lb, root, css, tree)
         heads = ("ticker", "date", "rating", "last_close", "stop", "target", "in_book")
         panel = (
             "<div class='panel'><div class='toolbar'>"
@@ -850,13 +869,23 @@ def render_site(
             + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
             + f"</tr></thead><tbody>{rows}</tbody></table></div></div>"
         )
-        (build / "reports.html").write_text(
-            _shell(lb["reports_page_title"],
-                   f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
-                   f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
-                   css, lb, active="reports"),
+        (root / "reports.html").write_text(
+            shell(lb["reports_page_title"],
+                  f"<div class='hero small'><h1>{esc(lb['reports_page_title'])}</h1>"
+                  f"<p class='lede'>{esc(lb['reports_lede'])}</p></div>{panel}",
+                  "reports", "reports.html"),
             encoding="utf-8",
         )
+
+    build = out_dir.with_name(out_dir.name + ".new")
+    shutil.rmtree(build, ignore_errors=True)
+    build.mkdir(parents=True)
+
+    # a failure anywhere in here must not leave `<out>.new` behind
+    try:
+        (build / "logo.svg").write_text(_logo(), encoding="utf-8")
+        write_tree(build, labels(primary), ("", other))
+        write_tree(build / other, labels(other), (other, ""))
 
         # swap: a server or a mount never sees a half-written tree
         old = out_dir.with_name(out_dir.name + ".old")
