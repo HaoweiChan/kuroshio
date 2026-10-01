@@ -1139,13 +1139,14 @@ def cmd_book(args: argparse.Namespace) -> int:
     rules = bookmod.BookRules(
         core_n=args.core_n, core_per_theme=args.core_per_theme, attack_n=args.attack_n,
         base_pct=args.base_pct, attack_budget_pct=args.attack_budget_pct,
-        attack_floor=args.attack_floor,
+        attack_floor=args.attack_floor, attack_buffer=args.attack_buffer,
         ttl_days=args.ttl_days, review_days=args.review_days,
         earnings_warn_days=args.earnings_warn_days,
     )
     try:
+        screen = bookmod.load_screen(args.screen)
         book = bookmod.build_book(
-            bookmod.load_screen(args.screen),
+            screen,
             bookmod.load_jsonl(args.ratings),
             parse_ips(args.ips),
             meta=bookmod.load_json(args.meta),
@@ -1156,6 +1157,7 @@ def cmd_book(args: argparse.Namespace) -> int:
             locked=bookmod.load_json(args.locked),
             themes=bookmod.load_json(args.themes),
             closes=_stop_history(args.screen, args.market, args.provider, rules.ttl_days),
+            prev_book=bookmod.previous_book(Path(args.out).parent, screen[0]["date"]),
             market=args.market,
             rules=rules,
             ips_name=Path(args.ips).name,
@@ -1389,6 +1391,10 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument("--attack-n", type=int, default=3)
     p_book.add_argument("--base-pct", type=float, default=5.0)
     p_book.add_argument("--attack-budget-pct", type=float, default=15.0)
+    p_book.add_argument(
+        "--attack-buffer", type=int, default=2,
+        help="an incumbent attack name keeps its slot while inside attack slots x this (hysteresis)",
+    )
     p_book.add_argument(
         "--attack-floor", choices=["hold", "overweight", "buy"], default="overweight",
         help="minimum rating an overflow name needs to enter the attack sleeve",

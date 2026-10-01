@@ -24,8 +24,14 @@ The rules, in the order they apply (all of them options on `BookRules`):
 * **Attack** — names the theme cap pushed out of the core go into an attack sleeve at base
   weight, provided the rating is at or above `attack_floor` (default `overweight`); a name
   below the floor is skipped and the next qualifying overflow name by rank takes the slot.
-  Whatever is left of `attack_budget_pct` raises the highest-ranked core names to twice base.
-  Concentration, not leverage.
+  Whatever is left of `attack_budget_pct` raises the highest-ranked core names to twice their
+  own weight, capped at twice base — so an attack name risks at most 2 x `caps.risk_budget_pct`
+  of NAV, and a wide stop shrinks the top-up smoothly instead of forbidding it.
+  Concentration, not leverage. Hysteresis (`prev_book`): a name in yesterday's attack sleeve
+  keeps its slot — overflow or doubling — while it still qualifies and ranks inside
+  `attack_buffer` x the slot count (2 by default: top 6 for 3 slots); newcomers only take
+  free slots. Without it the sleeve changed on 14 of 16 days on rank noise; on S&P names
+  2014-2026 the buffer cut attack changes ~5x for 0-2 points of annual return.
 * **Theme budget** — every placement and every doubling spends the IPS theme budget
   (`caps.theme_caps` for a named theme, else `caps.theme_pct`), locked positions counted
   first, in rank order: a name is shrunk to the room left, or skipped under 1%. A theme is
@@ -61,6 +67,7 @@ class BookRules:
     base_pct: float = 5.0
     attack_budget_pct: float = 15.0
     attack_floor: str = "overweight"
+    attack_buffer: int = 2       # an incumbent attack name keeps its slot inside attack slots x this
     ttl_days: int = 45
     review_days: int = 21
     earnings_warn_days: int = 7
@@ -116,6 +123,13 @@ def load_positions(path: str | Path | None) -> list[dict]:
 # --- the rules ---------------------------------------------------------------
 
 
+def previous_book(root: Path, asof: str) -> dict | None:
+    """The newest saved book (`<root>/<date>/book.json`) dated before `asof`, for hysteresis."""
+    dirs = sorted(d for d in root.iterdir() if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d.name)
+                  and d.name < asof and (d / "book.json").exists()) if root.is_dir() else []
+    return json.loads((dirs[-1] / "book.json").read_text()) if dirs else None
+
+
 def stopped_out(history: dict | None, rating_date: str, asof: str, stop: float) -> str | None:
     """The first session after `rating_date` (through `asof`) that closed at or below `stop`,
     from a {date: close} history; None when there was none or no history was given."""
@@ -136,6 +150,7 @@ def build_book(
     locked: dict | None = None,
     themes: dict | None = None,
     closes: dict | None = None,
+    prev_book: dict | None = None,
     market: str = "us",
     ips_name: str = "",
     rules: BookRules = BookRules(),
@@ -205,6 +220,10 @@ def build_book(
 
     core: list[dict] = []
     attack: list[dict] = []
+    # yesterday's attack sleeve: overflow slots and doubled core names (hysteresis, see Attack)
+    held_overflow = {x["ticker"] for x in (prev_book or {}).get("attack", [])}
+    held_doubled = {x["ticker"] for x in (prev_book or {}).get("core", []) if x.get("sleeve") == "attack"}
+    overflow_seen = 0
     skipped: list[tuple] = []
     per_theme: dict[str, int] = {}
     for row in screen_rows:
@@ -241,20 +260,40 @@ def build_book(
             "mom": row["factors"].get("mom_12_1_raw"), "vol": m.get("vol"),
             "final_score": row.get("final_score"),
         }
-        if per_theme.get(ind, 0) < rules.core_per_theme and len(core) < rules.core_n:
-            slot = "core"
-        elif len(attack) < rules.attack_n and per_theme.get(ind, 0) >= rules.core_per_theme:
+        evict = None
+        if per_theme.get(ind, 0) < rules.core_per_theme:
+            slot = "core" if len(core) < rules.core_n else None
+        elif not verdict_at_least(rating, rules.attack_floor):
             # the veto above is the core rule; the floor is an attack-only conviction gate —
             # a name below it does not take the slot, so the next overflow name by rank does.
-            if not verdict_at_least(rating, rules.attack_floor):
+            if len(attack) < rules.attack_n:
                 skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
                 continue
-            slot = "attack"
-        else:
             slot = None
+        else:
+            in_buffer = overflow_seen < rules.attack_n * rules.attack_buffer
+            overflow_seen += 1
+            if len(attack) < rules.attack_n:
+                slot = "attack"
+            elif t in held_overflow and in_buffer:
+                # hysteresis: yesterday's overflow name, still inside the buffer, takes its slot
+                # back from the lowest-ranked newcomer instead of losing it to rank noise
+                evict = next((x for x in reversed(attack) if x["ticker"] not in held_overflow), None)
+                slot = "attack" if evict else None
+            else:
+                slot = None
         if slot:
             theme = themes.get(t) or ind
+            if evict:
+                theme_used[evict["budget_theme"]] -= evict["weight"]
             room = theme_room(theme)
+            if room < MIN_THEME_ROOM and evict:
+                theme_used[evict["budget_theme"]] += evict["weight"]  # no room even so: keep the newcomer
+                continue
+            if evict:
+                attack.remove(evict)
+                skipped.append((evict["rank"], evict["ticker"], evict["industry"],
+                                f"{evict['rating']} attack slot kept by {t} (hysteresis)"))
             if room < MIN_THEME_ROOM:
                 cap_pct = ips.caps.theme_caps.get(theme, ips.caps.theme_pct)
                 skipped.append((row["rank"], t, ind, f"theme budget full ({theme} {cap_pct:g}%)"))
@@ -270,7 +309,10 @@ def build_book(
                 core.append(rec)
             else:
                 attack.append({**rec, "theme": "attack"})
-        if len(core) >= rules.core_n and len(attack) >= rules.attack_n:
+        if len(core) >= rules.core_n and len(attack) >= rules.attack_n and (
+            overflow_seen >= rules.attack_n * rules.attack_buffer
+            or not held_overflow - {x["ticker"] for x in attack}
+        ):
             break
 
     seen = {x["ticker"] for x in core + attack} | {s[1] for s in skipped}
@@ -285,19 +327,25 @@ def build_book(
 
     # attack budget: the overflow names are already in it, the rest raises core names
     used = sum(x["weight"] for x in attack)
-    for rec in core:
+    # a percent-risk name is eligible too: its doubling is 2 x its own risk-sized weight, so a
+    # name whose stop sits 24% away tops up to 8.3% instead of flipping between 10% and 4.2%
+    # as the price crosses the 20% line (that cliff, not rank noise, drove most daily changes)
+    eligible = [r for r in core if not (r["cap"].startswith("theme budget") or "PM size" in r["cap"])]
+    slots = max(int((budget - used) / base + 1e-9), 0)
+    # hysteresis: yesterday's doubled names inside the buffer go first, the rest by rank
+    keep = [r for r in eligible[: slots * rules.attack_buffer] if r["ticker"] in held_doubled]
+    for rec in keep + [r for r in eligible if r not in keep]:
         if used + base > budget + 1e-9:
             break
-        if rec["cap"].startswith(("percent", "theme budget")) or "PM size" in rec["cap"]:
-            continue
         # doubling spends theme budget too: raise only as far as the theme has room
-        new = round(min(2 * base, position_pct, rec["weight"] + theme_room(rec["budget_theme"])), 4)
+        new = round(min(2 * base, position_pct, 2 * rec["weight"],
+                        rec["weight"] + theme_room(rec["budget_theme"])), 4)
         if new <= rec["weight"]:
             continue
         theme_used[rec["budget_theme"]] += new - rec["weight"]
         used += new - rec["weight"]
         rec["weight"] = new
-        rec["cap"] = f"attack {new:.0%}"
+        rec["cap"] = f"attack {new:.1%}".replace(".0%", "%")
         rec["sleeve"] = "attack"
 
     gross = sum(x["weight"] for x in core + attack + locked_recs)

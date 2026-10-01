@@ -423,3 +423,68 @@ def test_a_name_that_broke_its_stop_since_the_rating_waits_for_a_new_rating():
     assert {r[1]: r[3] for r in book["skipped"]}["AAA"] == "Buy stopped out 2026-01-03; needs a new rating"
     queue = {r["ticker"]: r["reason"] for r in bk.needs_research(book)["research"]}
     assert queue["AAA"] == "stopped out 2026-01-03; needs a new rating"
+
+
+def _one_theme_screen(n: int = 7):
+    """T1..Tn, one industry, all Buy: with 1 core slot per theme T1 is core, the rest overflow."""
+    screen = [{"ticker": f"T{i}", "date": "2026-01-05", "rank": i, "final_score": 1 - i / 100,
+               "factors": {"close": 100.0}, "industry": "X"} for i in range(1, n + 1)]
+    ratings = [{"date": "2026-01-02", "market": "us", "ticker": f"T{i}", "rating": "Buy"}
+               for i in range(1, n + 1)]
+    return screen, ratings
+
+
+def test_an_overflow_incumbent_keeps_its_attack_slot_inside_the_buffer_only():
+    """1 attack slot, buffer 2 -> the first two overflow candidates (T2, T3) are 'inside'."""
+    screen, ratings = _one_theme_screen()
+    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=5.0)
+
+    def attack(prev):
+        book = bk.build_book(screen, ratings, _ips(), rules=rules, prev_book=prev)
+        return [r["ticker"] for r in book["attack"]], {r[1]: r[3] for r in book["skipped"]}
+
+    assert attack(None)[0] == ["T2"]                                   # no history: best rank
+    names, why = attack({"attack": [{"ticker": "T3"}], "core": []})
+    assert names == ["T3"] and why["T2"] == "Buy attack slot kept by T3 (hysteresis)"
+    assert attack({"attack": [{"ticker": "T4"}], "core": []})[0] == ["T2"]  # T4 is outside the buffer
+
+
+def test_a_doubled_incumbent_keeps_the_top_up_inside_the_buffer(built):
+    """Fixture, 10% attack budget: III's overflow slot uses 5%, one doubling is left. By rank it
+    goes to AAA; with BBB doubled yesterday (and inside 2 x 1 eligible names) BBB keeps it."""
+    rules = bk.BookRules(attack_budget_pct=10.0)
+
+    def doubled(prev):
+        book = bk.build_book(
+            bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+            meta=json.loads((FIX / "meta.json").read_text()),
+            scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+            pm_size=json.loads((FIX / "pm_size.json").read_text()), rules=rules, prev_book=prev)
+        return [r["ticker"] for r in book["core"] if r.get("sleeve") == "attack"]
+
+    assert doubled(None) == ["AAA"]
+    assert doubled({"attack": [], "core": [{"ticker": "BBB", "sleeve": "attack"}]}) == ["BBB"]
+    assert doubled({"attack": [], "core": [{"ticker": "GGG", "sleeve": "attack"}]}) == ["AAA"]  # PM-capped
+
+
+def test_previous_book_is_the_newest_dated_dir_before_asof(tmp_path):
+    for day in ("2026-01-02", "2026-01-05", "run"):
+        (tmp_path / day).mkdir()
+        (tmp_path / day / "book.json").write_text(json.dumps({"asof": day}))
+    assert bk.previous_book(tmp_path, "2026-01-05")["asof"] == "2026-01-02"
+    assert bk.previous_book(tmp_path, "2026-01-02") is None
+
+
+def test_a_wide_stop_shrinks_the_top_up_instead_of_forbidding_it():
+    """DDD's stop is 50% away, so its risk-sized weight is 2%. With budget left after III, AAA and
+    BBB, its top-up is 2 x that = 4% — before, a percent-risk name was never doubled at all, so
+    a name crossing the 20% stop-distance line flipped between 10% and under 5% day to day."""
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+        meta=json.loads((FIX / "meta.json").read_text()),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+        pm_size=json.loads((FIX / "pm_size.json").read_text()),
+        rules=bk.BookRules(attack_budget_pct=25.0))
+    caps = {r["ticker"]: r["cap"] for r in book["core"]}
+    assert (_w(book, "AAA"), _w(book, "BBB"), _w(book, "DDD")) == (0.10, 0.10, 0.04)
+    assert caps["DDD"] == "attack 4%" and "PM size" in caps["GGG"]  # the PM cut is still not doubled
