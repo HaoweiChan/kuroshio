@@ -526,7 +526,11 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         (lb["track_rule_slots"], f"{r['attack_n']}"),
         (lb["track_rule_budget"], f"{r['attack_budget_pct']:.0f}%"),
         (lb["track_rule_floor"], esc(r["attack_floor"].capitalize())),
-        (lb["track_rule_double"], f"{min(2 * r['base_pct'], book['ips']['position_pct']):.0f}%"),
+        (lb["track_rule_double"], esc(lb["track_rule_double_v"].format(
+            cap=min(2 * r["base_pct"], book["ips"]["position_pct"])))),
+        (lb["track_rule_risk"], esc(lb["track_rule_risk_v"].format(risk=2 * book["ips"]["risk_budget_pct"]))),
+        # a book written before attack_buffer existed had no hysteresis: say 1, not the default
+        (lb["track_rule_buffer"], esc(lb["track_rule_buffer_v"].format(mult=r.get("attack_buffer", 1)))),
         (lb["track_rule_hold"], esc(lb["track_rule_hold_v"])),
     ]
     return (

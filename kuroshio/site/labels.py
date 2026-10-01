@@ -150,14 +150,23 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rules_head": "How the attack sleeve works",
         "track_rules_lede": (
             "Overflow names the per-theme cap pushed out of the core, plus the top core names "
-            "the leftover budget doubles. Rebuilt from scratch every day."
+            "the leftover budget doubles. Rebuilt every day, but yesterday's attack names keep "
+            "their slot while they still qualify and rank inside the buffer."
         ),
         "track_rule_slots": "Overflow slots",
         "track_rule_budget": "Attack budget",
         "track_rule_floor": "Minimum rating (overflow)",
         "track_rule_double": "Top-up weight (core names)",
+        "track_rule_double_v": "2x its own weight, at most {cap:.0f}%",
+        "track_rule_risk": "Risk per attack name",
+        "track_rule_risk_v": "at most {risk:g}% of NAV",
+        "track_rule_buffer": "Slot kept while ranked inside",
+        "track_rule_buffer_v": "{mult} x the slot count",
         "track_rule_hold": "Holding period",
-        "track_rule_hold_v": "none — in the sleeve only while the day's ranking puts it there",
+        "track_rule_hold_v": (
+            "none — kept while inside the buffer; a broken stop, a void or vetoed rating, or a "
+            "full theme budget removes it the same day"
+        ),
         "report_lede": "Full research report.",
         "book_names": "Book names",
         "gross": "Gross exposure",
@@ -366,13 +375,23 @@ LABELS: dict[str, dict[str, str]] = {
         "track_ret": "報酬",
         "track_open": "持有中",
         "track_rules_head": "攻擊倉怎麼運作",
-        "track_rules_lede": "被同主題上限擠出核心的名字，加上用剩餘預算加倍的前段核心名字。每天從頭重建。",
+        "track_rules_lede": (
+            "被同主題上限擠出核心的名字，加上用剩餘預算加倍的前段核心名字。每天重建，"
+            "但前一天已在攻擊倉的名字，只要仍符合資格且排名在緩衝範圍內就保留名額。"
+        ),
         "track_rule_slots": "溢出名額",
         "track_rule_budget": "攻擊預算",
         "track_rule_floor": "最低評級（溢出名字）",
         "track_rule_double": "加倍後權重（核心名字）",
+        "track_rule_double_v": "自身權重的 2 倍，最多 {cap:.0f}%",
+        "track_rule_risk": "攻擊倉單檔風險",
+        "track_rule_risk_v": "最多 {risk:g}% NAV",
+        "track_rule_buffer": "名額保留範圍",
+        "track_rule_buffer_v": "排名在名額數的 {mult} 倍以內",
         "track_rule_hold": "持有期間",
-        "track_rule_hold_v": "沒有固定期間 — 只要當天排名還把它放在攻擊倉就留著",
+        "track_rule_hold_v": (
+            "沒有固定期間 — 在緩衝範圍內就保留；跌破停損、評級失效或被否決、主題額度不夠時當天移出"
+        ),
         "report_lede": "完整研究報告。",
         "book_names": "book 持股",
         "gross": "總曝險",

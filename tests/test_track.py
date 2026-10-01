@@ -63,4 +63,7 @@ def test_the_site_renders_a_track_page_only_when_track_json_is_there(tmp_path):
     render.render_site(book_dir, FIX / "reports", out, lang="zh")
     page = (out / "track.html").read_text()
     assert "績效" in page and "BBB" in page and "-20.0%" in page and "<polyline" in page
+    # the attack panel states today's rules: risk-scaled top-up and the hysteresis buffer
+    assert "自身權重的 2 倍，最多 10%" in page and "最多 2% NAV" in page
+    assert "排名在名額數的 2 倍以內" in page and "只要當天排名還把它放在攻擊倉就留著" not in page
     shutil.rmtree(out)
