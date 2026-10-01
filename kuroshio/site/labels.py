@@ -39,7 +39,9 @@ LABELS: dict[str, dict[str, str]] = {
         "rule_attack": (
             "Attack budget {budget:.0%}: a theme-cap overflow name enters only at or above "
             "{floor}; it goes in at base weight, then the highest-ranked core names are raised "
-            "to {double:.0%}. Concentration, not leverage."
+            "to twice their own weight, at most {double:.0%} (so at most twice the per-position "
+            "risk budget). Yesterday's attack names keep their slot while they still qualify and "
+            "rank inside twice the slot count. Concentration, not leverage."
         ),
         "rule_cash": "Cash: whatever is left.",
         "holdings_head": "Holdings",
@@ -279,7 +281,9 @@ LABELS: dict[str, dict[str, str]] = {
         ),
         "rule_attack": (
             "攻擊預算 {budget:.0%}：被 theme 上限擠出的名字，評級須達 {floor} 以上才能進場，"
-            "先以基礎權重放進去，剩餘預算把排名最高的核心名字加碼到 {double:.0%}。集中而非槓桿。"
+            "先以基礎權重放進去，剩餘預算把排名最高的核心名字加碼到自身權重的兩倍、最多 {double:.0%}"
+            "（即單檔風險最多為風險預算的兩倍）。前一天已在攻擊倉的名字，只要仍符合條件且排名在名額數"
+            "兩倍以內就保留名額。集中而非槓桿。"
         ),
         "rule_cash": "現金：剩下的。",
         "holdings_head": "持倉",
