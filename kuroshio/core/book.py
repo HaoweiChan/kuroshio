@@ -36,6 +36,12 @@ The rules, in the order they apply (all of them options on `BookRules`):
   (`caps.theme_caps` for a named theme, else `caps.theme_pct`), locked positions counted
   first, in rank order: a name is shrunk to the room left, or skipped under 1%. A theme is
   the owner's `themes` label for the ticker (`--themes`), else its industry.
+* **Tier** (`tier_n`, off by default) — the top N core names are sized on `tier_base_pct` and
+  `tier_risk_pct` instead of base and `caps.risk_budget_pct`, so the weight the caps leave
+  unspent goes to the head of the ranking rather than to more names (on S&P names the top 5
+  of a 15-name momentum book out-returned ranks 6-15 in every period tested). Same hysteresis
+  as the attack sleeve. Every other cap still applies.
+* **Gross cap** — weights never sum past 100% of NAV; the excess comes off the lowest ranks.
 * **Locked** — positions the owner marked as not-the-book's-business ride along at their live
   weight, so `propose` sees the real concentration.
 """
@@ -68,6 +74,9 @@ class BookRules:
     attack_budget_pct: float = 15.0
     attack_floor: str = "overweight"
     attack_buffer: int = 2       # an incumbent attack name keeps its slot inside attack slots x this
+    tier_n: int = 0              # the top N core names get the tier base and risk budget (0 = off)
+    tier_base_pct: float = 7.5
+    tier_risk_pct: float = 1.35
     ttl_days: int = 45
     review_days: int = 21
     earnings_warn_days: int = 7
@@ -185,14 +194,17 @@ def build_book(
     position_pct = ips.caps.position_pct / 100
     risk_budget = ips.caps.risk_budget_pct / 100
 
-    def target_weight(entry: float, stop: float | None) -> tuple[float, str]:
-        w, cap = base, f"base {base:.0%}"
+    def target_weight(entry: float, stop: float | None, tier: bool = False) -> tuple[float, str]:
+        # a tier name is sized on its own base and risk budget; every cap below still applies
+        b, rb = (rules.tier_base_pct / 100, rules.tier_risk_pct / 100) if tier else (base, risk_budget)
+        w, cap = b, f"{'tier' if tier else 'base'} {b:.1%}".replace(".0%", "%")
         if position_pct < w:
             w, cap = position_pct, "caps.position_pct"
         if stop is not None and 0 < stop < entry:
-            pr = risk_budget * entry / (entry - stop)
+            pr = rb * entry / (entry - stop)
             if pr < w:
-                w, cap = pr, f"percent-risk ({risk_budget:.0%} NAV / {(entry - stop) / entry:.0%} stop)"
+                dist = (entry - stop) / entry
+                w, cap = pr, f"percent-risk ({rb:.2%} NAV / {dist:.0%} stop)".replace(".00%", "%")
         return round(w, 4), cap
 
     locked_recs = []
@@ -212,118 +224,139 @@ def build_book(
     # IPS theme budget: effective weight per theme, locked positions included, spent in rank
     # order. A theme is the owner's `themes` label for the ticker, else its industry.
     theme_used: dict[str, float] = {}
-    for x in locked_recs:
-        theme_used[x["theme"]] = theme_used.get(x["theme"], 0) + x["weight"]
 
     def theme_room(theme: str) -> float:
         return ips.caps.theme_caps.get(theme, ips.caps.theme_pct) / 100 - theme_used.get(theme, 0)
 
-    core: list[dict] = []
-    attack: list[dict] = []
     # yesterday's attack sleeve: overflow slots and doubled core names (hysteresis, see Attack)
     held_overflow = {x["ticker"] for x in (prev_book or {}).get("attack", [])}
     held_doubled = {x["ticker"] for x in (prev_book or {}).get("core", []) if x.get("sleeve") == "attack"}
-    overflow_seen = 0
-    skipped: list[tuple] = []
-    per_theme: dict[str, int] = {}
-    for row in screen_rows:
-        t = row["ticker"]
-        m = meta.get(t, {})
-        # no industry known -> the name is its own theme, so an unlabelled screen does not
-        # collapse into one bucket the per-theme cap would cut at `core_per_theme` names.
-        ind = m.get("industry") or row.get("industry") or t
-        rat = ratings.get(t)
-        rating = (rat or {}).get("rating") or "n/a"
-        if rat is not None and (void := voided_by_earnings(t, rat)):
-            skipped.append((row["rank"], t, ind, f"not researched (rating {rat['date']} void: {void})"))
-            continue
-        if rat is None or rating.lower() in VETO:
-            skipped.append((row["rank"], t, ind, rating if rat else "not researched"))
-            continue
-        entry, stop = row["factors"]["close"], rat.get("stop_loss")
-        if stop is not None and entry <= stop:
-            # the rating's own invalidation is breached: its thesis is dead until a new
-            # rating says otherwise. Before this, target_weight read stop >= entry as "no
-            # stop" and gave the name full base weight.
-            skipped.append((row["rank"], t, ind, f"{rating} below its stop {stop:.2f}"))
-            continue
-        if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
-            skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
-            continue
-        w, cap = target_weight(entry, stop)
-        if pm_size.get(t, 1.0) < 1.0:
-            w, cap = round(w * pm_size[t], 4), f"{cap} x {pm_size[t]:g} (PM size)"
-        rec = {
-            "rank": row["rank"], "ticker": t, "sector": m.get("sector"), "industry": ind,
-            "rating": rating, "rating_date": rat["date"], "entry": entry, "stop": stop,
-            "target": rat.get("price_target"), "weight": w, "cap": cap,
-            "mom": row["factors"].get("mom_12_1_raw"), "vol": m.get("vol"),
-            "final_score": row.get("final_score"),
-        }
-        evict = None
-        if per_theme.get(ind, 0) < rules.core_per_theme:
-            slot = "core" if len(core) < rules.core_n else None
-        elif not verdict_at_least(rating, rules.attack_floor):
-            # the veto above is the core rule; the floor is an attack-only conviction gate —
-            # a name below it does not take the slot, so the next overflow name by rank does.
-            if len(attack) < rules.attack_n:
-                skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
-                continue
-            slot = None
-        else:
-            in_buffer = overflow_seen < rules.attack_n * rules.attack_buffer
-            overflow_seen += 1
-            if len(attack) < rules.attack_n:
-                slot = "attack"
-            elif t in held_overflow and in_buffer:
-                # hysteresis: yesterday's overflow name, still inside the buffer, takes its slot
-                # back from the lowest-ranked newcomer instead of losing it to rank noise
-                evict = next((x for x in reversed(attack) if x["ticker"] not in held_overflow), None)
-                slot = "attack" if evict else None
-            else:
-                slot = None
-        if slot:
-            theme = themes.get(t) or ind
-            if evict:
-                theme_used[evict["budget_theme"]] -= evict["weight"]
-            room = theme_room(theme)
-            if room < MIN_THEME_ROOM and evict:
-                theme_used[evict["budget_theme"]] += evict["weight"]  # no room even so: keep the newcomer
-                continue
-            if evict:
-                attack.remove(evict)
-                skipped.append((evict["rank"], evict["ticker"], evict["industry"],
-                                f"{evict['rating']} attack slot kept by {t} (hysteresis)"))
-            if room < MIN_THEME_ROOM:
-                cap_pct = ips.caps.theme_caps.get(theme, ips.caps.theme_pct)
-                skipped.append((row["rank"], t, ind, f"theme budget full ({theme} {cap_pct:g}%)"))
-                continue
-            if rec["weight"] > room:
-                rec["weight"], rec["cap"] = round(room, 4), f"theme budget ({theme})"
-            rec["budget_theme"] = theme
-            if t in themes:
-                rec["ips_theme"] = theme  # the owner's vocabulary, safe to hand to propose
-            theme_used[theme] = theme_used.get(theme, 0) + rec["weight"]
-            if slot == "core":
-                per_theme[ind] = per_theme.get(ind, 0) + 1
-                core.append(rec)
-            else:
-                attack.append({**rec, "theme": "attack"})
-        if len(core) >= rules.core_n and len(attack) >= rules.attack_n and (
-            overflow_seen >= rules.attack_n * rules.attack_buffer
-            or not held_overflow - {x["ticker"] for x in attack}
-        ):
-            break
 
-    seen = {x["ticker"] for x in core + attack} | {s[1] for s in skipped}
-    for row in screen_rows:
-        if row["ticker"] not in seen:
-            rat = ratings.get(row["ticker"])
-            ind = meta.get(row["ticker"], {}).get("industry") or row.get("industry") or row["ticker"]
-            skipped.append((
-                row["rank"], row["ticker"], ind,
-                (rat["rating"] if rat else "not researched") + " (below cut)",
-            ))
+    def walk(tier: frozenset) -> tuple[list[dict], list[dict], list[tuple]]:
+        """One pass down the ranking: (core, attack, skipped). `tier` names are sized on the
+        tier base and risk budget; the theme budget is reset and spent again from the top."""
+        theme_used.clear()
+        for x in locked_recs:
+            theme_used[x["theme"]] = theme_used.get(x["theme"], 0) + x["weight"]
+        core: list[dict] = []
+        attack: list[dict] = []
+        overflow_seen = 0
+        skipped: list[tuple] = []
+        per_theme: dict[str, int] = {}
+        for row in screen_rows:
+            t = row["ticker"]
+            m = meta.get(t, {})
+            # no industry known -> the name is its own theme, so an unlabelled screen does not
+            # collapse into one bucket the per-theme cap would cut at `core_per_theme` names.
+            ind = m.get("industry") or row.get("industry") or t
+            rat = ratings.get(t)
+            rating = (rat or {}).get("rating") or "n/a"
+            if rat is not None and (void := voided_by_earnings(t, rat)):
+                skipped.append((row["rank"], t, ind, f"not researched (rating {rat['date']} void: {void})"))
+                continue
+            if rat is None or rating.lower() in VETO:
+                skipped.append((row["rank"], t, ind, rating if rat else "not researched"))
+                continue
+            entry, stop = row["factors"]["close"], rat.get("stop_loss")
+            if stop is not None and entry <= stop:
+                # the rating's own invalidation is breached: its thesis is dead until a new
+                # rating says otherwise. Before this, target_weight read stop >= entry as "no
+                # stop" and gave the name full base weight.
+                skipped.append((row["rank"], t, ind, f"{rating} below its stop {stop:.2f}"))
+                continue
+            if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
+                skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
+                continue
+            w, cap = target_weight(entry, stop, t in tier)
+            if pm_size.get(t, 1.0) < 1.0:
+                w, cap = round(w * pm_size[t], 4), f"{cap} x {pm_size[t]:g} (PM size)"
+            rec = {
+                "rank": row["rank"], "ticker": t, "sector": m.get("sector"), "industry": ind,
+                "rating": rating, "rating_date": rat["date"], "entry": entry, "stop": stop,
+                "target": rat.get("price_target"), "weight": w, "cap": cap,
+                "mom": row["factors"].get("mom_12_1_raw"), "vol": m.get("vol"),
+                "final_score": row.get("final_score"),
+            }
+            if t in tier:
+                rec["tier"] = True
+            evict = None
+            if per_theme.get(ind, 0) < rules.core_per_theme:
+                slot = "core" if len(core) < rules.core_n else None
+            elif not verdict_at_least(rating, rules.attack_floor):
+                # the veto above is the core rule; the floor is an attack-only conviction gate —
+                # a name below it does not take the slot, so the next overflow name by rank does.
+                if len(attack) < rules.attack_n:
+                    skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
+                    continue
+                slot = None
+            else:
+                in_buffer = overflow_seen < rules.attack_n * rules.attack_buffer
+                overflow_seen += 1
+                if len(attack) < rules.attack_n:
+                    slot = "attack"
+                elif t in held_overflow and in_buffer:
+                    # hysteresis: yesterday's overflow name, still inside the buffer, takes its slot
+                    # back from the lowest-ranked newcomer instead of losing it to rank noise
+                    evict = next((x for x in reversed(attack) if x["ticker"] not in held_overflow), None)
+                    slot = "attack" if evict else None
+                else:
+                    slot = None
+            if slot:
+                theme = themes.get(t) or ind
+                if evict:
+                    theme_used[evict["budget_theme"]] -= evict["weight"]
+                room = theme_room(theme)
+                if room < MIN_THEME_ROOM and evict:
+                    theme_used[evict["budget_theme"]] += evict["weight"]  # no room even so: keep the newcomer
+                    continue
+                if evict:
+                    attack.remove(evict)
+                    skipped.append((evict["rank"], evict["ticker"], evict["industry"],
+                                    f"{evict['rating']} attack slot kept by {t} (hysteresis)"))
+                if room < MIN_THEME_ROOM:
+                    cap_pct = ips.caps.theme_caps.get(theme, ips.caps.theme_pct)
+                    skipped.append((row["rank"], t, ind, f"theme budget full ({theme} {cap_pct:g}%)"))
+                    continue
+                if rec["weight"] > room:
+                    rec["weight"], rec["cap"] = round(room, 4), f"theme budget ({theme})"
+                rec["budget_theme"] = theme
+                if t in themes:
+                    rec["ips_theme"] = theme  # the owner's vocabulary, safe to hand to propose
+                theme_used[theme] = theme_used.get(theme, 0) + rec["weight"]
+                if slot == "core":
+                    per_theme[ind] = per_theme.get(ind, 0) + 1
+                    core.append(rec)
+                else:
+                    attack.append({**rec, "theme": "attack"})
+            if len(core) >= rules.core_n and len(attack) >= rules.attack_n and (
+                overflow_seen >= rules.attack_n * rules.attack_buffer
+                or not held_overflow - {x["ticker"] for x in attack}
+            ):
+                break
+
+        seen = {x["ticker"] for x in core + attack} | {s[1] for s in skipped}
+        for row in screen_rows:
+            if row["ticker"] not in seen:
+                rat = ratings.get(row["ticker"])
+                ind = meta.get(row["ticker"], {}).get("industry") or row.get("industry") or row["ticker"]
+                skipped.append((
+                    row["rank"], row["ticker"], ind,
+                    (rat["rating"] if rat else "not researched") + " (below cut)",
+                ))
+
+        return core, attack, skipped
+
+    core, attack, skipped = walk(frozenset())
+    if rules.tier_n:
+        # Tiered sizing: the residual cash the caps leave goes to the head of the ranking, not
+        # to more names. The tier is the top `tier_n` core names of a plain pass, with the same
+        # hysteresis as the attack sleeve — yesterday's tier names keep it inside tier_n x
+        # attack_buffer — then the walk runs again so the theme budget is spent on the new sizes.
+        held_tier = {x["ticker"] for x in (prev_book or {}).get("core", []) if x.get("tier")}
+        keep_t = [r["ticker"] for r in core[: rules.tier_n * rules.attack_buffer]
+                  if r["ticker"] in held_tier][: rules.tier_n]
+        fill_t = [r["ticker"] for r in core if r["ticker"] not in keep_t][: rules.tier_n - len(keep_t)]
+        core, attack, skipped = walk(frozenset(keep_t + fill_t))
 
     # attack budget: the overflow names are already in it, the rest raises core names
     used = sum(x["weight"] for x in attack)
@@ -348,6 +381,19 @@ def build_book(
         rec["cap"] = f"attack {new:.1%}".replace(".0%", "%")
         rec["sleeve"] = "attack"
 
+    # Hard cap: the book never asks for more than 100% of NAV. Loosened caps (a higher risk
+    # budget, more names, the tier) could otherwise sum past it — implicit margin. The excess
+    # comes off the lowest-ranked names first; locked positions are the owner's and stay.
+    over = sum(x["weight"] for x in core + attack + locked_recs) - 1.0
+    for rec in sorted(core + attack, key=lambda r: -r["rank"]):
+        if over <= 1e-9:
+            break
+        cut = min(rec["weight"], over)
+        rec["weight"], over = round(rec["weight"] - cut, 4), over - cut
+        rec["cap"] = "gross cap 100%"
+        if rec["weight"] <= 0:
+            (core if rec in core else attack).remove(rec)
+            skipped.append((rec["rank"], rec["ticker"], rec["industry"], f"{rec['rating']} gross cap 100%"))
     gross = sum(x["weight"] for x in core + attack + locked_recs)
 
     # NAV alone is enough to size the book in money; positions only add the "held now" diff
