@@ -413,3 +413,14 @@ def test_the_language_given_is_the_root_tree(tmp_path):
     assert "<html lang='zh-Hant'>" in (out / "index.html").read_text()
     assert "<html lang='en'>" in (out / "en" / "index.html").read_text()
     assert ">EN</a>" in (out / "index.html").read_text()
+
+
+def test_a_build_leaves_another_builds_scratch_directory_alone(tmp_path):
+    """Two builds at once must not share a scratch directory: one used to delete the other's
+    half-written `<out>.new`, and a tree missing its root pages got swapped in."""
+    theirs = tmp_path / "site.new"
+    theirs.mkdir()
+    (theirs / "half-written.html").write_text("another build")
+    render.render_site(_book_dir(tmp_path), FIX / "reports", tmp_path / "site")
+    assert (theirs / "half-written.html").read_text() == "another build"
+    assert (tmp_path / "site" / "index.html").exists()

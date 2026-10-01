@@ -151,3 +151,11 @@ header .lang {
   color: var(--fg); font-size: 13px; font-weight: 650; text-decoration: none;
 }
 header .lang:hover { border-color: var(--accent); color: var(--accent); }
+
+/* the book hero's date and counts are facts, not controls: a plain meta line, not pills */
+.hero.small .badges { gap: 0; margin-bottom: 0; }
+.hero.small .badge, .hero.small .badge.on {
+  padding: 0; border: 0; border-radius: 0; background: none; font-size: 14px; color: var(--muted);
+}
+.hero.small .badge.on { color: var(--fg); font-family: var(--mono); font-size: 13.5px; }
+.hero.small .badge + .badge::before { content: "·"; margin: 0 10px; color: var(--line-2); }

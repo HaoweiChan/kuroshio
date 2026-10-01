@@ -15,7 +15,7 @@ Every page is written once per language: the book's language at the root, each o
 `<lang>/` with the same layout, and a header toggle on each page links to its counterpart.
 
 Relative links only, so the tree works over `file://`, any static server, or a mount. The
-build happens in a sibling `<out>.new` directory and is swapped in at the end, so a server
+build happens in a sibling `<out>.new-*` directory of its own and is swapped in at the end, so a server
 never sees a half-written tree. No user data is read from anywhere but the two input
 directories, and nothing is written outside `out_dir`.
 """
@@ -27,6 +27,7 @@ import html
 import json
 import re
 import shutil
+import tempfile
 from importlib import resources
 from pathlib import Path
 
@@ -877,9 +878,11 @@ def render_site(
             encoding="utf-8",
         )
 
-    build = out_dir.with_name(out_dir.name + ".new")
-    shutil.rmtree(build, ignore_errors=True)
-    build.mkdir(parents=True)
+    # a scratch directory of this build's own: two builds at once (cron and a manual run) used to
+    # share `<out>.new`, and one wiped the other's half-written tree before it was swapped in
+    out_dir.parent.mkdir(parents=True, exist_ok=True)
+    build = Path(tempfile.mkdtemp(prefix=out_dir.name + ".new-", dir=out_dir.parent))
+    build.chmod(0o755)  # mkdtemp is 0700; the served tree keeps the usual directory mode
 
     # a failure anywhere in here must not leave `<out>.new` behind
     try:
@@ -888,8 +891,7 @@ def render_site(
         write_tree(build / other, labels(other), (other, ""))
 
         # swap: a server or a mount never sees a half-written tree
-        old = out_dir.with_name(out_dir.name + ".old")
-        shutil.rmtree(old, ignore_errors=True)
+        old = build.with_name(build.name.replace(".new-", ".old-"))
         if out_dir.exists():
             out_dir.rename(old)
         build.rename(out_dir)
