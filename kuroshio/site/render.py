@@ -461,7 +461,7 @@ def _ret(x, na: str = "n/a") -> str:
     return f"{x:+.1%}" if x is not None else na
 
 
-def _track_chart(series: list[dict], lb: dict) -> str:
+def _track_chart(series: list[dict], lb: dict, benchmark: str = "-") -> str:
     """Cumulative raw return, one polyline per line in TRACK_LINES, zero line dashed."""
     if len(series) < 2:
         return ""
@@ -469,7 +469,9 @@ def _track_chart(series: list[dict], lb: dict) -> str:
     lo, hi = min(vals), max(vals)
     span = (hi - lo) or 1.0
     w, h, pad = 720, 240, 8
-    x = lambda i: pad + i * (w - 2 * pad) / (len(series) - 1)  # noqa: E731
+    dates = [dt.date.fromisoformat(s["date"]) for s in series]
+    duration = max((dates[-1] - dates[0]).days, 1)
+    x = lambda i: pad + (dates[i] - dates[0]).days * (w - 2 * pad) / duration  # noqa: E731
     y = lambda v: pad + (hi - v) * (h - 2 * pad) / span  # noqa: E731
     lines = "".join(
         f"<polyline fill='none' stroke='{color}' stroke-width='2' stroke-dasharray='{dash}' "
@@ -478,14 +480,22 @@ def _track_chart(series: list[dict], lb: dict) -> str:
     )
     legend = "".join(
         f"<span class='meta' style='margin-right:16px'><b style='color:{c}'>—</b> "
-        f"{esc(lb['track_' + k].format(bench=''))} {_ret(series[-1][k])}</span>"
+        f"{esc(lb['track_' + k].format(bench=benchmark))} {_ret(series[-1][k])}</span>"
         for k, c, _ in TRACK_LINES
     )
+    ticks = "".join(
+        f"<line x1='{x(i):.1f}' x2='{x(i):.1f}' y1='{h}' y2='{h + 5}' stroke='var(--muted)'/>"
+        f"<text x='{x(i):.1f}' y='{h + 22}' text-anchor='{anchor}' "
+        f"fill='var(--muted)' font-size='14'>{esc(series[i]['date'])}</text>"
+        for i, anchor in ((0, "start"), (len(series) // 2, "middle"), (len(series) - 1, "end"))
+        if anchor != "middle" or len(series) > 2
+    )
     return (
-        f"<svg viewBox='0 0 {w} {h}' style='width:100%;height:auto' role='img' "
+        f"<svg viewBox='0 0 {w} {h + 32}' style='width:100%;height:auto' role='img' "
         f"aria-label='{esc(lb['track_chart'])}'>"
         f"<line x1='0' x2='{w}' y1='{y(0):.1f}' y2='{y(0):.1f}' stroke='var(--line)' stroke-dasharray='2 3'/>"
-        f"{lines}</svg><div>{legend}</div>"
+        f"{lines}<line x1='{pad}' x2='{w - pad}' y1='{h}' y2='{h}' "
+        f"stroke='var(--line)'/>{ticks}</svg><div>{legend}</div>"
         f"<div class='meta'>{esc(series[0]['date'])} → {esc(series[-1]['date'])} · "
         f"{esc(lb['track_range'].format(lo=lo, hi=hi))}</div>"
     )
@@ -495,11 +505,12 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
     from kuroshio.core.track import summary
 
     s = summary(tr)
+    benchmark = "S&P 500 (SPY)" if tr["benchmark"] == "SPY" else tr["benchmark"] or "-"
     stats = [
         (_ret(s["book"], lb["na"]), lb["track_book"]),
         (_ret(s["core"], lb["na"]), lb["track_core"]),
         (_ret(s["attack"], lb["na"]), lb["track_attack"]),
-        (_ret(s["bench"], lb["na"]), lb["track_bench"].format(bench=tr["benchmark"] or "-")),
+        (_ret(s["bench"], lb["na"]), lb["track_bench"].format(bench=benchmark)),
     ] + [
         (_pct(s[f"hit_{k}"], na=lb["na"]),
          lb["track_hit"].format(sleeve=lb[k] if k != "all" else lb["all"], n=s[f"n_{k}"],
@@ -539,7 +550,7 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
         + _section("", lb["track_chart"], lb["track_chart_lede"],
-                   f"<div class='panel chart'>{_track_chart(tr['series'], lb)}</div>")
+                   f"<div class='panel chart'>{_track_chart(tr['series'], lb, benchmark)}</div>")
         + _section("", lb["track_eps_head"], lb["track_eps_lede"],
                    "<div class='panel'><div class='toolbar'>"
                    + _chips([("all", lb["all"]), ("core", lb["core"]), ("attack", lb["attack"])], "s")
