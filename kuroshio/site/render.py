@@ -226,8 +226,8 @@ def _collect_reports(reports_dir: Path | None) -> dict[str, list[tuple[str, dict
 
 
 def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
-    holdings = [dict(x, sleeve=x.get("sleeve", "core")) for x in book["core"]]
-    holdings += [dict(x, sleeve="attack") for x in book["attack"]]
+    holdings = [dict(x, sleeve="attack") for x in book["attack"]]
+    holdings += [dict(x, sleeve=x.get("sleeve", "core")) for x in book["core"]]
     alloc = book.get("alloc") or {}
     lock_w = sum(x["weight"] for x in book["locked"])
     stats = [
@@ -391,7 +391,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
         f"<span>{r['weight']:.1%}</span></td><td>{nav * r['weight']:,.0f}</td><td>{r['shares']}</td>"
         f"<td>{r['usd']:,.0f}</td><td>{r['have']:,.0f}</td>"
         f"<td class='{'pos' if r['usd'] - r['have'] >= 0 else 'neg'}'>{r['usd'] - r['have']:+,.0f}</td></tr>"
-        for r in alloc["rows"]
+        for r in sorted(alloc["rows"], key=lambda row: row["sleeve"] != "attack")
     )
     lock_mv = sum(x["market_value"] for x in book["locked"])
     stats = [

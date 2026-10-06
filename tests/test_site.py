@@ -71,6 +71,20 @@ def test_site_renders_the_four_page_types(site):
     assert "<table>" in page and "synthetic research report" in page
 
 
+def test_attack_positions_start_first_and_ticker_and_weight_remain_sortable(site):
+    index = (site / "index.html").read_text()
+    holdings = index.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    first_sleeve = re.search(r"<tr data-sleeve='([^']+)'", holdings)
+    assert first_sleeve and first_sleeve.group(1) == "attack"
+
+    alloc = (site / "alloc.html").read_text()
+    allocation_table = alloc.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    assert "<span class='flag hi'>attack</span>" in allocation_table.split("</tr>", 1)[0]
+    sortable_headers = alloc.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    assert re.search(r"<th data-sort>Ticker</th>", sortable_headers)
+    assert re.search(r"<th data-sort>Weight</th>", sortable_headers)
+
+
 def test_pages_use_relative_links_only(site):
     for page in site.rglob("*.html"):
         for href in re.findall(r"(?:href|src)='([^']+)'", page.read_text()):
