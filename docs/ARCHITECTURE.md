@@ -427,7 +427,9 @@ argparse subcommands:
   percent-risk)` weights times the PM multiplier, and a default 30% attack budget. Overflow names
   use twice base and twice the risk budget with the same position cap and PM multiplier,
   shrunk to remaining attack/theme room (skipped below 1% room); the remainder tops up core
-  names to twice their own weight, at most twice base. Concentration by default;
+  names by rank to twice their own weight, at most twice base. Both overflow and core top-ups
+  require a rating at or above `attack_floor` (default `overweight`); the gate also applies to
+  yesterday's doubled names, and unused budget stays in cash. Concentration by default;
   optional `--leverage-map FILE` (flat YAML `UNDERLYING: ETF_TICKER`) buys mapped attack
   rows through 2x ETFs at unchanged capital weight. All caps charge capital, while exposure
   and loss-at-stop are about twice that amount; daily resets drift from 2x over multi-day holds.

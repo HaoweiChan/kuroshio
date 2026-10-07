@@ -498,6 +498,60 @@ def _wide_screen(n: int = 6, stop: float | None = None):
     return screen, ratings
 
 
+@pytest.mark.parametrize("tier_n", [0, 5])
+def test_attack_top_up_skips_hold_core_and_doubles_next_overweight_by_rank(tier_n):
+    screen, ratings = _wide_screen()
+    ratings[0]["rating"] = "Hold"
+    ratings[1]["rating"] = "Overweight"
+    rules = bk.BookRules(attack_budget_pct=5, tier_n=tier_n)
+    book = bk.build_book(screen, ratings, _ips(), rules=rules, leverage_map={})
+    first, second = book["core"][:2]
+    assert first["weight"] == (0.075 if tier_n else 0.05)
+    assert first.get("tier", False) == bool(tier_n)
+    assert first.get("sleeve") != "attack" and "vehicle" not in first
+    assert second["weight"] == 0.10 and second["sleeve"] == "attack"
+    assert book["unmapped_attack"] == ["T2"]
+    assert [r["ticker"] for r in book["core"] if r.get("sleeve") == "attack"] == ["T2"]
+
+
+def test_attack_top_up_leaves_budget_in_cash_when_all_core_names_are_below_floor():
+    screen, ratings = _wide_screen()
+    for rating in ratings:
+        rating["rating"] = "Hold"
+    book = bk.build_book(screen, ratings, _ips(), leverage_map={})
+    assert len(book["core"]) == 6 and book["attack"] == []
+    assert all(r["weight"] == 0.05 and r.get("sleeve") != "attack" for r in book["core"])
+    assert book["gross"] == pytest.approx(0.30)
+    assert book["cash"] == pytest.approx(0.70)
+    assert book["unmapped_attack"] == []
+
+
+def test_attack_floor_overrides_hysteresis_after_a_doubled_name_drops_to_hold():
+    screen, ratings = _wide_screen(2)
+    rules = bk.BookRules(attack_budget_pct=5)
+    previous = bk.build_book(screen, ratings, _ips(), rules=rules)
+    assert previous["core"][0]["sleeve"] == "attack"
+    screen = [{**r, "date": "2026-01-06"} for r in screen]
+    ratings.append({"date": "2026-01-06", "market": "us", "ticker": "T1", "rating": "Hold"})
+    book = bk.build_book(screen, ratings, _ips(), rules=rules, prev_book=previous)
+    assert book["core"][0]["weight"] == 0.05
+    assert book["core"][0].get("sleeve") != "attack"
+    assert book["core"][1]["weight"] == 0.10 and book["core"][1]["sleeve"] == "attack"
+
+
+def test_hold_core_name_in_leverage_map_gets_no_vehicle():
+    screen, ratings = _wide_screen(2)
+    ratings[0]["rating"] = "Hold"
+    book = bk.build_book(screen, ratings, _ips(), nav=100000,
+                         leverage_map={"T1": "T1U", "T2": "T2U"})
+    for rows in (book["core"], book["alloc"]["rows"]):
+        first, second = rows
+        assert first["weight"] == 0.05 and first.get("sleeve") != "attack"
+        assert not any(k in first for k in ("vehicle", "leverage", "exposure", "vehicle_price"))
+        assert second["vehicle"] == "T2U"
+    assert book["unmapped_attack"] == []
+
+
 def test_the_tier_sizes_the_top_names_on_its_own_base_and_risk_budget():
     rules = bk.BookRules(attack_budget_pct=0.0, tier_n=2)
     book = bk.build_book(*_wide_screen(), _ips(), rules=rules)

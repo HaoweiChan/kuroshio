@@ -26,9 +26,10 @@ The rules, in the order they apply (all of them options on `BookRules`):
   provided the rating is at or above `attack_floor` (default `overweight`); a name
   below the floor is skipped and the next qualifying overflow name by rank takes the slot.
   Overflow weights shrink to the remaining attack and theme budgets (skipped under 1% room).
-  Whatever is left of `attack_budget_pct` (default 30%) raises the highest-ranked core names to twice their
-  own weight, capped at twice base — so an attack name risks at most 2 x `caps.risk_budget_pct`
-  of NAV, and a wide stop shrinks the weight smoothly instead of forbidding it.
+  Whatever is left of `attack_budget_pct` (default 30%) raises the highest-ranked core names
+  at or above the same `attack_floor` to twice their own weight, capped at twice base —
+  so an attack name risks at most 2 x `caps.risk_budget_pct`
+  of NAV, and a wide stop shrinks the weight smoothly instead of forbidding it. Unused budget stays in cash.
   Concentration by default; with a leverage map, attack rows buy 2x ETFs at unchanged
   capital weight. Exposure and loss-at-stop are then about twice what the caps charge;
   daily-reset leveraged ETFs drift from 2x over multi-day holds.
@@ -381,7 +382,8 @@ def build_book(
     # a percent-risk name is eligible too: its doubling is 2 x its own risk-sized weight, so a
     # name whose stop sits 24% away tops up to 8.3% instead of flipping between 10% and 4.2%
     # as the price crosses the 20% line (that cliff, not rank noise, drove most daily changes)
-    eligible = [r for r in core if not (r["cap"].startswith("theme budget") or "PM size" in r["cap"])]
+    eligible = [r for r in core if not (r["cap"].startswith("theme budget") or "PM size" in r["cap"])
+                and verdict_at_least(r["rating"], rules.attack_floor)]
     slots = max(int((budget - used) / base + 1e-9), 0)
     # hysteresis: yesterday's doubled names inside the buffer go first, the rest by rank
     keep = [r for r in eligible[: slots * rules.attack_buffer] if r["ticker"] in held_doubled]
