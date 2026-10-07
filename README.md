@@ -161,12 +161,27 @@ an interface, kept stable by tests. `candidates.yml` is the book's core+attack
 names, ticker/score/verdict only — the file the actual-portfolio pass above
 reads with `--candidates`. It walks the ranking under a per-theme cap, drops names a
 rating vetoed or a TTL/earnings print expired, sizes each one at
-`min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends an
-attack budget on the theme-cap overflow, and — with `--nav` and an optional
+`min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends a default
+30% attack budget on theme-cap overflow sized at twice base and twice the risk budget
+(with the same position cap and PM multiplier, shrunk to remaining attack/theme room),
+then uses the remainder to double core names up to twice base, and — with `--nav` and an optional
 `symbol,quantity,market_value,average_price` positions export — sizes the whole
 thing in money against what you already hold. Every input is an option and every
 rule is a flag; nothing is read from a fixed location, so your holdings, NAV and
-reports stay outside the repo. **The output is a mechanical consequence of your
+reports stay outside the repo.
+
+Concentration is the default. Optional `--leverage-map FILE` supplies a flat YAML
+`UNDERLYING: ETF_TICKER` map: mapped attack rows (overflow and topped-up core)
+buy 2x ETFs at unchanged capital weight. All caps still charge capital; exposure
+and loss-at-stop are about twice that amount, and daily resets drift from 2x over
+multi-day holds. Tickers, stops and targets remain the underlying. ETF shares use
+the book-date close from the screen or existing `--provider` history; without a
+quote shares are `n/a` and allocation dollars reserve target capital before rounding.
+`holdings.yml` adds optional `vehicle` and `exposure` metadata; its existing
+`leverage` field retains propose's cap-charging semantics and is not set by this map.
+`propose` accepts the metadata but still evaluates underlying prices and capital weights.
+
+**The output is a mechanical consequence of your
 files, not investment advice, and the engine still never places an order.**
 
 `kuroshio site --book <dir> --reports <dir> --out <dir>` renders that book

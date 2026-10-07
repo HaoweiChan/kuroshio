@@ -232,7 +232,8 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
     lock_w = sum(x["weight"] for x in book["locked"])
     stats = [
         (f"{alloc['nav']:,.0f}" if alloc.get("nav") else lb["na"], lb["nav"]),
-        (f"{book['gross']:.1%}", lb["gross"]),
+        (f"{book['gross']:.1%}", lb["gross_capital"] if "exposure" in book else lb["gross"]),
+        *([(f"{book['exposure']:.1%}", lb["exposure"])] if "exposure" in book else []),
         (f"{book['cash']:.1%}", lb["cash"]),
         (str(len(holdings) + len(book["locked"])), lb["book_names"]),
         (f"{lock_w:.1%}", lb["locked_weight"]),
@@ -244,13 +245,16 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
         stop_d = (s - e) / e if s else None
         rr = (tg - e) / (e - s) if s and tg and e > s else None
         cls = "flag hi" if x["sleeve"] == "attack" else "flag"
+        vehicle = f" <small class='flag'>2x {esc(x['vehicle'])}</small>" if x.get("vehicle") else ""
+        exposure = (f" <small>{esc(lb['exposure'])}: {x['exposure']:.1%}</small>"
+                    if x.get("vehicle") else "")
         rows.append(
             f"<tr data-sleeve='{esc(x['sleeve'])}'><td>{x['rank']}</td>"
-            f"<td class='tk'>{link(x['ticker'])}</td>"
+            f"<td class='tk'>{link(x['ticker'])}{vehicle}</td>"
             f"<td><span class='{cls}'>{esc(lb[x['sleeve']])}</span></td>"
             f"<td style='text-align:left'>{esc(x['industry'] or '')}</td><td>{_flag(x['rating'])}</td>"
             f"<td class='bar' data-v='{x['weight']}'><i style='width:{x['weight'] * 600:.0f}%'></i>"
-            f"<span>{x['weight']:.1%}</span></td>"
+            f"<span>{x['weight']:.1%}{exposure}</span></td>"
             f"<td style='text-align:left'><span class='meta'>{esc(x['cap'])}</span></td>"
             f"<td>{e:,.2f}</td><td>{s if s else lb['na']}</td>"
             f"<td class='{'neg' if stop_d else ''}'>{_pct(stop_d, True, lb['na'])}</td>"
@@ -351,7 +355,9 @@ def _book_page(book: dict, propose: str, reports: dict, lb: dict, link) -> str:
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
-        + _section(lb["step_holdings"], lb["holdings_head"], lb["holdings_lede"], holdings_panel)
+        + _section(lb["step_holdings"], lb["holdings_head"],
+                   lb["holdings_lede"] + (" " + lb["rule_leverage"] if "exposure" in book else ""),
+                   holdings_panel)
         + _section(lb["step_policy"], lb["policy_head"], lb["policy_lede"],
                    f"<div class='two'><div>{conc}{ips_panel}</div>"
                    f"<div class='cards'>{''.join(cards)}</div></div>")
@@ -386,9 +392,14 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
     nav = alloc["nav"]
     rows = "".join(
         f"<tr><td><span class='flag {'hi' if r['sleeve'] == 'attack' else ''}'>"
-        f"{esc(lb[r['sleeve']])}</span></td><td class='tk'>{link(r['ticker'])}</td>"
+        f"{esc(lb[r['sleeve']])}</span></td><td class='tk'>{link(r['ticker'])}"
+        + (f" <small class='flag'>2x {esc(r['vehicle'])}</small>" if r.get("vehicle") else "")
+        + "</td>"
         f"<td class='bar' data-v='{r['weight']}'><i style='width:{r['weight'] * 600:.0f}%'></i>"
-        f"<span>{r['weight']:.1%}</span></td><td>{nav * r['weight']:,.0f}</td><td>{r['shares']}</td>"
+        f"<span>{r['weight']:.1%}"
+        + (f" <small>{esc(lb['exposure'])}: {r['exposure']:.1%}</small>" if r.get("vehicle") else "")
+        + f"</span></td><td>{nav * r['weight']:,.0f}</td>"
+        f"<td>{r['shares'] if r['shares'] is not None else lb['na']}</td>"
         f"<td>{r['usd']:,.0f}</td><td>{r['have']:,.0f}</td>"
         f"<td class='{'pos' if r['usd'] - r['have'] >= 0 else 'neg'}'>{r['usd'] - r['have']:+,.0f}</td></tr>"
         for r in sorted(alloc["rows"], key=lambda row: row["sleeve"] != "attack")
@@ -423,7 +434,8 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
         "<div class='panel'><div class='stats'>"
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
-        + _section("", lb["portfolio_head"], "",
+        + _section("", lb["portfolio_head"],
+                   lb["alloc_vehicle_note"] if any(r.get("vehicle") for r in alloc["rows"]) else "",
                    "<div class='panel'><div class='tablebox'><table><thead><tr>"
                    + "".join(f"<th data-sort>{esc(lb[h])}</th>" for h in heads)
                    + f"</tr></thead><tbody>{rows}</tbody></table></div></div>")
@@ -448,6 +460,8 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
                        lb["review_head"].format(days=rules["review_days"],
                                                 warn=rules["earnings_warn_days"]),
                        review, lb)
+                   + (_chip_list(lb["unmapped_attack_head"], book["unmapped_attack"], lb)
+                      if "unmapped_attack" in book else "")
                    + "</div>")
     )
 

@@ -1,18 +1,18 @@
 """`kuroshio book` — the mechanical book rules over synthetic fixtures.
 
 Fixture arithmetic (tests/fixtures/, screen date 2026-01-05, IPS position_pct 10%,
-risk_budget_pct 1%, default rules: 15 core / 3 per theme / 3 attack / 5% base / 15%
+risk_budget_pct 1%, default rules: 15 core / 3 per theme / 3 attack / 5% base / 30%
 attack budget / 45-day TTL):
 
   AAA  Widgets  Buy         stop 90 of 100 -> percent-risk 10% > base -> 5%, then attack top-up 10%
   BBB  Widgets  Overweight  no stop -> 5%, then attack top-up 10%
   CCC  Widgets  Sell        vetoed
-  DDD  Widgets  Buy         stop 5 of 10 -> percent-risk 2% binds
+  DDD  Widgets  Buy         stop 5 of 10 -> percent-risk 2% binds, then attack top-up 4%
   EEE  Gadgets  Buy 2025-10-01 -> older than the 45-day TTL -> not researched
   FFF  Gadgets  Buy 2026-01-02, earnings 2026-01-03 -> rating void
   GGG  Gizmos   Hold        5% x 0.5 PM size = 2.5%
   HHH  (none)   unrated
-  III  Widgets  Buy         4th Widget -> attack sleeve at 5%
+  III  Widgets  Buy         4th Widget -> attack sleeve at 10%
 """
 
 from __future__ import annotations
@@ -75,21 +75,21 @@ def test_veto_ttl_and_earnings_expiry_keep_names_out(built):
 
 
 def test_weights_are_percent_risk_pm_size_and_the_attack_top_up(built):
-    assert _w(built, "DDD") == 0.02  # 1% NAV / 50% stop distance
+    assert _w(built, "DDD") == 0.04  # doubled: 2% NAV / 50% stop distance
     assert _w(built, "GGG") == 0.025  # 5% base x 0.5 PM multiplier
-    assert _w(built, "III") == 0.05  # overflow name at base
+    assert _w(built, "III") == 0.10  # overflow name at twice base
     assert _w(built, "AAA") == 0.10 and _w(built, "BBB") == 0.10  # attack budget top-up
     caps = {r["ticker"]: r["cap"] for r in built["core"]}
     assert caps["AAA"] == "attack 10%"
-    assert caps["DDD"].startswith("percent-risk")
+    assert caps["DDD"] == "attack 4%"
     assert "PM size" in caps["GGG"]
 
 
 def test_locked_positions_ride_along_at_their_live_weight(built):
     (lock,) = built["locked"]
     assert lock["ticker"] == "ZZZ" and lock["weight"] == 0.09 and lock["theme"] == "locked-theme"
-    assert built["gross"] == pytest.approx(0.385)
-    assert built["cash"] == pytest.approx(0.615)
+    assert built["gross"] == pytest.approx(0.455)
+    assert built["cash"] == pytest.approx(0.545)
 
 
 def test_alloc_sizes_shares_on_nav_and_lists_off_book_positions(built):
@@ -216,7 +216,7 @@ def test_attack_floor_skips_a_below_floor_overflow_and_the_next_name_by_rank_tak
         {"date": "2026-01-02", "market": "us", "ticker": "W2", "rating": "Hold"},
         {"date": "2026-01-02", "market": "us", "ticker": "W3", "rating": "Overweight"},
     ]
-    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=0)
+    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=10)
     book = bk.build_book(screen_rows, ratings_rows, _ips(), rules=rules)
     assert [r["ticker"] for r in book["core"]] == ["W1"]
     assert [r["ticker"] for r in book["attack"]] == ["W3"]
@@ -239,7 +239,7 @@ def test_rules_are_options_not_constants():
         _ips(),
         meta=json.loads((FIX / "meta.json").read_text()),
         scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
-        rules=bk.BookRules(core_n=2, core_per_theme=1, attack_n=1, attack_budget_pct=0),
+        rules=bk.BookRules(core_n=2, core_per_theme=1, attack_n=1, attack_budget_pct=10),
     )
     assert [r["ticker"] for r in book["core"]] == ["AAA", "GGG"]
     assert [r["ticker"] for r in book["attack"]] == ["BBB"]
@@ -384,13 +384,12 @@ def _budget_book(ips, themes=None):
 
 
 def test_the_attack_top_up_stops_at_the_ips_theme_budget():
-    """Widgets at 20%: AAA 5 + BBB 5 + DDD 2 + III 5 = 17% placed, so doubling AAA can
-    only spend the 3% left and BBB gets nothing — before, both went to 10% (27% Widgets)."""
-    book = _budget_book(_ips(theme_pct=20))
-    assert (_w(book, "AAA"), _w(book, "BBB"), _w(book, "III")) == (0.08, 0.05, 0.05)
+    """Widgets at 25%: AAA 5 + BBB 5 + DDD 2 + III 10 leaves 3% for the AAA top-up."""
+    book = _budget_book(_ips(theme_pct=25))
+    assert (_w(book, "AAA"), _w(book, "BBB"), _w(book, "III")) == (0.08, 0.05, 0.10)
     assert {r["ticker"]: r["cap"] for r in book["core"]}["AAA"] == "attack 8%"
     widgets = sum(r["weight"] for r in book["core"] + book["attack"] if r["industry"] == "Widgets")
-    assert widgets == pytest.approx(0.20)
+    assert widgets == pytest.approx(0.25)
 
 
 def test_a_locked_position_spends_its_theme_budget_first_and_the_themes_map_names_the_theme():
@@ -450,9 +449,9 @@ def test_an_overflow_incumbent_keeps_its_attack_slot_inside_the_buffer_only():
 
 
 def test_a_doubled_incumbent_keeps_the_top_up_inside_the_buffer(built):
-    """Fixture, 10% attack budget: III's overflow slot uses 5%, one doubling is left. By rank it
+    """Fixture, 15% attack budget: III's overflow slot uses 10%, one doubling is left. By rank it
     goes to AAA; with BBB doubled yesterday (and inside 2 x 1 eligible names) BBB keeps it."""
-    rules = bk.BookRules(attack_budget_pct=10.0)
+    rules = bk.BookRules(attack_budget_pct=15.0)
 
     def doubled(prev):
         book = bk.build_book(
@@ -532,3 +531,157 @@ def test_gross_never_passes_100_percent_and_the_lowest_ranks_give_way():
     assert book["gross"] == pytest.approx(1.0)
     assert [r["ticker"] for r in book["core"]] == [f"T{i}" for i in range(1, 11)]
     assert {r[1]: r[3] for r in book["skipped"]}["T12"] == "Buy gross cap 100%"
+
+
+@pytest.mark.parametrize(("stop", "weight", "cap"), [
+    (90.0, 0.10, "attack 10%"),
+    (67.0, 0.0606, "percent-risk (2% NAV / 33% stop)"),
+])
+def test_overflow_uses_twice_base_and_twice_risk_budget(stop, weight, cap):
+    screen, ratings = _one_theme_screen(2)
+    ratings[1]["stop_loss"] = stop
+    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1)
+    book = bk.build_book(screen, ratings, _ips(), rules=rules)
+    assert book["attack"][0]["weight"] == weight
+    assert book["attack"][0]["cap"] == cap
+    reduced = bk.build_book(screen, ratings, _ips(), rules=rules, pm_size={"T2": 0.5})
+    assert reduced["attack"][0]["weight"] == round(weight * 0.5, 4)
+    assert reduced["attack"][0]["cap"] == f"{cap} x 0.5 (PM size)"
+
+
+@pytest.mark.parametrize(("budget", "weights"), [
+    (0.0, []), (0.5, []), (10.5, [0.10]), (15.0, [0.10, 0.05]),
+    (15.555, [0.10, 0.0555]), (30.0, [0.10, 0.10, 0.10]), (35.0, [0.10, 0.10, 0.10]),
+])
+def test_overflow_and_core_top_ups_never_overspend_attack_budget(budget, weights):
+    rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=3, attack_budget_pct=budget)
+    book = bk.build_book(*_one_theme_screen(), _ips(), rules=rules)
+    assert [r["weight"] for r in book["attack"]] == weights
+    spent = sum(weights) + sum(r["weight"] - 0.05 for r in book["core"])
+    assert spent <= budget / 100 + 1e-9
+    if weights and weights[-1] < 0.10:
+        assert book["attack"][-1]["cap"] == "attack budget"
+
+
+def test_no_map_book_carries_no_leverage_fields(built):
+    """Without a map the book has none of the vehicle feature's keys, so its outputs do not change.
+    (Was a sha256 over every rendered output — it broke on any unrelated site change.)"""
+    assert "exposure" not in built and "unmapped_attack" not in built
+    rows = built["core"] + built["attack"] + ((built.get("alloc") or {}).get("rows") or [])
+    assert not any(k in r for r in rows for k in ("vehicle", "leverage", "exposure", "vehicle_price"))
+
+
+@pytest.mark.parametrize("quote", [None, 37.0])
+def test_leverage_changes_vehicle_and_exposure_only(built, tmp_path, quote):
+    from kuroshio import cli
+    from kuroshio.site.labels import labels
+    from kuroshio.site.render import render_site
+
+    positions = bk.load_positions(FIX / "positions.csv")
+    positions.append(dict(symbol="AAAU", quantity=10, market_value=370,
+                          average_price=37, asset_type="ETF"))
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+        meta=bk.load_json(FIX / "meta.json"), scores_rows=bk.load_jsonl(FIX / "scores.jsonl"),
+        positions=positions, nav=100000, pm_size=bk.load_json(FIX / "pm_size.json"),
+        locked=bk.load_json(FIX / "locked.json"),
+        leverage_map={"AAA": "AAAU", "III": "IIIU", "GGG": "GGGU", "ZZZ": "ZZZU"},
+        closes={"AAAU": {"2026-01-05": quote}, "IIIU": {"2026-01-04": 37}},
+        prev_book=built,
+    )
+    for sleeve in ("core", "attack", "locked"):
+        for old, new in zip(built[sleeve], book[sleeve], strict=True):
+            if old["ticker"] in {"AAA", "III"}:
+                assert new == dict(old, vehicle=old["ticker"] + "U", leverage=2,
+                                   exposure=2 * old["weight"])
+            else:
+                assert new == old  # unmapped attack BBB/DDD; mapped non-attack GGG and locked ZZZ
+    assert "unmapped_attack" not in built
+    assert book["unmapped_attack"] == ["BBB", "DDD"]
+    assert book["gross"] == built["gross"] and book["cash"] == built["cash"]
+    assert book["exposure"] == pytest.approx(built["gross"] + 0.2)
+    assert bk.candidates_yaml(book) == bk.candidates_yaml(built)
+    assert bk.concentration(book) == bk.concentration(built)
+    assert book["ips"] == built["ips"]
+    aaa = next(r for r in book["alloc"]["rows"] if r["ticker"] == "AAA")
+    assert aaa["vehicle"] == "AAAU" and aaa["exposure"] == 0.2 and aaa["leverage"] == 2
+    assert aaa["entry"] == 100 and aaa["vehicle_price"] == quote
+    assert aaa["shares"] == (270 if quote else None)
+    assert aaa["usd"] == (9990 if quote else 10000) and aaa["have"] == 370
+    iii = next(r for r in book["alloc"]["rows"] if r["ticker"] == "III")
+    assert iii["shares"] is None  # a stale quote is not the book-date ETF close
+    assert {r[0] for r in book["alloc"]["sells"]} == {"AAA", "QQQ"}
+    holdings = yaml.safe_load(bk.holdings_yaml(book))
+    old_holdings = yaml.safe_load(bk.holdings_yaml(built))
+    for old, new in zip(old_holdings, holdings, strict=True):
+        assert {k: v for k, v in new.items() if k not in {"vehicle", "exposure"}} == old
+    assert holdings[0]["vehicle"] == "AAAU" and holdings[0]["exposure"] == 0.2
+    out = tmp_path / "book"
+    bk.write_book(book, out)
+    assert json.loads((out / "book.json").read_text())["unmapped_attack"] == ["BBB", "DDD"]
+    assert "BBB, DDD" in (out / "alloc.md").read_text()
+    assert json.loads((out / "book.json").read_text())["core"][0]["leverage"] == 2
+    handoff = cli._holdings_from_yaml(str(out / "holdings.yml"))
+    assert handoff[0].ticker == "AAA" and handoff[0].leverage == 1
+    site = tmp_path / "site"
+    render_site(out, FIX / "reports", site)
+    for lang, prefix, label in (("en", "", "Exposure"), ("zh", "zh/", "曝險")):
+        for text in (bk.render_book_md(book, lang), bk.render_alloc_md(book, lang),
+                     (site / prefix / "index.html").read_text(),
+                     (site / prefix / "alloc.html").read_text()):
+            assert "2x AAAU" in text and "2x IIIU" in text and f"{label}: 20.0%" in text
+            assert "2x GGGU" not in text
+        heading = labels(lang)["unmapped_attack_head"]
+        assert heading not in bk.render_alloc_md(built, lang)
+        assert f"### {heading}\n\nBBB, DDD" in bk.render_alloc_md(book, lang)
+        html = (site / prefix / "alloc.html").read_text()
+        assert heading in html
+        queue = html.split(heading, 1)[1]
+        assert "BBB" in queue and "DDD" in queue
+        assert "GGG" not in queue
+        assert "reports/AAA/2026-01-02.html" in html and "<td>n/a</td>" in html
+
+
+@pytest.mark.parametrize("theme_pct", [20, 100])
+@pytest.mark.parametrize("stop", [67, 90])
+def test_leverage_keeps_cap_decisions_and_gross_cut(theme_pct, stop):
+    screen, ratings = _wide_screen(15, stop=stop)
+    # Repeated industries exercise overflow, theme/risk/attack caps, and the gross cut.
+    for i, row in enumerate(screen):
+        row["industry"] = f"I{i // 3}"
+    rules = bk.BookRules(core_per_theme=1, attack_n=10, base_pct=10, attack_budget_pct=80)
+    plain = bk.build_book(screen, ratings, _ips(theme_pct), rules=rules)
+    leveraged = bk.build_book(screen, ratings, _ips(theme_pct), rules=rules,
+                             leverage_map={r["ticker"]: r["ticker"] + "U" for r in screen})
+    assert "unmapped_attack" not in plain
+    assert leveraged.pop("unmapped_attack") == []
+    assert leveraged.pop("exposure") >= leveraged["gross"]
+    for row in leveraged["core"] + leveraged["attack"]:
+        if "vehicle" in row:
+            assert row.pop("exposure") == 2 * row["weight"]
+            assert row.pop("leverage") == 2
+            row.pop("vehicle")
+    assert leveraged == plain
+    if theme_pct == 100 and stop == 90:
+        assert plain["gross"] == pytest.approx(1)
+        assert any("gross cap" in r[3] for r in plain["skipped"])
+
+
+@pytest.mark.parametrize("price", [25, 0, -1, float("nan")])
+def test_alloc_uses_screen_etf_close_or_na(price):
+    screen, ratings = _wide_screen(1)
+    screen.append(dict(ticker="T1U", date=screen[0]["date"], rank=2, factors={"close": price}))
+    book = bk.build_book(screen, ratings, _ips(), nav=100000, leverage_map={"T1": "T1U"})
+    row = book["alloc"]["rows"][0]
+    assert row["shares"] == (400 if price == 25 else None)
+    assert row["entry"] == 100
+
+
+def test_empty_map_lists_topups_and_overflow_in_rank_order(built):
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+        meta=bk.load_json(FIX / "meta.json"), pm_size=bk.load_json(FIX / "pm_size.json"),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"), leverage_map={},
+    )
+    assert book["unmapped_attack"] == ["AAA", "BBB", "DDD", "III"]
+    assert "unmapped_attack" not in built

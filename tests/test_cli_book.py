@@ -49,8 +49,12 @@ def test_book_writes_its_five_files_and_nothing_else(tmp_path, no_network, capsy
     book = json.loads((out / "book.json").read_text())
     assert [r["ticker"] for r in book["core"]] == ["AAA", "BBB", "DDD", "GGG"]
     assert book["alloc"]["nav"] == 100000.0
+    assert book["rules"]["attack_budget_pct"] == 30.0
     assert no_network["holdings"] == str(out / "holdings.yml")  # propose ran on the book's own file
-    assert "core 4 · attack 1" in capsys.readouterr().out
+    summary = capsys.readouterr().out
+    assert "core 4 · attack 1" in summary
+    assert "unmapped attack" not in summary
+    assert "unmapped_attack" not in book
 
     # TASK-21: candidates.yml carries core+attack as challengers, not the locked name
     candidates = yaml.safe_load((out / "candidates.yml").read_text())
@@ -85,7 +89,7 @@ def test_book_rules_are_cli_options(tmp_path, no_network):
     out = tmp_path / "book"
     assert cli.main(_book_argv(
         out, "--meta", str(FIX / "meta.json"), "--scores", str(FIX / "scores.jsonl"),
-        "--core-n", "2", "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "0",
+        "--core-n", "2", "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "10",
     )) == 0
     book = json.loads((out / "book.json").read_text())
     assert [r["ticker"] for r in book["core"]] == ["AAA", "GGG"]
@@ -98,7 +102,7 @@ def test_book_attack_floor_cli_option_skips_below_floor_overflow(tmp_path, no_ne
     out = tmp_path / "book"
     assert cli.main(_book_argv(
         out, "--meta", str(FIX / "meta.json"), "--scores", str(FIX / "scores.jsonl"),
-        "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "0",
+        "--core-per-theme", "1", "--attack-n", "1", "--attack-budget-pct", "10",
         "--attack-floor", "buy",
     )) == 0
     book = json.loads((out / "book.json").read_text())
@@ -190,3 +194,48 @@ def test_stop_history_reads_a_panel_indexed_by_date_strings(monkeypatch):
     hist = cli._stop_history(str(Path(__file__).parent / "fixtures" / "screen.json"), "us", "fake", 45)
     assert hist["AAA"] == {"2026-01-02": 95.0, "2026-01-05": 89.0}
     assert cli._stop_history("unused", "us", None, 45) is None
+
+
+def test_book_leverage_map_option(tmp_path, no_network, capsys):
+    mapping = tmp_path / "vehicles.yml"
+    mapping.write_text("AAA: AAAU\n")
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out, "--leverage-map", str(mapping), "--nav", "100000")) == 0
+    book = json.loads((out / "book.json").read_text())
+    assert f" · unmapped attack {len(book['unmapped_attack'])}" in capsys.readouterr().out
+    assert book["core"][0]["vehicle"] == "AAAU"
+    assert book["alloc"]["rows"][0]["shares"] is None
+    mapping.write_text("".join(f"{row['ticker']}: {row['ticker']}U\n"
+                               for row in book["core"] + book["attack"]))
+    assert cli.main(_book_argv(out, "--leverage-map", str(mapping), "--nav", "100000")) == 0
+    assert "unmapped attack" not in capsys.readouterr().out
+    assert json.loads((out / "book.json").read_text())["unmapped_attack"] == []
+    assert cli.main(_book_argv(out, "--leverage-map", str(tmp_path / "missing.yml"))) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("content", ["AAA: [", "- AAA", "AAA: {ticker: AAAU}", "AAA: 2", ""])
+def test_book_rejects_invalid_leverage_maps(tmp_path, no_network, capsys, content):
+    mapping = tmp_path / "vehicles.yml"
+    mapping.write_text(content)
+    assert cli.main(_book_argv(tmp_path / "book", "--leverage-map", str(mapping))) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_stop_history_reuses_provider_for_etf_quotes(monkeypatch):
+    import pandas as pd
+
+    from kuroshio.types import Panel
+
+    calls = []
+
+    class Fake:
+        def fetch_panel(self, tickers, days, end=None):
+            calls.append(tickers)
+            close = pd.DataFrame({t: [37.0] for t in tickers}, index=["2026-01-05"])
+            return Panel(close=close, volume=close, institutional=None)
+
+    monkeypatch.setattr("kuroshio.providers.get_provider", lambda name: Fake())
+    hist = cli._stop_history(str(FIX / "screen.json"), "us", "fake", 45, ["AAAU", "AAAU"])
+    assert calls[0].count("AAAU") == 1
+    assert hist["AAAU"] == {"2026-01-05": 37.0}

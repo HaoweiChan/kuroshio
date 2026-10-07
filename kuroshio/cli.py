@@ -141,7 +141,7 @@ def _load_yaml(path: str):
 
 
 def _holdings_from_yaml(path: str) -> list[Holding]:
-    known = {f.name for f in dataclasses.fields(Holding)}
+    known = {f.name for f in dataclasses.fields(Holding)} | {"vehicle", "exposure"}
     holdings = []
     for item in _load_yaml(path):
         where = f"{path}: {item.get('ticker', '?')}"
@@ -168,7 +168,8 @@ def _holdings_from_yaml(path: str) -> list[Holding]:
         if item.get("entry_date") is not None:
             # unquoted `2025-01-15` comes back from PyYAML as a datetime.date; the field is ISO str
             item["entry_date"] = str(item["entry_date"])
-        holdings.append(Holding(**item))
+        # Book handoff metadata: propose still evaluates the underlying and capital weight.
+        holdings.append(Holding(**{k: v for k, v in item.items() if k not in {"vehicle", "exposure"}}))
     return holdings
 
 
@@ -1107,7 +1108,8 @@ def _write_track(book: dict, out: Path, market: str, provider_name: str) -> None
     (out / "track.json").write_text(json.dumps(tr, indent=1), encoding="utf-8")
 
 
-def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_days: int) -> dict | None:
+def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_days: int,
+                  vehicles=()) -> dict | None:
     """{ticker: {date: close}} for the screen's names over the rating TTL, so the book can tell a
     name that broke its stop since its rating from one that never did. Only with --provider;
     a failed fetch falls back to today's close alone, with a warning."""
@@ -1119,6 +1121,7 @@ def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_
     try:
         rows = bookmod.load_screen(screen_path)
         tickers = [r["ticker"] for r in rows]
+        tickers += [t for t in dict.fromkeys(vehicles) if t not in tickers]
         bench = get_profile(market).benchmark
         if bench:  # first: providers/yf.py filters the panel to its first resolved ticker
             tickers = [bench] + [t for t in tickers if t != bench]
@@ -1146,6 +1149,19 @@ def cmd_book(args: argparse.Namespace) -> int:
     )
     try:
         screen = bookmod.load_screen(args.screen)
+        leverage_map = None
+        if args.leverage_map:
+            import yaml
+
+            try:
+                leverage_map = yaml.safe_load(Path(args.leverage_map).read_text())
+            except yaml.YAMLError as exc:
+                raise ValueError(f"{args.leverage_map}: invalid leverage map YAML: {exc}") from exc
+            if not isinstance(leverage_map, dict) or any(
+                not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
+                for k, v in leverage_map.items()
+            ):
+                raise ValueError(f"{args.leverage_map}: expected a flat UNDERLYING: ETF_TICKER map")
         book = bookmod.build_book(
             screen,
             bookmod.load_jsonl(args.ratings),
@@ -1157,7 +1173,9 @@ def cmd_book(args: argparse.Namespace) -> int:
             pm_size=bookmod.load_json(args.pm_size),
             locked=bookmod.load_json(args.locked),
             themes=bookmod.load_json(args.themes),
-            closes=_stop_history(args.screen, args.market, args.provider, rules.ttl_days),
+            leverage_map=leverage_map,
+            closes=_stop_history(args.screen, args.market, args.provider, rules.ttl_days,
+                                 (leverage_map or {}).values()),
             prev_book=bookmod.previous_book(Path(args.out).parent, screen[0]["date"]),
             market=args.market,
             rules=rules,
@@ -1206,7 +1224,10 @@ def cmd_book(args: argparse.Namespace) -> int:
             print(f"warning: track record unavailable: {exc}", file=sys.stderr)
     print(
         f"{book['asof']}: core {len(book['core'])} · attack {len(book['attack'])} · "
-        f"skipped {len(book['skipped'])} · gross {book['gross']:.1%} -> {out}"
+        f"skipped {len(book['skipped'])} · gross {book['gross']:.1%}"
+        + (f" · exposure {book['exposure']:.1%}" if "exposure" in book else "")
+        + (f" · unmapped attack {len(book['unmapped_attack'])}" if book.get("unmapped_attack") else "")
+        + f" -> {out}"
     )
     return 0
 
@@ -1376,6 +1397,7 @@ def main(argv: list[str] | None = None) -> int:
         help="symbol,quantity,market_value,average_price[,asset_type] table (CSV or JSON)",
     )
     p_book.add_argument("--pm-size", help="JSON of {ticker: multiplier} to size a name down")
+    p_book.add_argument("--leverage-map", help="YAML of UNDERLYING: ETF_TICKER for 2x attack vehicles")
     p_book.add_argument("--locked", help="JSON of {ticker: {theme, note}} the book must not resize")
     p_book.add_argument(
         "--themes",
@@ -1391,7 +1413,7 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument("--core-per-theme", type=int, default=3)
     p_book.add_argument("--attack-n", type=int, default=3)
     p_book.add_argument("--base-pct", type=float, default=5.0)
-    p_book.add_argument("--attack-budget-pct", type=float, default=15.0)
+    p_book.add_argument("--attack-budget-pct", type=float, default=30.0)
     p_book.add_argument("--tier-n", type=int, default=0,
                         help="size the top N core names on the tier base and risk budget (0 = off)")
     p_book.add_argument("--tier-base-pct", type=float, default=7.5)

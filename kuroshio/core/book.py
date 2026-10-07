@@ -21,13 +21,18 @@ The rules, in the order they apply (all of them options on `BookRules`):
 * **Weight** — `min(base, caps.position_pct, percent-risk)` where percent-risk is
   `caps.risk_budget_pct` of NAV spread over the entry-to-invalidation distance, times the PM
   size multiplier for that name.
-* **Attack** — names the theme cap pushed out of the core go into an attack sleeve at base
-  weight, provided the rating is at or above `attack_floor` (default `overweight`); a name
+* **Attack** — names the theme cap pushed out of the core go into an attack sleeve at twice base
+  and twice the risk budget, subject to the IPS position cap and PM size multiplier,
+  provided the rating is at or above `attack_floor` (default `overweight`); a name
   below the floor is skipped and the next qualifying overflow name by rank takes the slot.
-  Whatever is left of `attack_budget_pct` raises the highest-ranked core names to twice their
+  Overflow weights shrink to the remaining attack and theme budgets (skipped under 1% room).
+  Whatever is left of `attack_budget_pct` (default 30%) raises the highest-ranked core names to twice their
   own weight, capped at twice base — so an attack name risks at most 2 x `caps.risk_budget_pct`
-  of NAV, and a wide stop shrinks the top-up smoothly instead of forbidding it.
-  Concentration, not leverage. Hysteresis (`prev_book`): a name in yesterday's attack sleeve
+  of NAV, and a wide stop shrinks the weight smoothly instead of forbidding it.
+  Concentration by default; with a leverage map, attack rows buy 2x ETFs at unchanged
+  capital weight. Exposure and loss-at-stop are then about twice what the caps charge;
+  daily-reset leveraged ETFs drift from 2x over multi-day holds.
+  Hysteresis (`prev_book`): a name in yesterday's attack sleeve
   keeps its slot — overflow or doubling — while it still qualifies and ranks inside
   `attack_buffer` x the slot count (2 by default: top 6 for 3 slots); newcomers only take
   free slots. Without it the sleeve changed on 14 of 16 days on rank noise; on S&P names
@@ -71,7 +76,7 @@ class BookRules:
     core_per_theme: int = 3
     attack_n: int = 3
     base_pct: float = 5.0
-    attack_budget_pct: float = 15.0
+    attack_budget_pct: float = 30.0
     attack_floor: str = "overweight"
     attack_buffer: int = 2       # an incumbent attack name keeps its slot inside attack slots x this
     tier_n: int = 0              # the top N core names get the tier base and risk budget (0 = off)
@@ -158,6 +163,7 @@ def build_book(
     pm_size: dict | None = None,
     locked: dict | None = None,
     themes: dict | None = None,
+    leverage_map: dict | None = None,
     closes: dict | None = None,
     prev_book: dict | None = None,
     market: str = "us",
@@ -194,10 +200,14 @@ def build_book(
     position_pct = ips.caps.position_pct / 100
     risk_budget = ips.caps.risk_budget_pct / 100
 
-    def target_weight(entry: float, stop: float | None, tier: bool = False) -> tuple[float, str]:
+    def target_weight(
+        entry: float, stop: float | None, tier: bool = False, attack: bool = False,
+    ) -> tuple[float, str]:
         # a tier name is sized on its own base and risk budget; every cap below still applies
         b, rb = (rules.tier_base_pct / 100, rules.tier_risk_pct / 100) if tier else (base, risk_budget)
-        w, cap = b, f"{'tier' if tier else 'base'} {b:.1%}".replace(".0%", "%")
+        if attack:
+            b, rb = 2 * base, 2 * risk_budget
+        w, cap = b, f"{'attack' if attack else 'tier' if tier else 'base'} {b:.1%}".replace(".0%", "%")
         if position_pct < w:
             w, cap = position_pct, "caps.position_pct"
         if stop is not None and 0 < stop < entry:
@@ -267,7 +277,7 @@ def build_book(
             if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
                 skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
                 continue
-            w, cap = target_weight(entry, stop, t in tier)
+            w, cap = target_weight(entry, stop, t in tier, per_theme.get(ind, 0) >= rules.core_per_theme)
             if pm_size.get(t, 1.0) < 1.0:
                 w, cap = round(w * pm_size[t], 4), f"{cap} x {pm_size[t]:g} (PM size)"
             rec = {
@@ -302,6 +312,14 @@ def build_book(
                 else:
                     slot = None
             if slot:
+                if slot == "attack":
+                    attack_room = budget - sum(x["weight"] for x in attack if x is not evict)
+                    if attack_room < MIN_THEME_ROOM:
+                        skipped.append((row["rank"], t, ind, "attack budget full"))
+                        continue
+                    if rec["weight"] > attack_room:
+                        rec["weight"] = math.floor(attack_room * 10000 + 1e-9) / 10000
+                        rec["cap"] = "attack budget"
                 theme = themes.get(t) or ind
                 if evict:
                     theme_used[evict["budget_theme"]] -= evict["weight"]
@@ -395,6 +413,10 @@ def build_book(
             (core if rec in core else attack).remove(rec)
             skipped.append((rec["rank"], rec["ticker"], rec["industry"], f"{rec['rating']} gross cap 100%"))
     gross = sum(x["weight"] for x in core + attack + locked_recs)
+    # Apply vehicles only after every capital-weight cap and hysteresis decision.
+    for x in core + attack:
+        if (x in attack or x.get("sleeve") == "attack") and x["ticker"] in (leverage_map or {}):
+            x.update(vehicle=leverage_map[x["ticker"]], leverage=2, exposure=2 * x["weight"])
 
     # NAV alone is enough to size the book in money; positions only add the "held now" diff
     alloc = None
@@ -403,15 +425,27 @@ def build_book(
         rows, invested = [], 0.0
         for sleeve, lst in (("core", core), ("attack", attack)):
             for x in lst:
-                shares = math.floor(nav * x["weight"] / x["entry"])
-                usd = shares * x["entry"]
+                vehicle = x.get("vehicle", x["ticker"])
+                price = x["entry"]
+                if x.get("vehicle"):
+                    price = (closes or {}).get(vehicle, {}).get(asof)
+                    if price is None:
+                        price = next((r["factors"]["close"] for r in screen_rows
+                                      if r["ticker"] == vehicle and r["date"] == asof), None)
+                    if price is not None and (not math.isfinite(price) or price <= 0):
+                        price = None
+                shares = math.floor(nav * x["weight"] / price) if price else None
+                # Without a vehicle quote, reserve target capital; no invented share count.
+                usd = shares * price if shares is not None else nav * x["weight"]
                 invested += usd
                 rows.append({
                     "ticker": x["ticker"], "sleeve": x.get("sleeve", sleeve), "weight": x["weight"],
                     "rating": x["rating"], "entry": x["entry"], "shares": shares, "usd": round(usd),
-                    "have": round(held.get(x["ticker"], {}).get("market_value", 0) or 0),
+                    "have": round(held.get(vehicle, {}).get("market_value", 0) or 0),
+                    **({"vehicle": vehicle, "leverage": 2, "exposure": x["exposure"],
+                        "vehicle_price": price} if x.get("vehicle") else {}),
                 })
-        book_tickers = {x["ticker"] for x in core + attack} | set(locked)
+        book_tickers = {x.get("vehicle", x["ticker"]) for x in core + attack} | set(locked)
         sells = [
             (p["symbol"], p["market_value"], p["asset_type"])
             for p in positions if p["symbol"] not in book_tickers
@@ -435,6 +469,11 @@ def build_book(
     return {
         "asof": asof, "market": market, "core": core, "attack": attack, "locked": locked_recs,
         "skipped": skipped, "gross": gross, "cash": 1 - gross, "alloc": alloc, "review": review,
+        **({"exposure": sum(x.get("exposure", x["weight"]) for x in core + attack + locked_recs),
+            "unmapped_attack": [x["ticker"] for x in sorted(core + attack, key=lambda r: r["rank"])
+                                if (x in attack or x.get("sleeve") == "attack")
+                                and x["ticker"] not in leverage_map]}
+           if leverage_map is not None else {}),
         "rules": vars(rules), "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
         # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
         "ips": {
@@ -500,6 +539,8 @@ def holdings_yaml(book: dict) -> str:
             "thesis": f"screen rank {x['rank']} on {book['asof']}; "
                       f"rating {x['rating']} ({x['rating_date']})",
             **({"invalidation_price": round(x["stop"], 2)} if x["stop"] else {}),
+            # `leverage` already charges propose's caps; keep this handoff capital-based.
+            **({"vehicle": x["vehicle"], "exposure": x["exposure"]} if x.get("vehicle") else {}),
         }
         for x in book["core"] + book["attack"]
     ] + [
@@ -582,9 +623,11 @@ def render_book_md(
         e, s, tg = rec["entry"], rec.get("stop"), rec.get("target")
         stop_d = _pct((s - e) / e, sign=True, na=na) if s else na
         rr = f"{(tg - e) / (e - s):.1f}" if s and tg and e > s else na
+        vehicle = f" (2x {rec['vehicle']})" if rec.get("vehicle") else ""
+        exposure = f" ({lb['exposure']}: {rec['exposure']:.1%})" if rec.get("vehicle") else ""
         return (
-            f"| {lb.get(sleeve, sleeve)} | {rec['ticker']} | {rec['rank']} | {rec['industry']} | "
-            f"{rec['rating']} | {rec['weight']:.1%} | {rec['cap']} | {e:,.2f} | {s if s else na} | "
+            f"| {lb.get(sleeve, sleeve)} | {rec['ticker']}{vehicle} | {rec['rank']} | {rec['industry']} | "
+            f"{rec['rating']} | {rec['weight']:.1%}{exposure} | {rec['cap']} | {e:,.2f} | {s if s else na} | "
             f"{stop_d} | {tg if tg else na} | {rr} | {_pct(rec['mom'], sign=True, na=na)} | "
             f"{_pct(rec['vol'], na=na)} | {ma50.get(rec['ticker'], na)} |"
         )
@@ -612,6 +655,10 @@ def render_book_md(
         out.append("| " + " | ".join(cells + [na] * 7) + " |")
     core_w, att_w, lock_w = sleeve_weights(book)
     out += ["", lb["sleeve_totals"].format(core=core_w, attack=att_w, locked=lock_w, cash=book["cash"]), ""]
+
+    if "exposure" in book:
+        out += [f"{lb['gross_capital']}: {book['gross']:.1%} · "
+                f"{lb['exposure']}: {book['exposure']:.1%}", "", lb['rule_leverage'], ""]
 
     by_sector, by_industry = concentration(book)
     out += [f"## {lb['concentration_head']}", "", f"| {lb['sector']} | {lb['weight']} |", "|---|---|"]
@@ -654,11 +701,19 @@ def render_alloc_md(book: dict, lang: str | None = None) -> str:
         "| " + " | ".join(lb[h] for h in heads) + " |", "|" + "---|" * len(heads),
     ]
     for r in alloc["rows"]:
+        vehicle = f" (2x {r['vehicle']})" if r.get("vehicle") else ""
+        exposure = f" ({lb['exposure']}: {r['exposure']:.1%})" if r.get("vehicle") else ""
+        price = r.get("vehicle_price", r["entry"])
+        close = f"{price:,.2f}" if price is not None else lb["na"]
+        shares = r["shares"] if r["shares"] is not None else lb["na"]
         out.append(
-            f"| {lb.get(r['sleeve'], r['sleeve'])} | {r['ticker']} | {r['rating']} | {r['weight']:.1%} | "
-            f"{nav * r['weight']:,.0f} | {r['entry']:,.2f} | {r['shares']} | {r['usd']:,.0f} | "
+            f"| {lb.get(r['sleeve'], r['sleeve'])} | {r['ticker']}{vehicle} | {r['rating']} | "
+            f"{r['weight']:.1%}{exposure} | "
+            f"{nav * r['weight']:,.0f} | {close} | {shares} | {r['usd']:,.0f} | "
             f"{r['have']:,.0f} | {r['usd'] - r['have']:+,.0f} |"
         )
+    if any(r.get("vehicle") for r in alloc["rows"]):
+        out += ["", lb["alloc_vehicle_note"], ""]
     lock_mv = sum(x["market_value"] for x in book["locked"])
     invested = alloc["invested"]
     out += ["", f"{lb['invested']} **{invested:,.0f}** ({invested / nav:.1%}) · "
@@ -697,6 +752,9 @@ def render_alloc_md(book: dict, lang: str | None = None) -> str:
             ", ".join(unrated) or lb["none"], "",
             f"### {lb['review_head'].format(days=rules.review_days, warn=rules.earnings_warn_days)}", "",
             ", ".join(review) or lb["none"], ""]
+    if "unmapped_attack" in book:
+        out += [f"### {lb['unmapped_attack_head']}", "",
+                ", ".join(book["unmapped_attack"]) or lb["none"], ""]
     return "\n".join(out)
 
 

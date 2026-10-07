@@ -41,6 +41,8 @@ def _book_dir(tmp_path: Path) -> Path:
         pm_size=json.loads((FIX / "pm_size.json").read_text()),
         locked=json.loads((FIX / "locked.json").read_text()),
         ips_name="ips-balanced.md",
+        # Keep AAA/BBB doubled and DDD in core for the site ordering fixture.
+        rules=bk.BookRules(attack_budget_pct=20.0),
     )
     out = tmp_path / "book"
     bk.write_book(book, out, propose_text="### SWAP CCC for AAA\n\nsynthetic card\n\n- because tests")
