@@ -51,7 +51,10 @@ def test_book_writes_its_five_files_and_nothing_else(tmp_path, no_network, capsy
     assert book["alloc"]["nav"] == 100000.0
     assert book["rules"]["attack_budget_pct"] == 30.0
     assert no_network["holdings"] == str(out / "holdings.yml")  # propose ran on the book's own file
-    assert "core 4 · attack 1" in capsys.readouterr().out
+    summary = capsys.readouterr().out
+    assert "core 4 · attack 1" in summary
+    assert "unmapped attack" not in summary
+    assert "unmapped_attack" not in book
 
     # TASK-21: candidates.yml carries core+attack as challengers, not the locked name
     candidates = yaml.safe_load((out / "candidates.yml").read_text())
@@ -199,8 +202,14 @@ def test_book_leverage_map_option(tmp_path, no_network, capsys):
     out = tmp_path / "book"
     assert cli.main(_book_argv(out, "--leverage-map", str(mapping), "--nav", "100000")) == 0
     book = json.loads((out / "book.json").read_text())
+    assert f" · unmapped attack {len(book['unmapped_attack'])}" in capsys.readouterr().out
     assert book["core"][0]["vehicle"] == "AAAU"
     assert book["alloc"]["rows"][0]["shares"] is None
+    mapping.write_text("".join(f"{row['ticker']}: {row['ticker']}U\n"
+                               for row in book["core"] + book["attack"]))
+    assert cli.main(_book_argv(out, "--leverage-map", str(mapping), "--nav", "100000")) == 0
+    assert "unmapped attack" not in capsys.readouterr().out
+    assert json.loads((out / "book.json").read_text())["unmapped_attack"] == []
     assert cli.main(_book_argv(out, "--leverage-map", str(tmp_path / "missing.yml"))) == 2
     assert "error:" in capsys.readouterr().err
 

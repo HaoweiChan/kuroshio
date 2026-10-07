@@ -461,6 +461,8 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
                        lb["review_head"].format(days=rules["review_days"],
                                                 warn=rules["earnings_warn_days"]),
                        review, lb)
+                   + (_chip_list(lb["unmapped_attack_head"], book["unmapped_attack"], lb)
+                      if "unmapped_attack" in book else "")
                    + "</div>")
     )
 

@@ -582,6 +582,7 @@ def test_no_map_outputs_are_byte_identical(built):
 @pytest.mark.parametrize("quote", [None, 37.0])
 def test_leverage_changes_vehicle_and_exposure_only(built, tmp_path, quote):
     from kuroshio import cli
+    from kuroshio.site.labels import labels
     from kuroshio.site.render import render_site
 
     positions = bk.load_positions(FIX / "positions.csv")
@@ -603,6 +604,8 @@ def test_leverage_changes_vehicle_and_exposure_only(built, tmp_path, quote):
                                    exposure=2 * old["weight"])
             else:
                 assert new == old  # unmapped attack BBB/DDD; mapped non-attack GGG and locked ZZZ
+    assert "unmapped_attack" not in built
+    assert book["unmapped_attack"] == ["BBB", "DDD"]
     assert book["gross"] == built["gross"] and book["cash"] == built["cash"]
     assert book["exposure"] == pytest.approx(built["gross"] + 0.2)
     assert bk.candidates_yaml(book) == bk.candidates_yaml(built)
@@ -623,6 +626,8 @@ def test_leverage_changes_vehicle_and_exposure_only(built, tmp_path, quote):
     assert holdings[0]["vehicle"] == "AAAU" and holdings[0]["exposure"] == 0.2
     out = tmp_path / "book"
     bk.write_book(book, out)
+    assert json.loads((out / "book.json").read_text())["unmapped_attack"] == ["BBB", "DDD"]
+    assert "BBB, DDD" in (out / "alloc.md").read_text()
     assert json.loads((out / "book.json").read_text())["core"][0]["leverage"] == 2
     handoff = cli._holdings_from_yaml(str(out / "holdings.yml"))
     assert handoff[0].ticker == "AAA" and handoff[0].leverage == 1
@@ -634,7 +639,14 @@ def test_leverage_changes_vehicle_and_exposure_only(built, tmp_path, quote):
                      (site / prefix / "alloc.html").read_text()):
             assert "2x AAAU" in text and "2x IIIU" in text and f"{label}: 20.0%" in text
             assert "2x GGGU" not in text
+        heading = labels(lang)["unmapped_attack_head"]
+        assert heading not in bk.render_alloc_md(built, lang)
+        assert f"### {heading}\n\nBBB, DDD" in bk.render_alloc_md(book, lang)
         html = (site / prefix / "alloc.html").read_text()
+        assert heading in html
+        queue = html.split(heading, 1)[1]
+        assert "BBB" in queue and "DDD" in queue
+        assert "GGG" not in queue
         assert "reports/AAA/2026-01-02.html" in html and "<td>n/a</td>" in html
 
 
@@ -649,6 +661,8 @@ def test_leverage_keeps_cap_decisions_and_gross_cut(theme_pct, stop):
     plain = bk.build_book(screen, ratings, _ips(theme_pct), rules=rules)
     leveraged = bk.build_book(screen, ratings, _ips(theme_pct), rules=rules,
                              leverage_map={r["ticker"]: r["ticker"] + "U" for r in screen})
+    assert "unmapped_attack" not in plain
+    assert leveraged.pop("unmapped_attack") == []
     assert leveraged.pop("exposure") >= leveraged["gross"]
     for row in leveraged["core"] + leveraged["attack"]:
         if "vehicle" in row:
@@ -669,3 +683,13 @@ def test_alloc_uses_screen_etf_close_or_na(price):
     row = book["alloc"]["rows"][0]
     assert row["shares"] == (400 if price == 25 else None)
     assert row["entry"] == 100
+
+
+def test_empty_map_lists_topups_and_overflow_in_rank_order(built):
+    book = bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+        meta=bk.load_json(FIX / "meta.json"), pm_size=bk.load_json(FIX / "pm_size.json"),
+        scores_rows=bk.load_jsonl(FIX / "scores.jsonl"), leverage_map={},
+    )
+    assert book["unmapped_attack"] == ["AAA", "BBB", "DDD", "III"]
+    assert "unmapped_attack" not in built

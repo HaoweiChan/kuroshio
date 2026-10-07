@@ -469,7 +469,10 @@ def build_book(
     return {
         "asof": asof, "market": market, "core": core, "attack": attack, "locked": locked_recs,
         "skipped": skipped, "gross": gross, "cash": 1 - gross, "alloc": alloc, "review": review,
-        **({"exposure": sum(x.get("exposure", x["weight"]) for x in core + attack + locked_recs)}
+        **({"exposure": sum(x.get("exposure", x["weight"]) for x in core + attack + locked_recs),
+            "unmapped_attack": [x["ticker"] for x in sorted(core + attack, key=lambda r: r["rank"])
+                                if (x in attack or x.get("sleeve") == "attack")
+                                and x["ticker"] not in leverage_map]}
            if leverage_map is not None else {}),
         "rules": vars(rules), "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
         # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
@@ -749,6 +752,9 @@ def render_alloc_md(book: dict, lang: str | None = None) -> str:
             ", ".join(unrated) or lb["none"], "",
             f"### {lb['review_head'].format(days=rules.review_days, warn=rules.earnings_warn_days)}", "",
             ", ".join(review) or lb["none"], ""]
+    if "unmapped_attack" in book:
+        out += [f"### {lb['unmapped_attack_head']}", "",
+                ", ".join(book["unmapped_attack"]) or lb["none"], ""]
     return "\n".join(out)
 
 

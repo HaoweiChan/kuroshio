@@ -1226,6 +1226,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         f"{book['asof']}: core {len(book['core'])} · attack {len(book['attack'])} · "
         f"skipped {len(book['skipped'])} · gross {book['gross']:.1%}"
         + (f" · exposure {book['exposure']:.1%}" if "exposure" in book else "")
+        + (f" · unmapped attack {len(book['unmapped_attack'])}" if book.get("unmapped_attack") else "")
         + f" -> {out}"
     )
     return 0

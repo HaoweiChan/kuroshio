@@ -119,6 +119,7 @@ LABELS: dict[str, dict[str, str]] = {
         "disposals_head": "Held but not in the book",
         "disposals_lede": "What a full reset to the book would sell, {total:,.0f} in total.",
         "queue_head": "Research queue",
+        "unmapped_attack_head": "Attack names without a 2x ETF mapping",
         "unrated_head": "Unrated in the screened top names",
         "review_head": "Due for a re-rating (older than {days} days, or earnings within {warn} days)",
         # --- site ---
@@ -361,6 +362,7 @@ LABELS: dict[str, dict[str, str]] = {
         "disposals_head": "現持有但不在 book",
         "disposals_lede": "完全照 book 重建會處分的部位，合計 {total:,.0f}。",
         "queue_head": "研究佇列",
+        "unmapped_attack_head": "攻擊倉裡沒有 2x ETF 對照的名字",
         "unrated_head": "篩選前段裡尚未評級的名字",
         "review_head": "該重評的（評級超過 {days} 天，或 {warn} 天內財報）",
         "nav_page_title": "投資組合",
