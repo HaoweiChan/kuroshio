@@ -424,7 +424,15 @@ argparse subcommands:
   [--themes t.json] [--provider yfinance] [--core-n 15 ...]` — the mechanical book (`core/book.py`): the screen
   ranking walked under a per-theme cap, the rating veto (day TTL, plus the earnings expiry when
   `--scores` supplies `fundamentals.next_earnings_date`), `min(base, caps.position_pct,
-  percent-risk)` weights times the PM multiplier, the attack-budget overflow sleeve, and
+  percent-risk)` weights times the PM multiplier, and a default 30% attack budget. Overflow names
+  use twice base and twice the risk budget with the same position cap and PM multiplier,
+  shrunk to remaining attack/theme room (skipped below 1% room); the remainder tops up core
+  names to twice their own weight, at most twice base. Concentration by default;
+  optional `--leverage-map FILE` (flat YAML `UNDERLYING: ETF_TICKER`) buys mapped attack
+  rows through 2x ETFs at unchanged capital weight. All caps charge capital, while exposure
+  and loss-at-stop are about twice that amount; daily resets drift from 2x over multi-day holds.
+  Underlying identity, stops and targets stay unchanged. ETF shares use book-date screen or
+  existing provider-history closes, else n/a with target capital reserved before rounding. Includes
   owner-locked positions at their live weight. Every placement and every attack doubling
   spends the IPS theme budget (`caps.theme_caps`, else `caps.theme_pct`) in rank order,
   locked positions first; a theme is the `--themes` label for the ticker, else its industry. Writes holdings.yml, book.json, book.md,
@@ -443,7 +451,9 @@ argparse subcommands:
 - `kuroshio mcp` — runs `mcp_server.run()` (a stdio MCP server); exits 2 with an install hint if
   the optional `mcp` extra is missing. See "Session mode (MCP)" below.
 
-`holdings.yml`: list of {ticker, weight, theme?, leverage?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
+`holdings.yml`: list of {ticker, weight, theme?, leverage?, vehicle?, exposure?, score?, verdict?, entry_price?, entry_date?, setup_type?, thesis?, invalidation_price?} — an unknown key is an error naming the key, not a silent drop.
+`vehicle` and `exposure` are optional book handoff metadata, accepted but not used by propose.
+The map does not set the existing `leverage` key: it retains propose's cap-charging semantics.
 `candidates.yml`: list of {ticker, final_score?, verdict?, theme?} — same rule (`final_scores:` is a typo, not a request to fetch one).
 
 ## Session mode (MCP)

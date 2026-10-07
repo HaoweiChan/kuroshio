@@ -41,6 +41,8 @@ def _book_dir(tmp_path: Path) -> Path:
         pm_size=json.loads((FIX / "pm_size.json").read_text()),
         locked=json.loads((FIX / "locked.json").read_text()),
         ips_name="ips-balanced.md",
+        # Keep AAA/BBB doubled and DDD in core for the site ordering fixture.
+        rules=bk.BookRules(attack_budget_pct=20.0),
     )
     out = tmp_path / "book"
     bk.write_book(book, out, propose_text="### SWAP CCC for AAA\n\nsynthetic card\n\n- because tests")
@@ -424,3 +426,12 @@ def test_a_build_leaves_another_builds_scratch_directory_alone(tmp_path):
     render.render_site(_book_dir(tmp_path), FIX / "reports", tmp_path / "site")
     assert (theirs / "half-written.html").read_text() == "another build"
     assert (tmp_path / "site" / "index.html").exists()
+
+
+def test_alloc_page_pins_attack_rows_first_by_default(tmp_path):
+    """Target positions: attack rows lead the default order; the header-click sort re-orders
+    every row client-side, so the pin is only the server-rendered default."""
+    book = json.loads((_book_dir(tmp_path) / "book.json").read_text())
+    assert [r["sleeve"] for r in book["alloc"]["rows"]][-2:] == ["core", "attack"]  # III trails GGG
+    body = render._alloc_page(book, labels("en"), lambda t: t)
+    assert body.index(">III<") < body.index(">DDD<") < body.index(">GGG<")

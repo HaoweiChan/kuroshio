@@ -38,7 +38,9 @@ LABELS: dict[str, dict[str, str]] = {
         ),
         "rule_attack": (
             "Attack budget {budget:.0%}: a theme-cap overflow name enters only at or above "
-            "{floor}; it goes in at base weight, then the highest-ranked core names are raised "
+            "{floor}; it uses twice base and twice the risk budget, capped by the IPS position limit, "
+            "PM size multiplier, and remaining attack/theme budgets. "
+            "The highest-ranked core names are raised "
             "to twice their own weight, at most {double:.0%} (so at most twice the per-position "
             "risk budget). Yesterday's attack names keep their slot while they still qualify and "
             "rank inside twice the slot count. Concentration, not leverage."
@@ -149,7 +151,8 @@ LABELS: dict[str, dict[str, str]] = {
         "track_open": "held",
         "track_rules_head": "How the attack sleeve works",
         "track_rules_lede": (
-            "Overflow names the per-theme cap pushed out of the core, plus the top core names "
+            "Overflow names use twice base and twice the risk budget, subject to position, PM size, "
+            "and remaining attack/theme limits, plus the top core names "
             "the leftover budget doubles. Rebuilt every day, but yesterday's attack names keep "
             "their slot while they still qualify and rank inside the buffer."
         ),
@@ -170,6 +173,18 @@ LABELS: dict[str, dict[str, str]] = {
         "report_lede": "Full research report.",
         "book_names": "Book names",
         "gross": "Gross exposure",
+        "gross_capital": "Gross capital",
+        "exposure": "Exposure",
+        "rule_leverage": (
+            "Mapped attack rows buy 2x ETFs at unchanged capital weight. Exposure and loss-at-stop "
+            "are about twice what the caps charge; daily resets drift from 2x over multi-day holds. "
+            "Stops and targets remain underlying prices."
+        ),
+        "alloc_vehicle_note": (
+            "Buy the tagged ETF. Shares use its book-date close; n/a means no ETF quote. "
+            "For unquoted ETFs, actual USD, delta and cash-after reserve target capital "
+            "before share rounding."
+        ),
         "locked_weight": "Locked",
         "book_vol_stat": "Book volatility",
         "sort_hint": "screen {asof} · entry = the {asof} close · click a column to sort",
@@ -273,7 +288,8 @@ LABELS: dict[str, dict[str, str]] = {
         ),
         "rule_attack": (
             "攻擊預算 {budget:.0%}：被 theme 上限擠出的名字，評級須達 {floor} 以上才能進場，"
-            "先以基礎權重放進去，剩餘預算把排名最高的核心名字加碼到自身權重的兩倍、最多 {double:.0%}"
+            "以兩倍基礎權重及兩倍風險預算計算，受 IPS 單檔上限、PM 倍率及攻擊／主題剩餘預算限制。"
+            "剩餘預算把排名最高的核心名字加碼到自身權重的兩倍、最多 {double:.0%}"
             "（即單檔風險最多為風險預算的兩倍）。前一天已在攻擊倉的名字，只要仍符合條件且排名在名額數"
             "兩倍以內就保留名額。集中而非槓桿。"
         ),
@@ -376,7 +392,9 @@ LABELS: dict[str, dict[str, str]] = {
         "track_open": "持有中",
         "track_rules_head": "攻擊倉怎麼運作",
         "track_rules_lede": (
-            "被同主題上限擠出核心的名字，加上用剩餘預算加倍的前段核心名字。每天重建，"
+            "被同主題上限擠出核心的名字，以兩倍基礎權重及兩倍風險預算計算，"
+            "受單檔上限、PM 倍率及攻擊／主題剩餘額度限制；"
+            "再用剩餘預算加倍前段核心名字。每天重建，"
             "但前一天已在攻擊倉的名字，只要仍符合資格且排名在緩衝範圍內就保留名額。"
         ),
         "track_rule_slots": "溢出名額",
@@ -395,6 +413,16 @@ LABELS: dict[str, dict[str, str]] = {
         "report_lede": "完整研究報告。",
         "book_names": "book 持股",
         "gross": "總曝險",
+        "gross_capital": "總投入資本",
+        "exposure": "曝險",
+        "rule_leverage": (
+            "對照表中的進攻部位以原資本權重買入 2 倍 ETF。曝險與停損損失約為上限計入值的兩倍；"
+            "每日重設使多日持有報酬偏離兩倍。停損與目標價仍為原標的價格。"
+        ),
+        "alloc_vehicle_note": (
+            "買入標籤所示 ETF，股數依配置當日 ETF 收盤價計算；n/a 表示缺少 ETF 報價。"
+            "未報價 ETF 的實際金額、差額與配置後現金按目標資本預留，尚未取整股數。"
+        ),
         "locked_weight": "鎖定部位",
         "book_vol_stat": "帳戶波動",
         "sort_hint": "篩選 {asof} · 進場 = {asof} 收盤 · 點欄位排序",
