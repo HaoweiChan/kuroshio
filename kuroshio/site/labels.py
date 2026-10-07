@@ -40,10 +40,10 @@ LABELS: dict[str, dict[str, str]] = {
             "Attack budget {budget:.0%}: a theme-cap overflow name enters only at or above "
             "{floor}; it uses twice base and twice the risk budget, capped by the IPS position limit, "
             "PM size multiplier, and remaining attack/theme budgets. "
-            "The highest-ranked core names are raised "
+            "The highest-ranked core names at or above the same {floor} floor are raised "
             "to twice their own weight, at most {double:.0%} (so at most twice the per-position "
-            "risk budget). Yesterday's attack names keep their slot while they still qualify and "
-            "rank inside twice the slot count. Concentration, not leverage."
+            "risk budget); unused budget stays in cash. Yesterday's attack names keep their slot "
+            "while they qualify and rank inside twice the slot count. Concentration, not leverage."
         ),
         "rule_cash": "Cash: whatever is left.",
         "holdings_head": "Holdings",
@@ -154,13 +154,14 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rules_lede": (
             "Overflow names use twice base and twice the risk budget, subject to position, PM size, "
             "and remaining attack/theme limits, plus the top core names "
-            "the leftover budget doubles. Rebuilt every day, but yesterday's attack names keep "
+            "the leftover budget doubles. Both require the minimum rating; unused budget stays in cash. "
+            "Rebuilt every day, but yesterday's attack names keep "
             "their slot while they still qualify and rank inside the buffer."
         ),
         "track_rule_slots": "Overflow slots",
         "track_rule_budget": "Attack budget",
-        "track_rule_floor": "Minimum rating (overflow)",
-        "track_rule_double": "Top-up weight (core names)",
+        "track_rule_floor": "Minimum rating (overflow and core top-ups)",
+        "track_rule_double": "Top-up weight (core names meeting the floor)",
         "track_rule_double_v": "2x its own weight, at most {cap:.0f}%",
         "track_rule_risk": "Risk per attack name",
         "track_rule_risk_v": "at most {risk:g}% of NAV",
@@ -168,8 +169,8 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rule_buffer_v": "{mult} x the slot count",
         "track_rule_hold": "Holding period",
         "track_rule_hold_v": (
-            "none — kept while inside the buffer; a broken stop, a void or vetoed rating, or a "
-            "full theme budget removes it the same day"
+            "none — kept while qualifying inside the buffer; a broken stop, a rating below the floor "
+            "or void, or a full theme budget removes it the same day"
         ),
         "report_lede": "Full research report.",
         "book_names": "Book names",
@@ -290,8 +291,8 @@ LABELS: dict[str, dict[str, str]] = {
         "rule_attack": (
             "攻擊預算 {budget:.0%}：被 theme 上限擠出的名字，評級須達 {floor} 以上才能進場，"
             "以兩倍基礎權重及兩倍風險預算計算，受 IPS 單檔上限、PM 倍率及攻擊／主題剩餘預算限制。"
-            "剩餘預算把排名最高的核心名字加碼到自身權重的兩倍、最多 {double:.0%}"
-            "（即單檔風險最多為風險預算的兩倍）。前一天已在攻擊倉的名字，只要仍符合條件且排名在名額數"
+            "剩餘預算把同樣達 {floor} 以上、排名最高的核心名字加碼到自身權重的兩倍、最多 {double:.0%}"
+            "（即單檔風險最多為風險預算的兩倍），未用預算留作現金。前一天已在攻擊倉的名字，只要仍符合條件且排名在名額數"
             "兩倍以內就保留名額。集中而非槓桿。"
         ),
         "rule_cash": "現金：剩下的。",
@@ -396,13 +397,13 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rules_lede": (
             "被同主題上限擠出核心的名字，以兩倍基礎權重及兩倍風險預算計算，"
             "受單檔上限、PM 倍率及攻擊／主題剩餘額度限制；"
-            "再用剩餘預算加倍前段核心名字。每天重建，"
+            "再用剩餘預算加倍前段核心名字。兩者都須達最低評級，未用預算留作現金。每天重建，"
             "但前一天已在攻擊倉的名字，只要仍符合資格且排名在緩衝範圍內就保留名額。"
         ),
         "track_rule_slots": "溢出名額",
         "track_rule_budget": "攻擊預算",
-        "track_rule_floor": "最低評級（溢出名字）",
-        "track_rule_double": "加倍後權重（核心名字）",
+        "track_rule_floor": "最低評級（溢出及核心加碼）",
+        "track_rule_double": "加倍後權重（達評級門檻的核心名字）",
         "track_rule_double_v": "自身權重的 2 倍，最多 {cap:.0f}%",
         "track_rule_risk": "攻擊倉單檔風險",
         "track_rule_risk_v": "最多 {risk:g}% NAV",
@@ -410,7 +411,8 @@ LABELS: dict[str, dict[str, str]] = {
         "track_rule_buffer_v": "排名在名額數的 {mult} 倍以內",
         "track_rule_hold": "持有期間",
         "track_rule_hold_v": (
-            "沒有固定期間 — 在緩衝範圍內就保留；跌破停損、評級失效或被否決、主題額度不夠時當天移出"
+            "沒有固定期間 — 符合資格且在緩衝範圍內就保留；"
+            "跌破停損、評級低於門檻或失效、主題額度不夠時當天移出"
         ),
         "report_lede": "完整研究報告。",
         "book_names": "book 持股",

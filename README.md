@@ -164,8 +164,10 @@ rating vetoed or a TTL/earnings print expired, sizes each one at
 `min(base, caps.position_pct, percent-risk)` times any PM multiplier, spends a default
 30% attack budget on theme-cap overflow sized at twice base and twice the risk budget
 (with the same position cap and PM multiplier, shrunk to remaining attack/theme room),
-then uses the remainder to double core names up to twice base, and — with `--nav` and an optional
-`symbol,quantity,market_value,average_price` positions export — sizes the whole
+then uses the remainder to double core names by rank up to twice base. Both overflow and core
+top-ups require a rating at or above `attack_floor` (default `overweight`); unused budget stays
+in cash. With `--nav` and an optional
+`symbol,quantity,market_value,average_price` positions export, it sizes the whole
 thing in money against what you already hold. Every input is an option and every
 rule is a flag; nothing is read from a fixed location, so your holdings, NAV and
 reports stay outside the repo.
