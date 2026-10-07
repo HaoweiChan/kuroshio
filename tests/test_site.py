@@ -73,6 +73,20 @@ def test_site_renders_the_four_page_types(site):
     assert "<table>" in page and "synthetic research report" in page
 
 
+def test_attack_positions_start_first_and_ticker_and_weight_remain_sortable(site):
+    index = (site / "index.html").read_text()
+    holdings = index.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    first_sleeve = re.search(r"<tr data-sleeve='([^']+)'", holdings)
+    assert first_sleeve and first_sleeve.group(1) == "attack"
+
+    alloc = (site / "alloc.html").read_text()
+    allocation_table = alloc.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    assert "<span class='flag hi'>attack</span>" in allocation_table.split("</tr>", 1)[0]
+    sortable_headers = alloc.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    assert re.search(r"<th data-sort>Ticker</th>", sortable_headers)
+    assert re.search(r"<th data-sort>Weight</th>", sortable_headers)
+
+
 def test_pages_use_relative_links_only(site):
     for page in site.rglob("*.html"):
         for href in re.findall(r"(?:href|src)='([^']+)'", page.read_text()):
@@ -426,12 +440,3 @@ def test_a_build_leaves_another_builds_scratch_directory_alone(tmp_path):
     render.render_site(_book_dir(tmp_path), FIX / "reports", tmp_path / "site")
     assert (theirs / "half-written.html").read_text() == "another build"
     assert (tmp_path / "site" / "index.html").exists()
-
-
-def test_alloc_page_pins_attack_rows_first_by_default(tmp_path):
-    """Target positions: attack rows lead the default order; the header-click sort re-orders
-    every row client-side, so the pin is only the server-rendered default."""
-    book = json.loads((_book_dir(tmp_path) / "book.json").read_text())
-    assert [r["sleeve"] for r in book["alloc"]["rows"]][-2:] == ["core", "attack"]  # III trails GGG
-    body = render._alloc_page(book, labels("en"), lambda t: t)
-    assert body.index(">III<") < body.index(">DDD<") < body.index(">GGG<")

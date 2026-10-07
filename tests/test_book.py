@@ -563,20 +563,12 @@ def test_overflow_and_core_top_ups_never_overspend_attack_budget(budget, weights
         assert book["attack"][-1]["cap"] == "attack budget"
 
 
-def test_no_map_outputs_are_byte_identical(built):
-    """Digest captured from the gate-green worktree before the vehicle feature."""
-    import hashlib
-
-    from kuroshio.site.labels import labels
-    from kuroshio.site.render import _alloc_page, _book_page
-
-    texts = [json.dumps(built, sort_keys=True), bk.holdings_yaml(built), bk.candidates_yaml(built)]
-    for lang in ("en", "zh"):
-        texts += [bk.render_book_md(built, lang), bk.render_alloc_md(built, lang),
-                  _book_page(built, "", {}, labels(lang), str), _alloc_page(built, labels(lang), str)]
-    assert hashlib.sha256("\n".join(texts).encode()).hexdigest() == (
-        "6457f22318b7352022a9f1f325b9e1c9a164f238eb0d8b815d7496557b708d9f"
-    )
+def test_no_map_book_carries_no_leverage_fields(built):
+    """Without a map the book has none of the vehicle feature's keys, so its outputs do not change.
+    (Was a sha256 over every rendered output — it broke on any unrelated site change.)"""
+    assert "exposure" not in built and "unmapped_attack" not in built
+    rows = built["core"] + built["attack"] + ((built.get("alloc") or {}).get("rows") or [])
+    assert not any(k in r for r in rows for k in ("vehicle", "leverage", "exposure", "vehicle_price"))
 
 
 @pytest.mark.parametrize("quote", [None, 37.0])

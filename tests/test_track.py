@@ -1,6 +1,7 @@
 """kuroshio/core/track.py — raw-return record of the saved books, and its site page."""
 
 import json
+import re
 import shutil
 
 import pandas as pd
@@ -63,7 +64,25 @@ def test_the_site_renders_a_track_page_only_when_track_json_is_there(tmp_path):
     render.render_site(book_dir, FIX / "reports", out, lang="zh")
     page = (out / "track.html").read_text()
     assert "績效" in page and "BBB" in page and "-20.0%" in page and "<polyline" in page
+    assert page.count("基準 S&amp;P 500 (SPY)") == 2
+    for day in DAYS[1:]:
+        assert re.search(r"<text[^>]*>" + day + r"</text>", page)
+    english = (out / "en" / "track.html").read_text()
+    assert english.count("Benchmark S&amp;P 500 (SPY)") == 2
     # the attack panel states today's rules: risk-scaled top-up and the hysteresis buffer
     assert "自身權重的 2 倍，最多 10%" in page and "最多 2% NAV" in page
     assert "排名在名額數的 2 倍以內" in page and "只要當天排名還把它放在攻擊倉就留著" not in page
     shutil.rmtree(out)
+
+
+def test_chart_positions_follow_calendar_dates_and_label_the_actual_benchmark():
+    series = [dict(date=day, book=0.0, core=0.0, attack=0.0, bench=0.0) for day in DAYS]
+    chart = render._track_chart(series, render.labels("en"), "OTHER")
+    points = re.search(r"points='([^']+)'", chart).group(1).split()
+    xs = [float(point.split(",")[0]) for point in points]
+    assert xs[1] - xs[0] == pytest.approx(3 * (xs[2] - xs[1]), abs=0.2)
+    assert "Benchmark OTHER" in chart and "SPY" not in chart
+    assert chart.count("<text ") == 3
+    short = render._track_chart(series[:2], render.labels("en"), "SPY")
+    assert short.count("<text ") == 2
+    assert render._track_chart([], render.labels("en"), "SPY") == ""
