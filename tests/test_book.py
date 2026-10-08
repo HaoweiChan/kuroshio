@@ -739,3 +739,37 @@ def test_empty_map_lists_topups_and_overflow_in_rank_order(built):
     )
     assert book["unmapped_attack"] == ["AAA", "BBB", "DDD", "III"]
     assert "unmapped_attack" not in built
+
+
+def test_a_held_attack_name_stays_for_its_ratings_life_whatever_the_rank_does():
+    """1 core slot per theme, 1 attack slot. Yesterday T4 held the overflow slot; by rank it is
+    outside the buffer and loses it — unless the hold rule is on and it ranks inside the floor."""
+    screen, ratings = _one_theme_screen()
+    prev = {"attack": [{"ticker": "T4"}], "core": []}
+
+    def attack(hold_rank, rs=ratings):
+        rules = bk.BookRules(core_n=1, core_per_theme=1, attack_n=1, attack_budget_pct=10.0,
+                             attack_hold_rank=hold_rank)
+        book = bk.build_book(screen, rs, _ips(), rules=rules, prev_book=prev)
+        return [r["ticker"] for r in book["core"]], [r["ticker"] for r in book["attack"]]
+
+    assert attack(0) == (["T1"], ["T2"])           # off: the buffer rule, T4 is outside it
+    assert attack(100) == (["T1"], ["T4"])         # held; the core still goes to the best rank
+    assert attack(3) == (["T1"], ["T2"])           # ranked outside the floor: not held
+    hold = [{**r, "rating": "Hold"} if r["ticker"] == "T4" else r for r in ratings]
+    assert attack(100, hold) == (["T1"], ["T2"])   # re-rated below the attack floor: not held
+
+
+def test_a_held_doubled_name_keeps_its_core_slot_and_its_top_up():
+    """2 core slots, budget for one doubling. Yesterday T5 was doubled; by rank it is out of
+    the core today. Held, it keeps a core slot and the top-up; T2 is the name that waits."""
+    prev = {"attack": [], "core": [{"ticker": "T5", "sleeve": "attack"}]}
+
+    def core(hold_rank):
+        rules = bk.BookRules(core_n=2, attack_budget_pct=5.0, attack_hold_rank=hold_rank)
+        book = bk.build_book(*_wide_screen(), _ips(), rules=rules, prev_book=prev)
+        assert not any("topped" in r for r in book["core"])
+        return [(r["ticker"], r["weight"], r.get("sleeve")) for r in book["core"]]
+
+    assert core(0) == [("T1", 0.1, "attack"), ("T2", 0.05, None)]
+    assert core(100) == [("T1", 0.05, None), ("T5", 0.1, "attack")]
