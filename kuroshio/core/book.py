@@ -38,6 +38,14 @@ The rules, in the order they apply (all of them options on `BookRules`):
   `attack_buffer` x the slot count (2 by default: top 6 for 3 slots); newcomers only take
   free slots. Without it the sleeve changed on 14 of 16 days on rank noise; on S&P names
   2014-2026 the buffer cut attack changes ~5x for 0-2 points of annual return.
+  Hold (`attack_hold_rank`, off by default): the sleeve follows the research, not the day's
+  rank. A name in yesterday's sleeve stays in it for as long as its rating lives — until the
+  TTL or an earnings date voids it, a stop is hit, a new rating falls below `attack_floor`, or
+  its rank drops outside `attack_hold_rank` — whatever the ranking and the per-theme count do
+  around it. Held names are placed first, so their attack and theme budget is not handed to
+  a newcomer; rank only decides who fills a free slot. On S&P names 2015-2026 a 30-trading-day
+  rating life (about the 45-day TTL) halved sleeve entries against the buffer alone at no
+  cost in return or drawdown; 45 trading days cost ~3 points a year.
 * **Theme budget** — every placement and every doubling spends the IPS theme budget
   (`caps.theme_caps` for a named theme, else `caps.theme_pct`), locked positions counted
   first, in rank order: a name is shrunk to the room left, or skipped under 1%. A theme is
@@ -80,6 +88,7 @@ class BookRules:
     attack_budget_pct: float = 30.0
     attack_floor: str = "overweight"
     attack_buffer: int = 2       # an incumbent attack name keeps its slot inside attack slots x this
+    attack_hold_rank: int = 0    # an incumbent ranked inside this is held for its rating's life (0 = off)
     tier_n: int = 0              # the top N core names get the tier base and risk budget (0 = off)
     tier_base_pct: float = 7.5
     tier_risk_pct: float = 1.35
@@ -242,6 +251,31 @@ def build_book(
     # yesterday's attack sleeve: overflow slots and doubled core names (hysteresis, see Attack)
     held_overflow = {x["ticker"] for x in (prev_book or {}).get("attack", [])}
     held_doubled = {x["ticker"] for x in (prev_book or {}).get("core", []) if x.get("sleeve") == "attack"}
+    def cap_blocks_top_up(rec: dict) -> bool:
+        return rec["cap"].startswith("theme budget") or "PM size" in rec["cap"]
+
+    def top_up(rec: dict, room: float) -> float:
+        """Raise a core name to twice its own weight (capped at twice base and the position
+        cap) as far as `room` allows; returns the weight added."""
+        new = round(min(2 * base, position_pct, 2 * rec["weight"], rec["weight"] + room), 4)
+        if new <= rec["weight"]:
+            return 0.0
+        add = new - rec["weight"]
+        theme_used[rec["budget_theme"]] += add
+        rec.update(weight=new, cap=f"attack {new:.1%}".replace(".0%", "%"), sleeve="attack", topped=add)
+        return add
+
+    # hold: yesterday's sleeve goes down the walk first (the vetoes still apply) and keeps its
+    # kind — an overflow name stays overflow even when a core slot opens in its theme, a
+    # doubled name keeps its core slot and its top-up
+    def held_rating(t: str) -> str:
+        return (ratings.get(t) or {}).get("rating") or "n/a"
+
+    pinned = {r["ticker"] for r in screen_rows
+              if r["ticker"] in held_overflow | held_doubled and r["rank"] <= rules.attack_hold_rank
+              and verdict_at_least(held_rating(r["ticker"]), rules.attack_floor)}
+    walk_rows = ([r for r in screen_rows if r["ticker"] in pinned]
+                 + [r for r in screen_rows if r["ticker"] not in pinned])
 
     def walk(tier: frozenset) -> tuple[list[dict], list[dict], list[tuple]]:
         """One pass down the ranking: (core, attack, skipped). `tier` names are sized on the
@@ -254,7 +288,7 @@ def build_book(
         overflow_seen = 0
         skipped: list[tuple] = []
         per_theme: dict[str, int] = {}
-        for row in screen_rows:
+        for row in walk_rows:
             t = row["ticker"]
             m = meta.get(t, {})
             # no industry known -> the name is its own theme, so an unlabelled screen does not
@@ -278,7 +312,8 @@ def build_book(
             if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
                 skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
                 continue
-            w, cap = target_weight(entry, stop, t in tier, per_theme.get(ind, 0) >= rules.core_per_theme)
+            w, cap = target_weight(entry, stop, t in tier, t in pinned & held_overflow
+                                   or per_theme.get(ind, 0) >= rules.core_per_theme)
             if pm_size.get(t, 1.0) < 1.0:
                 w, cap = round(w * pm_size[t], 4), f"{cap} x {pm_size[t]:g} (PM size)"
             rec = {
@@ -291,7 +326,10 @@ def build_book(
             if t in tier:
                 rec["tier"] = True
             evict = None
-            if per_theme.get(ind, 0) < rules.core_per_theme:
+            overflow = per_theme.get(ind, 0) >= rules.core_per_theme
+            if t in pinned and (overflow or t in held_overflow):
+                slot = "attack"  # held: its slot is not up for the day's ranking
+            elif not overflow:
                 slot = "core" if len(core) < rules.core_n else None
             elif not verdict_at_least(rating, rules.attack_floor):
                 # the veto above is the core rule; the floor is an attack-only conviction gate —
@@ -314,7 +352,8 @@ def build_book(
                     slot = None
             if slot:
                 if slot == "attack":
-                    attack_room = budget - sum(x["weight"] for x in attack if x is not evict)
+                    attack_room = (budget - sum(x["weight"] for x in attack if x is not evict)
+                                   - sum(x["topped"] for x in core if "topped" in x))
                     if attack_room < MIN_THEME_ROOM:
                         skipped.append((row["rank"], t, ind, "attack budget full"))
                         continue
@@ -345,6 +384,11 @@ def build_book(
                 if slot == "core":
                     per_theme[ind] = per_theme.get(ind, 0) + 1
                     core.append(rec)
+                    if t in pinned and not cap_blocks_top_up(rec):
+                        # a held name that sits in the core keeps its top-up, taken now so the
+                        # attack and theme budget it needs is not spent further down the walk
+                        spent = sum(x["weight"] for x in attack) + sum(x.get("topped", 0) for x in core)
+                        top_up(rec, min(budget - spent, theme_room(theme)))
                 else:
                     attack.append({**rec, "theme": "attack"})
             if len(core) >= rules.core_n and len(attack) >= rules.attack_n and (
@@ -353,6 +397,8 @@ def build_book(
             ):
                 break
 
+        core.sort(key=lambda r: r["rank"])  # held names were placed first
+        attack.sort(key=lambda r: r["rank"])
         seen = {x["ticker"] for x in core + attack} | {s[1] for s in skipped}
         for row in screen_rows:
             if row["ticker"] not in seen:
@@ -378,11 +424,11 @@ def build_book(
         core, attack, skipped = walk(frozenset(keep_t + fill_t))
 
     # attack budget: the overflow names are already in it, the rest raises core names
-    used = sum(x["weight"] for x in attack)
+    used = sum(x["weight"] for x in attack) + sum(x.get("topped", 0) for x in core)
     # a percent-risk name is eligible too: its doubling is 2 x its own risk-sized weight, so a
     # name whose stop sits 24% away tops up to 8.3% instead of flipping between 10% and 4.2%
     # as the price crosses the 20% line (that cliff, not rank noise, drove most daily changes)
-    eligible = [r for r in core if not (r["cap"].startswith("theme budget") or "PM size" in r["cap"])
+    eligible = [r for r in core if not cap_blocks_top_up(r) and "topped" not in r
                 and verdict_at_least(r["rating"], rules.attack_floor)]
     slots = max(int((budget - used) / base + 1e-9), 0)
     # hysteresis: yesterday's doubled names inside the buffer go first, the rest by rank
@@ -391,15 +437,9 @@ def build_book(
         if used + base > budget + 1e-9:
             break
         # doubling spends theme budget too: raise only as far as the theme has room
-        new = round(min(2 * base, position_pct, 2 * rec["weight"],
-                        rec["weight"] + theme_room(rec["budget_theme"])), 4)
-        if new <= rec["weight"]:
-            continue
-        theme_used[rec["budget_theme"]] += new - rec["weight"]
-        used += new - rec["weight"]
-        rec["weight"] = new
-        rec["cap"] = f"attack {new:.1%}".replace(".0%", "%")
-        rec["sleeve"] = "attack"
+        used += top_up(rec, theme_room(rec["budget_theme"]))
+    for rec in core:
+        rec.pop("topped", None)
 
     # Hard cap: the book never asks for more than 100% of NAV. Loosened caps (a higher risk
     # budget, more names, the tier) could otherwise sum past it — implicit margin. The excess
