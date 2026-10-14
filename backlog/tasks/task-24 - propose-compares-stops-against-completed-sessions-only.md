@@ -1,7 +1,7 @@
 ---
 id: TASK-24
 title: 'propose compares stops against completed sessions only'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-10-14'
 labels: []
