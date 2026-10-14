@@ -1143,7 +1143,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         core_n=args.core_n, core_per_theme=args.core_per_theme, attack_n=args.attack_n,
         base_pct=args.base_pct, attack_budget_pct=args.attack_budget_pct,
         attack_floor=args.attack_floor, attack_buffer=args.attack_buffer,
-        attack_hold_rank=args.attack_hold_rank,
+        attack_hold_rank=args.attack_hold_rank, core_hold_rank=args.core_hold_rank,
         tier_n=args.tier_n, tier_base_pct=args.tier_base_pct, tier_risk_pct=args.tier_risk_pct,
         ttl_days=args.ttl_days, review_days=args.review_days,
         earnings_warn_days=args.earnings_warn_days,
@@ -1412,6 +1412,10 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument("--lang", help="label language; default: the IPS `lang` field")
     p_book.add_argument("--core-n", type=int, default=15)
     p_book.add_argument("--core-per-theme", type=int, default=3)
+    p_book.add_argument(
+        "--core-hold-rank", type=int, default=0,
+        help="hold yesterday's core names for their rating's life while ranked inside this (0 = off)",
+    )
     p_book.add_argument("--attack-n", type=int, default=3)
     p_book.add_argument("--base-pct", type=float, default=5.0)
     p_book.add_argument("--attack-budget-pct", type=float, default=30.0)
