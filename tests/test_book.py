@@ -775,6 +775,82 @@ def test_a_held_doubled_name_keeps_its_core_slot_and_its_top_up():
     assert core(100) == [("T1", 0.05, None), ("T5", 0.1, "attack")]
 
 
+def test_core_hold_keeps_incumbent_and_zero_preserves_book():
+    screen, ratings = _wide_screen()
+    ratings[4]["rating"] = "Hold"  # the attack floor must not apply to core holds
+    prev = {"core": [{"ticker": "T5"}], "attack": [{"ticker": "T6"}]}
+    rules = bk.BookRules(core_n=2, attack_budget_pct=0)
+    old = bk.build_book(screen, ratings, _ips(), rules=rules, prev_book=prev)
+    off = bk.build_book(screen, ratings, _ips(), prev_book=prev,
+                        rules=dataclasses.replace(rules, core_hold_rank=0))
+    assert "core_hold_rank" not in off["rules"]
+    assert json.dumps(off) == json.dumps(old)
+    assert [r["ticker"] for r in off["core"]] == ["T1", "T2"]
+    held = bk.build_book(screen, ratings, _ips(), prev_book=prev,
+                         rules=dataclasses.replace(rules, core_hold_rank=6))
+    assert [r["ticker"] for r in held["core"]] == ["T1", "T5"]
+
+
+@pytest.mark.parametrize(
+    "veto", ["Underweight", "Sell", "stop", "stopped", "ttl", "earnings", "rank", "theme"],
+)
+def test_core_hold_obeys_vetoes_and_rank(veto):
+    screen, ratings = _wide_screen(stop=90)
+    extra = {}
+    if veto in {"Underweight", "Sell"}:
+        ratings[4]["rating"] = veto
+    elif veto == "stop":
+        screen[4]["factors"]["close"] = 90
+    elif veto == "stopped":
+        extra["closes"] = {"T5": {"2026-01-03": 89, "2026-01-05": 100}}
+    elif veto == "ttl":
+        ratings[4]["date"] = "2025-10-01"
+    elif veto == "earnings":
+        extra["scores_rows"] = [{"ticker": "T5", "fundamentals": {"next_earnings_date": "2026-01-03"}}]
+    ips = _ips()
+    if veto == "theme":
+        ips = dataclasses.replace(ips, caps=dataclasses.replace(ips.caps, theme_caps={"I5": 0}))
+    rules = bk.BookRules(core_n=2, attack_budget_pct=0, core_hold_rank=4 if veto == "rank" else 5)
+    book = bk.build_book(screen, ratings, ips, rules=rules,
+                         prev_book={"core": [{"ticker": "T5"}]}, **extra)
+    assert [r["ticker"] for r in book["core"]] == ["T1", "T2"]
+
+
+def test_core_hold_obeys_per_theme_cap():
+    rules = bk.BookRules(core_n=2, core_per_theme=1, attack_n=0, attack_budget_pct=0,
+                         core_hold_rank=7)
+    book = bk.build_book(*_one_theme_screen(), _ips(), rules=rules,
+                         prev_book={"core": [{"ticker": "T5"}, {"ticker": "T6"}]})
+    assert [r["ticker"] for r in book["core"]] == ["T5"]
+
+
+def test_core_hold_preserves_attack_hold_top_up():
+    prev = {"core": [{"ticker": "T4"}, {"ticker": "T5", "sleeve": "attack"}]}
+    rules = bk.BookRules(core_n=2, attack_budget_pct=5, attack_hold_rank=6, core_hold_rank=6)
+    book = bk.build_book(*_wide_screen(), _ips(), rules=rules, prev_book=prev)
+    assert [(r["ticker"], r["weight"], r.get("sleeve")) for r in book["core"]] == [
+        ("T4", 0.05, None), ("T5", 0.1, "attack"),
+    ]
+
+
+def test_core_hold_cli_reaches_book_rules(monkeypatch, tmp_path):
+    from kuroshio import cli
+
+    seen = []
+
+    def build(*args, **kwargs):
+        seen.append(kwargs["rules"].core_hold_rank)
+        raise ValueError("stop after capturing rules")
+
+    monkeypatch.setattr(bk, "build_book", build)
+    monkeypatch.setattr(cli, "_stop_history", lambda *args: {})
+    for flags in ([], ["--core-hold-rank", "80"]):
+        assert cli.main(["book", "--screen", str(FIX / "screen.json"),
+                         "--ratings", str(FIX / "ratings.jsonl"), "--ips", str(IPS),
+                         "--out", str(tmp_path / "book"), *flags]) == 2
+    assert seen == [0, 80]
+
+
 def _ratchet_inputs(price=140.0, rated="2026-09-05"):
     screen = [dict(ticker="AAA", date="2026-10-13", rank=1, factors={"close": price})]
     ratings = [dict(ticker="AAA", market="us", date=rated, rating="Buy", stop_loss=80.0)]

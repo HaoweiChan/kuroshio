@@ -8,6 +8,8 @@ The rules, in the order they apply (all of them options on `BookRules`):
 
 * **Core** — walk the screen ranking, `theme = industry`, at most `core_per_theme` names per
   theme, `core_n` names in total.
+  Hold (`core_hold_rank`, off by default): yesterday's core names ranked inside this go
+  before newcomers for their rating's life; every veto, theme cap and slot limit still applies.
 * **Veto** — a name needs the newest rating within `ttl_days` of the screen date; `Sell` /
   `Underweight` and unrated names are dropped. With a scores ledger (`scores_rows`) a rating
   also dies at the first `fundamentals.next_earnings_date` that falls after it: the print the
@@ -83,6 +85,7 @@ class BookRules:
 
     core_n: int = 15
     core_per_theme: int = 3
+    core_hold_rank: int = 0      # an incumbent core name keeps its slot inside this rank (0 = off)
     attack_n: int = 3
     base_pct: float = 5.0
     attack_budget_pct: float = 30.0
@@ -294,8 +297,15 @@ def build_book(
     pinned = {r["ticker"] for r in screen_rows
               if r["ticker"] in held_overflow | held_doubled and r["rank"] <= rules.attack_hold_rank
               and verdict_at_least(held_rating(r["ticker"]), rules.attack_floor)}
+    # core holds share the walk, not the attack sizing/top-up rules. The held attack sleeve
+    # still goes first; core incumbents then take the slots left before any newcomer.
+    held_core = {x["ticker"] for x in (prev_book or {}).get("core", [])}
+    core_pinned = {r["ticker"] for r in screen_rows
+                   if r["ticker"] in held_core and rules.core_hold_rank > 0
+                   and r["rank"] <= rules.core_hold_rank} - pinned
     walk_rows = ([r for r in screen_rows if r["ticker"] in pinned]
-                 + [r for r in screen_rows if r["ticker"] not in pinned])
+                 + [r for r in screen_rows if r["ticker"] in core_pinned]
+                 + [r for r in screen_rows if r["ticker"] not in pinned | core_pinned])
 
     def walk(tier: frozenset) -> tuple[list[dict], list[dict], list[tuple]]:
         """One pass down the ranking: (core, attack, skipped). `tier` names are sized on the
@@ -537,7 +547,8 @@ def build_book(
                                 if (x in attack or x.get("sleeve") == "attack")
                                 and x["ticker"] not in leverage_map]}
            if leverage_map is not None else {}),
-        "rules": vars(rules), "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
+        "rules": {k: v for k, v in vars(rules).items() if k != "core_hold_rank" or v},
+        "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
         # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
         "ips": {
             "name": ips_name, "position_pct": ips.caps.position_pct,
