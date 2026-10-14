@@ -8,11 +8,13 @@ The rules, in the order they apply (all of them options on `BookRules`):
 
 * **Core** — walk the screen ranking, `theme = industry`, at most `core_per_theme` names per
   theme, `core_n` names in total.
+  Hold (`core_hold_rank`, off by default): yesterday's core names ranked inside this go
+  before newcomers for their rating's life; every veto, theme cap and slot limit still applies.
 * **Veto** — a name needs the newest rating within `ttl_days` of the screen date; `Sell` /
   `Underweight` and unrated names are dropped. With a scores ledger (`scores_rows`) a rating
   also dies at the first `fundamentals.next_earnings_date` that falls after it: the print the
   rating did not see. Without one, only the day TTL applies.
-  A name whose screen close is at or below its rating's `stop_loss` is dropped too: the
+  A name whose screen close is at or below its effective stop is dropped too: the
   thesis that rating priced is invalidated until a newer rating resets the stop. With a
   price history (`closes`) that holds for any close since the rating date, not just today's:
   a name that broke its stop and closed back above it the next day stays out until it is
@@ -83,6 +85,7 @@ class BookRules:
 
     core_n: int = 15
     core_per_theme: int = 3
+    core_hold_rank: int = 0      # an incumbent core name keeps its slot inside this rank (0 = off)
     attack_n: int = 3
     base_pct: float = 5.0
     attack_budget_pct: float = 30.0
@@ -154,11 +157,23 @@ def previous_book(root: Path, asof: str) -> dict | None:
     return json.loads((dirs[-1] / "book.json").read_text()) if dirs else None
 
 
-def stopped_out(history: dict | None, rating_date: str, asof: str, stop: float) -> str | None:
-    """The first session after `rating_date` (through `asof`) that closed at or below `stop`,
-    from a {date: close} history; None when there was none or no history was given."""
+def stop_in_effect(stop: float | None, rows: list[dict], rating_date: str, session: str) -> float | None:
+    """Rows are date-sorted for one ticker/market. A ratchet is known only after its close;
+    a new rating re-arms the name, and its own stop remains the floor."""
+    row = next((r for r in reversed(rows) if rating_date <= r["date"] < session), None)
+    return max(stop, row["new"]) if row and stop is not None else row["new"] if row else stop
+
+
+def stopped_out(
+    history: dict | None, rating_date: str, asof: str, stop: float | None,
+    stops_rows: list[dict] | None = None,
+) -> str | None:
+    """The first session after `rating_date` (through `asof`) that closed at or below the
+    stop then in effect; a later ratchet must never invalidate an earlier close."""
     return next((d for d, c in sorted((history or {}).items())
-                 if rating_date < d <= asof and c is not None and c <= stop), None)
+                 if rating_date < d <= asof and c is not None
+                 and (level := stop_in_effect(stop, stops_rows or [], rating_date, d)) is not None
+                 and c <= level), None)
 
 
 def build_book(
@@ -168,6 +183,7 @@ def build_book(
     *,
     meta: dict | None = None,
     scores_rows: list[dict] | None = None,
+    stops_rows: list[dict] | None = None,
     positions: list[dict] | None = None,
     nav: float | None = None,
     pm_size: dict | None = None,
@@ -193,6 +209,13 @@ def build_book(
     for r in sorted(ratings_rows, key=lambda r: r.get("date", "")):
         if r.get("market", market) == market and r.get("rating") and r.get("date", "") >= min_date:
             ratings[r["ticker"]] = r
+
+    # Keep each name's dated trail, not just its latest level: historical closes must be
+    # judged against the stop known that day. Stable sorting keeps the last same-day move.
+    stops: dict[str, list[dict]] = {}
+    for r in sorted(stops_rows or [], key=lambda r: r["date"]):
+        if r.get("market") == market:
+            stops.setdefault(r["ticker"], []).append(r)
 
     next_earnings: dict[str, str] = {}
     for r in scores_rows or []:
@@ -274,8 +297,15 @@ def build_book(
     pinned = {r["ticker"] for r in screen_rows
               if r["ticker"] in held_overflow | held_doubled and r["rank"] <= rules.attack_hold_rank
               and verdict_at_least(held_rating(r["ticker"]), rules.attack_floor)}
+    # core holds share the walk, not the attack sizing/top-up rules. The held attack sleeve
+    # still goes first; core incumbents then take the slots left before any newcomer.
+    held_core = {x["ticker"] for x in (prev_book or {}).get("core", [])}
+    core_pinned = {r["ticker"] for r in screen_rows
+                   if r["ticker"] in held_core and rules.core_hold_rank > 0
+                   and r["rank"] <= rules.core_hold_rank} - pinned
     walk_rows = ([r for r in screen_rows if r["ticker"] in pinned]
-                 + [r for r in screen_rows if r["ticker"] not in pinned])
+                 + [r for r in screen_rows if r["ticker"] in core_pinned]
+                 + [r for r in screen_rows if r["ticker"] not in pinned | core_pinned])
 
     def walk(tier: frozenset) -> tuple[list[dict], list[dict], list[tuple]]:
         """One pass down the ranking: (core, attack, skipped). `tier` names are sized on the
@@ -303,13 +333,14 @@ def build_book(
                 skipped.append((row["rank"], t, ind, rating if rat else "not researched"))
                 continue
             entry, stop = row["factors"]["close"], rat.get("stop_loss")
-            if stop is not None and entry <= stop:
-                # the rating's own invalidation is breached: its thesis is dead until a new
-                # rating says otherwise. Before this, target_weight read stop >= entry as "no
-                # stop" and gave the name full base weight.
-                skipped.append((row["rank"], t, ind, f"{rating} below its stop {stop:.2f}"))
+            trail = stops.get(t, [])
+            level = stop_in_effect(stop, trail, rat["date"], asof)
+            if level is not None and entry <= level:
+                # The veto follows the ratchet; sizing and the written invalidation still
+                # belong to the rating, so keep `stop` unchanged for target_weight below.
+                skipped.append((row["rank"], t, ind, f"{rating} below its stop {level:.2f}"))
                 continue
-            if stop is not None and (hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop)):
+            if hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop, trail):
                 skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
                 continue
             w, cap = target_weight(entry, stop, t in tier, t in pinned & held_overflow
@@ -516,7 +547,8 @@ def build_book(
                                 if (x in attack or x.get("sleeve") == "attack")
                                 and x["ticker"] not in leverage_map]}
            if leverage_map is not None else {}),
-        "rules": vars(rules), "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
+        "rules": {k: v for k, v in vars(rules).items() if k != "core_hold_rank" or v},
+        "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
         # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
         "ips": {
             "name": ips_name, "position_pct": ips.caps.position_pct,

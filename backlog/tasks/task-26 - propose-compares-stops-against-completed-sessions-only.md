@@ -1,5 +1,5 @@
 ---
-id: TASK-24
+id: TASK-26
 title: 'propose compares stops against completed sessions only'
 status: PR
 assignee: []
@@ -9,7 +9,7 @@ dependencies: []
 references:
   - DRAFT-33
   - TASK-20
-ordinal: 24000
+ordinal: 26000
 ---
 
 ## Description

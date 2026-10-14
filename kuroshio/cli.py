@@ -683,7 +683,7 @@ def _run_propose(
 
 
 def _completed_sessions(panel: Panel, profile, now: datetime.datetime | None = None) -> Panel:
-    """The panel minus a still-forming final bar (TASK-24). A provider read during the
+    """The panel minus a still-forming final bar (TASK-26). A provider read during the
     session returns today's partial bar as if it were a close — 2026-10-08 13:24 ET
     fired an EXIT on RVMD's intraday 185.43 against a 187.00 stop it never closed
     under, while ``core.book.stopped_out`` is close-based. So the final row is dropped
@@ -1159,13 +1159,14 @@ def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_
 
 def cmd_book(args: argparse.Namespace) -> int:
     from kuroshio.core import book as bookmod
+    from kuroshio.core import ledger
     from kuroshio.core.ips import parse_ips
 
     rules = bookmod.BookRules(
         core_n=args.core_n, core_per_theme=args.core_per_theme, attack_n=args.attack_n,
         base_pct=args.base_pct, attack_budget_pct=args.attack_budget_pct,
         attack_floor=args.attack_floor, attack_buffer=args.attack_buffer,
-        attack_hold_rank=args.attack_hold_rank,
+        attack_hold_rank=args.attack_hold_rank, core_hold_rank=args.core_hold_rank,
         tier_n=args.tier_n, tier_base_pct=args.tier_base_pct, tier_risk_pct=args.tier_risk_pct,
         ttl_days=args.ttl_days, review_days=args.review_days,
         earnings_warn_days=args.earnings_warn_days,
@@ -1185,12 +1186,21 @@ def cmd_book(args: argparse.Namespace) -> int:
                 for k, v in leverage_map.items()
             ):
                 raise ValueError(f"{args.leverage_map}: expected a flat UNDERLYING: ETF_TICKER map")
+        # Best-effort like _logged_stops: a missing/unreadable trail must not prevent
+        # building the book with the rating stops it already knows.
+        try:
+            stops = [r for r in ledger.load(ledger.ledger_dir() / ledger.STOPS)
+                     if r.get("market") == args.market]
+        except OSError as exc:
+            print(f"warning: stop ledger read failed: {exc}", file=sys.stderr)
+            stops = []
         book = bookmod.build_book(
             screen,
             bookmod.load_jsonl(args.ratings),
             parse_ips(args.ips),
             meta=bookmod.load_json(args.meta),
             scores_rows=bookmod.load_jsonl(args.scores),
+            stops_rows=stops,
             positions=bookmod.load_positions(args.positions),
             nav=args.nav,
             pm_size=bookmod.load_json(args.pm_size),
@@ -1434,6 +1444,10 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument("--lang", help="label language; default: the IPS `lang` field")
     p_book.add_argument("--core-n", type=int, default=15)
     p_book.add_argument("--core-per-theme", type=int, default=3)
+    p_book.add_argument(
+        "--core-hold-rank", type=int, default=0,
+        help="hold yesterday's core names for their rating's life while ranked inside this (0 = off)",
+    )
     p_book.add_argument("--attack-n", type=int, default=3)
     p_book.add_argument("--base-pct", type=float, default=5.0)
     p_book.add_argument("--attack-budget-pct", type=float, default=30.0)

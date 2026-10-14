@@ -1468,7 +1468,7 @@ def test_propose_fetches_back_to_the_oldest_entry_date(tmp_path, capsys, monkeyp
     assert stub.calls[0][1] >= 500
 
 
-# --- TASK-24: stops compare against completed sessions only ---------------------
+# --- TASK-26: stops compare against completed sessions only ---------------------
 
 
 def _rvmd_panel() -> Panel:
@@ -1503,20 +1503,20 @@ def _propose_rvmd_at(tmp_path, monkeypatch, now: str):
     return cards
 
 
-def test_task24_mid_session_bar_does_not_fire_an_exit(tmp_path, monkeypatch):
+def test_task26_mid_session_bar_does_not_fire_an_exit(tmp_path, monkeypatch):
     """AC #1: 13:24 ET on 10-08 — the 185.43 bar is not a close; the run reads 10-07."""
     cards = _propose_rvmd_at(tmp_path, monkeypatch, "2026-10-08 13:24")
     assert not [c for c in cards if c.action == "EXIT"]
     assert all("2026-10-08" not in c.reason for c in cards)
 
 
-def test_task24_after_the_close_the_same_bar_fires_the_exit(tmp_path, monkeypatch):
+def test_task26_after_the_close_the_same_bar_fires_the_exit(tmp_path, monkeypatch):
     """AC #1: 16:30 ET on 10-08 — the bar is the session close and the stop fires."""
     cards = _propose_rvmd_at(tmp_path, monkeypatch, "2026-10-08 16:30")
     assert [c.sell for c in cards if c.action == "EXIT"] == ["RVMD"]
 
 
-def test_task24_completed_sessions_uses_the_market_clock(monkeypatch):
+def test_task26_completed_sessions_uses_the_market_clock(monkeypatch):
     """AC #2: TW at 21:00 Taipei keeps today's bar; a US panel whose last row is not
     the market's today (01:00 Taipei = the prior US date) is never trimmed."""
     import zoneinfo
