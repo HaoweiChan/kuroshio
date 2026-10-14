@@ -731,7 +731,8 @@ def _decision_tab(files: dict, lb: dict) -> str:
 
 
 def _report_body(ticker: str, date: str, meta: dict, files: dict, complete: str,
-                 held: set[str], lb: dict, extra: str) -> str:
+                 held: set[str], lb: dict, extra: str,
+                 book_rating: tuple[str, str] | None = None) -> str:
     """The hero, the five tabs and their bodies — the whole page inside `_shell`'s wrap."""
     rating = meta.get("rating") or "?"
     kicker = " · ".join(x for x in (meta.get("market"), lb["synthesis"]) if x)
@@ -743,6 +744,9 @@ def _report_body(ticker: str, date: str, meta: dict, files: dict, complete: str,
         f"<strong class='{TONE.get(rating, '')}'>{esc(rating)}</strong>"
         f"<span class='mono'>{esc(date)}</span></div></div>"
     )
+    if book_rating and book_rating[1] and book_rating[1] > date:
+        hero += (f"<div class='panel' style='padding:12px 16px'>"
+                 f"{esc(lb['stale_report'].format(rating=book_rating[0], date=book_rating[1]))}</div>")
     tabs = (
         ("overview", lb["tab_overview"],
          _overview_tab(ticker, date, meta, files, held, lb, extra)),
@@ -765,7 +769,8 @@ def _report_body(ticker: str, date: str, meta: dict, files: dict, complete: str,
 
 
 def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, out: Path, css: str,
-                  tree: tuple[str, str] = ("", "")) -> str:
+                  tree: tuple[str, str] = ("", ""),
+                  book_ratings: dict[str, tuple[str, str]] | None = None) -> str:
     """Write one page per report and return the rows of the report index."""
     rows = []
     for ticker, dated in sorted(reports.items()):
@@ -784,7 +789,7 @@ def _report_pages(reports: dict, reports_dir: Path, held: set[str], lb: dict, ou
                      if others else "")
             body = _report_body(ticker, date, meta, files,
                                 (report_dir / "complete_report.md").read_text(),
-                                held, lb, extra)
+                                held, lb, extra, (book_ratings or {}).get(ticker))
             page = out / "reports" / ticker / f"{date}.html"
             page.parent.mkdir(parents=True, exist_ok=True)
             page.write_text(
@@ -849,6 +854,8 @@ def render_site(
 
     reports = _collect_reports(reports_dir)
     held = {x["ticker"] for x in book["core"] + book["attack"] + book["locked"]}
+    book_ratings = {x["ticker"]: (x.get("rating"), x.get("rating_date"))
+                    for x in book["core"] + book["attack"] + book["locked"]}
 
     def link(ticker: str, depth: int = 0) -> str:
         if ticker not in reports:
@@ -884,7 +891,7 @@ def render_site(
                 shell(lb["track_page_title"], _track_page(track, book, lb, link), "track", "track.html"),
                 encoding="utf-8",
             )
-        rows = _report_pages(reports, reports_dir, held, lb, root, css, tree)
+        rows = _report_pages(reports, reports_dir, held, lb, root, css, tree, book_ratings)
         heads = ("ticker", "date", "rating", "last_close", "stop", "target", "in_book")
         panel = (
             "<div class='panel'><div class='toolbar'>"
