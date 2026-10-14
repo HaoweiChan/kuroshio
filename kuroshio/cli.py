@@ -30,7 +30,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from kuroshio.core.screening import PROFILES, get_profile
-from kuroshio.types import ENTRY_DATE_SOURCES, SETUP_TYPES, Candidate, Holding
+from kuroshio.types import ENTRY_DATE_SOURCES, SETUP_TYPES, Candidate, Holding, Panel
 
 
 def _parse_tickers(tickers: str | None, tickers_file: str | None) -> list[str]:
@@ -649,6 +649,7 @@ def _run_propose(
         try:
             provider = get_provider(provider_name)
             panel = provider.fetch_panel(fetch_tickers, _lookback_days(profile, holdings))
+            panel = _completed_sessions(panel, profile)
         except ImportError:
             return None, [
                 f'error: the {provider_name!r} provider is not installed. '
@@ -679,6 +680,27 @@ def _run_propose(
     )
     _log_ratchets(cards, market, asof, no_ledger=no_ledger)
     return cards, None
+
+
+def _completed_sessions(panel: Panel, profile, now: datetime.datetime | None = None) -> Panel:
+    """The panel minus a still-forming final bar (TASK-24). A provider read during the
+    session returns today's partial bar as if it were a close — 2026-10-08 13:24 ET
+    fired an EXIT on RVMD's intraday 185.43 against a 187.00 stop it never closed
+    under, while ``core.book.stopped_out`` is close-based. So the final row is dropped
+    when it is the market's today and the market's own clock is before its close."""
+    from zoneinfo import ZoneInfo
+
+    # ponytail: fixed close time — an early-close half day keeps the bar out until the
+    # regular close, which only delays the check; add a holiday calendar if that matters.
+    tz, close_at = profile.session_close
+    now = (now or datetime.datetime.now(ZoneInfo(tz))).astimezone(ZoneInfo(tz))
+    index = panel.close.index
+    if len(index) and str(index[-1]) == now.date().isoformat() and now.strftime("%H:%M") < close_at:
+        panel = dataclasses.replace(panel, **{
+            f.name: frame.drop(index[-1], errors="ignore")
+            for f in dataclasses.fields(panel) if (frame := getattr(panel, f.name)) is not None
+        })
+    return panel
 
 
 def _lookback_days(profile, holdings: list[Holding]) -> int:

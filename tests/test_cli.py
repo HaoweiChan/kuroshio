@@ -1466,3 +1466,73 @@ def test_propose_fetches_back_to_the_oldest_entry_date(tmp_path, capsys, monkeyp
     ]) == 0
     capsys.readouterr()
     assert stub.calls[0][1] >= 500
+
+
+# --- TASK-24: stops compare against completed sessions only ---------------------
+
+
+def _rvmd_panel() -> Panel:
+    """RVMD on 2026-10-08: 188.12 the prior sessions, 185.43 on the still-forming bar."""
+    dates = [d.strftime("%Y-%m-%d") for d in pd.bdate_range(end="2026-10-08", periods=65)]
+    close = pd.DataFrame({"RVMD": [188.12] * 64 + [185.43]}, index=dates)
+    volume = pd.DataFrame({"RVMD": [1_000_000.0] * 65}, index=dates)
+    return Panel(close=close, volume=volume, institutional=None)
+
+
+def _propose_rvmd_at(tmp_path, monkeypatch, now: str):
+    import functools
+    import zoneinfo
+
+    from kuroshio import cli
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path / "ledger"))
+    _use_stub(monkeypatch, _rvmd_panel())
+    clock = pd.Timestamp(now, tz=zoneinfo.ZoneInfo("America/New_York")).to_pydatetime()
+    monkeypatch.setattr(
+        cli, "_completed_sessions", functools.partial(cli._completed_sessions, now=clock)
+    )
+    holdings = tmp_path / "holdings.yml"
+    holdings.write_text(
+        '- {ticker: RVMD, weight: 0.05, score: 0.5, setup_type: value_dip, '
+        'entry_price: 200.0, invalidation_price: 187.0}\n'
+    )
+    cards, problems = cli._run_propose(
+        str(EXAMPLES / "ips-balanced.md"), str(holdings), "us", no_ledger=True
+    )
+    assert problems is None
+    return cards
+
+
+def test_task24_mid_session_bar_does_not_fire_an_exit(tmp_path, monkeypatch):
+    """AC #1: 13:24 ET on 10-08 — the 185.43 bar is not a close; the run reads 10-07."""
+    cards = _propose_rvmd_at(tmp_path, monkeypatch, "2026-10-08 13:24")
+    assert not [c for c in cards if c.action == "EXIT"]
+    assert all("2026-10-08" not in c.reason for c in cards)
+
+
+def test_task24_after_the_close_the_same_bar_fires_the_exit(tmp_path, monkeypatch):
+    """AC #1: 16:30 ET on 10-08 — the bar is the session close and the stop fires."""
+    cards = _propose_rvmd_at(tmp_path, monkeypatch, "2026-10-08 16:30")
+    assert [c.sell for c in cards if c.action == "EXIT"] == ["RVMD"]
+
+
+def test_task24_completed_sessions_uses_the_market_clock(monkeypatch):
+    """AC #2: TW at 21:00 Taipei keeps today's bar; a US panel whose last row is not
+    the market's today (01:00 Taipei = the prior US date) is never trimmed."""
+    import zoneinfo
+
+    from kuroshio import cli
+
+    dates = ["2026-10-07", "2026-10-08"]
+    panel = Panel(close=pd.DataFrame({"X": [1.0, 2.0]}, index=dates),
+                  volume=pd.DataFrame({"X": [1.0, 1.0]}, index=dates))
+    taipei = zoneinfo.ZoneInfo("Asia/Taipei")
+    tw_evening = pd.Timestamp("2026-10-08 21:00", tz=taipei).to_pydatetime()
+    tw_morning = pd.Timestamp("2026-10-08 10:00", tz=taipei).to_pydatetime()
+    us_next_day = pd.Timestamp("2026-10-09 01:00", tz=taipei).to_pydatetime()  # 13:00 ET 10-08
+    us_day_after = pd.Timestamp("2026-10-10 01:00", tz=taipei).to_pydatetime()  # 13:00 ET 10-09
+
+    assert list(cli._completed_sessions(panel, get_profile("tw"), now=tw_evening).close.index) == dates
+    assert list(cli._completed_sessions(panel, get_profile("tw"), now=tw_morning).close.index) == dates[:1]
+    assert list(cli._completed_sessions(panel, get_profile("us"), now=us_next_day).close.index) == dates[:1]
+    assert list(cli._completed_sessions(panel, get_profile("us"), now=us_day_after).close.index) == dates
