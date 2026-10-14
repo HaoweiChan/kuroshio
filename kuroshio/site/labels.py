@@ -221,6 +221,7 @@ LABELS: dict[str, dict[str, str]] = {
         "last_close": "last close",
         "next_earnings": "next earnings",
         "other_dates": "Other dates",
+        "stale_report": "On {date} the rating was updated to {rating}; this report is an older version.",
         "reports_count": "{reports} report(s) · {names} name(s)",
         "no_report": "(no report)",
         # --- report page (the tabbed per-report layout) ---
@@ -455,6 +456,7 @@ LABELS: dict[str, dict[str, str]] = {
         "last_close": "收盤",
         "next_earnings": "下次財報",
         "other_dates": "其他日期",
+        "stale_report": "評級已於 {date} 更新為 {rating}，此報告為舊版。",
         "reports_count": "{reports} 份 · {names} 檔",
         "no_report": "（無報告）",
         "synthesis": "綜合",

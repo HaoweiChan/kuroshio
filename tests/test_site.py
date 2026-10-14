@@ -239,6 +239,7 @@ REPORT_LABELS = (
     "bull_vs_bear", "risk_committee", "risk_postures", "decision_trail", "decision_lede",
     "stage", "research_plan", "trader_decision", "final_decision", "tab_overview",
     "tab_research", "tab_debates", "tab_decision", "tab_raw", "empty_head", "empty_lede",
+    "stale_report",
 ) + tuple(
     f"role_{role}" for role in (
         "market", "sentiment", "news", "fundamentals", "bull", "bear", "manager",
@@ -440,3 +441,17 @@ def test_a_build_leaves_another_builds_scratch_directory_alone(tmp_path):
     render.render_site(_book_dir(tmp_path), FIX / "reports", tmp_path / "site")
     assert (theirs / "half-written.html").read_text() == "another build"
     assert (tmp_path / "site" / "index.html").exists()
+
+
+def test_a_held_report_older_than_the_books_rating_date_gets_the_stale_notice(tmp_path):
+    book_dir = _book_dir(tmp_path)
+    data = json.loads((book_dir / "book.json").read_text())
+    rows = {x["ticker"]: x for k in ("core", "attack", "locked") for x in data[k]}
+    rows["AAA"]["rating_date"] = "2026-02-01"  # newer than AAA's only report (2026-01-02)
+    rows["BBB"]["rating_date"] = "2026-01-02"  # equal to BBB's report date
+    (book_dir / "book.json").write_text(json.dumps(data))
+    out = tmp_path / "site"
+    render.render_site(book_dir, FIX / "reports", out)
+    notice = LABELS["en"]["stale_report"].format(rating=rows["AAA"]["rating"], date="2026-02-01")
+    assert notice in _report(out, "AAA")
+    assert "this report is an older version" not in _report(out, "BBB")
