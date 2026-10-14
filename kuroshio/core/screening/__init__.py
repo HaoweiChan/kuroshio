@@ -26,6 +26,9 @@ class MarketProfile:
     # largest share of `final_score` one pctrank can control — see tw.MIN_RANK_WEIGHT
     min_rank_weight: float
     accepts_sector_map: bool = False
+    # (IANA timezone, HH:MM) of the regular session close — a bar dated the market's
+    # today is still forming before it (cli._completed_sessions)
+    session_close: tuple[str, str] = ("America/New_York", "16:00")
 
 
 PROFILES = {
@@ -50,7 +53,7 @@ PROFILES = {
     # row after 65 trading sessions. No institutional-flow benchmark ticker.
     "tw": MarketProfile(
         "tw", tw.screen, tw.score_names, "finmind", 120, 200, 65, None,
-        min_rank_weight=tw.MIN_RANK_WEIGHT,
+        min_rank_weight=tw.MIN_RANK_WEIGHT, session_close=("Asia/Taipei", "13:30"),
     ),
 }
 
