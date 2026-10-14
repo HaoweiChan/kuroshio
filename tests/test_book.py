@@ -849,3 +849,108 @@ def test_core_hold_cli_reaches_book_rules(monkeypatch, tmp_path):
                          "--ratings", str(FIX / "ratings.jsonl"), "--ips", str(IPS),
                          "--out", str(tmp_path / "book"), *flags]) == 2
     assert seen == [0, 80]
+
+
+def _ratchet_inputs(price=140.0, rated="2026-09-05"):
+    screen = [dict(ticker="AAA", date="2026-10-13", rank=1, factors={"close": price})]
+    ratings = [dict(ticker="AAA", market="us", date=rated, rating="Buy", stop_loss=80.0)]
+    return screen, ratings
+
+
+def _ratchet_row(date="2026-10-02", new=110.0, **kwargs):
+    return dict(date=date, new=new, old=80.0, reason="ATR", ticker="AAA", market="us") | kwargs
+
+
+def test_ratchet_stop_veto_survives_a_rebound():
+    closes = {"AAA": {"2026-10-12": 109.5}}
+    plain = bk.build_book(*_ratchet_inputs(), _ips(), closes=closes)
+    assert _w(plain, "AAA") > 0
+    book = bk.build_book(*_ratchet_inputs(), _ips(), closes=closes,
+                         stops_rows=[_ratchet_row()])
+    assert book["core"] == book["attack"] == []
+    assert book["skipped"][0][3] == "Buy stopped out 2026-10-12; needs a new rating"
+
+
+@pytest.mark.parametrize("day", ["2026-10-01", "2026-10-02"])
+def test_ratchet_stop_does_not_retroactively_veto_a_close(day):
+    plain = bk.build_book(*_ratchet_inputs(), _ips(), closes={"AAA": {day: 100.0}})
+    book = bk.build_book(*_ratchet_inputs(), _ips(), closes={"AAA": {day: 100.0}},
+                         stops_rows=[_ratchet_row()])
+    assert book == plain  # sizing and the holdings invalidation still use the rating's 80
+    assert yaml.safe_load(bk.holdings_yaml(book))[0]["invalidation_price"] == 80.0
+
+
+@pytest.mark.parametrize("row,rated", [
+    (_ratchet_row(), "2026-10-03"),
+    (_ratchet_row(market="tw"), "2026-09-05"),
+    (_ratchet_row(ticker="OTHER"), "2026-09-05"),
+    (_ratchet_row(date="2026-10-13"), "2026-09-05"),
+    (_ratchet_row(date="2026-10-14"), "2026-09-05"),
+])
+def test_ratchet_stop_ignores_old_foreign_and_future_rows(row, rated):
+    args = _ratchet_inputs(price=100.0, rated=rated)
+    closes = {"AAA": {"2026-10-12": 100.0}}
+    plain = bk.build_book(*args, _ips(), closes=closes)
+    book = bk.build_book(*args, _ips(), closes=closes, stops_rows=[row])
+    assert book == plain and _w(book, "AAA") > 0
+
+
+@pytest.mark.parametrize("price", [109.5, 110.0])
+def test_ratchet_stop_vetoes_today_without_history(price):
+    book = bk.build_book(*_ratchet_inputs(price), _ips(), stops_rows=[_ratchet_row()])
+    assert book["core"] == book["attack"] == []
+    assert book["skipped"][0][3] == "Buy below its stop 110.00"
+
+
+def test_ratchet_stop_on_rating_date_applies_next_session():
+    book = bk.build_book(*_ratchet_inputs(), _ips(),
+                         closes={"AAA": {"2026-09-06": 110.0}},
+                         stops_rows=[_ratchet_row(date="2026-09-05")])
+    assert book["skipped"][0][3] == "Buy stopped out 2026-09-06; needs a new rating"
+
+
+def test_ratchet_stop_uses_newest_row_with_rating_stop_as_floor():
+    rows = [_ratchet_row(date="2026-10-10", new=80), _ratchet_row(new=150)]
+    book = bk.build_book(*_ratchet_inputs(100), _ips(), stops_rows=rows)
+    assert _w(book, "AAA") > 0  # newest by date, not file order or highest historical stop
+    book = bk.build_book(*_ratchet_inputs(80), _ips(), stops_rows=rows)
+    assert book["skipped"][0][3] == "Buy below its stop 80.00"
+
+
+@pytest.mark.parametrize("state", ["present", "missing", "unreadable"])
+def test_ratchet_stop_cli_reads_market_filtered_ledger_best_effort(tmp_path, monkeypatch, capsys, state):
+    from kuroshio import cli
+    from kuroshio.core import ledger
+
+    monkeypatch.setenv("KUROSHIO_LEDGER_DIR", str(tmp_path))
+    rows = [_ratchet_row(), _ratchet_row(market="tw", new=200)]
+    path = tmp_path / ledger.STOPS
+    if state == "present":
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    elif state == "unreadable":
+        path.mkdir()  # reliably raises OSError even when the test user can read every file
+    screen, ratings = _ratchet_inputs()
+    (tmp_path / "screen.json").write_text(json.dumps(screen))
+    (tmp_path / "ratings.jsonl").write_text(json.dumps(ratings[0]) + "\n")
+    monkeypatch.setattr(cli, "_stop_history", lambda *a: {"AAA": {"2026-10-12": 109.5}})
+    monkeypatch.setattr(cli, "_run_propose", lambda *a, **kw: ([], None))
+    build = bk.build_book
+    seen = {}
+
+    def capture(*a, **kw):
+        seen.update(kw)
+        return build(*a, **kw)
+
+    monkeypatch.setattr(bk, "build_book", capture)
+    out = tmp_path / "out"
+    assert cli.main(["book", "--screen", str(tmp_path / "screen.json"),
+                     "--ratings", str(tmp_path / "ratings.jsonl"), "--ips", str(IPS),
+                     "--market", "us", "--out", str(out)]) == 0
+    book = json.loads((out / "book.json").read_text())
+    assert seen["stops_rows"] == (rows[:1] if state == "present" else [])
+    if state == "present":
+        assert book["skipped"][0][3] == "Buy stopped out 2026-10-12; needs a new rating"
+        assert book["core"] == book["attack"] == []
+    else:
+        assert _w(book, "AAA") > 0
+    assert ("warning: stop ledger read failed:" in capsys.readouterr().err) == (state == "unreadable")

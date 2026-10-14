@@ -1137,6 +1137,7 @@ def _stop_history(screen_path: str, market: str, provider_name: str | None, ttl_
 
 def cmd_book(args: argparse.Namespace) -> int:
     from kuroshio.core import book as bookmod
+    from kuroshio.core import ledger
     from kuroshio.core.ips import parse_ips
 
     rules = bookmod.BookRules(
@@ -1163,12 +1164,21 @@ def cmd_book(args: argparse.Namespace) -> int:
                 for k, v in leverage_map.items()
             ):
                 raise ValueError(f"{args.leverage_map}: expected a flat UNDERLYING: ETF_TICKER map")
+        # Best-effort like _logged_stops: a missing/unreadable trail must not prevent
+        # building the book with the rating stops it already knows.
+        try:
+            stops = [r for r in ledger.load(ledger.ledger_dir() / ledger.STOPS)
+                     if r.get("market") == args.market]
+        except OSError as exc:
+            print(f"warning: stop ledger read failed: {exc}", file=sys.stderr)
+            stops = []
         book = bookmod.build_book(
             screen,
             bookmod.load_jsonl(args.ratings),
             parse_ips(args.ips),
             meta=bookmod.load_json(args.meta),
             scores_rows=bookmod.load_jsonl(args.scores),
+            stops_rows=stops,
             positions=bookmod.load_positions(args.positions),
             nav=args.nav,
             pm_size=bookmod.load_json(args.pm_size),
