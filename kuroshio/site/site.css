@@ -161,3 +161,16 @@ header .lang:hover { border-color: var(--accent); color: var(--accent); }
 .hero.small .badge + .badge::before { content: "·"; margin: 0 10px; color: var(--line-2); }
 .trackchart .chips .chip { cursor: pointer; background: transparent; color: var(--fg); border-color: var(--line-2); }
 .trackchart .chips .chip[aria-pressed="false"] { opacity: .4; text-decoration: line-through; }
+.trackchart .chips { padding: 14px 0 6px; }
+.trackchart .meta { margin-top: 4px; }
+.tc-plot { position: relative; }
+.tc-plot svg { display: block; margin-bottom: 0; }
+.tc-tip {
+  position: absolute; top: 8px; pointer-events: none; padding: 8px 10px; white-space: nowrap;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-sm);
+  box-shadow: var(--shadow); font: 12px var(--mono); color: var(--fg);
+}
+.tc-tip > b { display: block; margin-bottom: 4px; color: var(--muted); font-weight: 500; }
+.tc-tip div { display: flex; align-items: center; gap: 8px; line-height: 1.6; }
+.tc-tip i { width: 10px; height: 3px; border-radius: 2px; flex: none; }
+.tc-tip span { flex: 1; color: var(--muted); }

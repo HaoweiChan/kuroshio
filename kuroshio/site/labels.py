@@ -138,7 +138,6 @@ LABELS: dict[str, dict[str, str]] = {
         "track_hit": "{sleeve} hit rate · {n} positions · avg {avg}",
         "track_chart": "Cumulative raw return",
         "track_chart_lede": "Held from each book's close until the next book replaces it.",
-        "track_range": "range {lo:+.1%} to {hi:+.1%}",
         "track_eps_head": "Every recommended position",
         "track_eps_lede": (
             "Entered at the close of the first book that carried the name, exited at the close "
@@ -384,7 +383,6 @@ LABELS: dict[str, dict[str, str]] = {
         "track_hit": "{sleeve}勝率 · {n} 筆 · 平均 {avg}",
         "track_chart": "累積原始報酬",
         "track_chart_lede": "每份 book 從它的收盤持有到下一份 book 取代它為止。",
-        "track_range": "區間 {lo:+.1%} 至 {hi:+.1%}",
         "track_eps_head": "每一筆建議部位",
         "track_eps_lede": (
             "進場 = 第一份列入它的 book 當天收盤；出場 = 第一份把它剔除的 book 當天收盤；"

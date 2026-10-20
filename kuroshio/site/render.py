@@ -66,27 +66,82 @@ document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('cl
 
 TRACK_JS = r"""
 <script>
+function trackDraw(box){
+  const D = JSON.parse(box.dataset.series), L = JSON.parse(box.dataset.lines);
+  const on = new Set([...box.querySelectorAll('.chip[aria-pressed=true]')].map(b => b.dataset.k));
+  const host = box.querySelector('.tc-plot'), NS = 'http://www.w3.org/2000/svg';
+  const W = host.clientWidth || 720, H = W < 520 ? 250 : 340, m = {l: 50, r: 26, t: 12, b: 28};
+  const shown = L.filter(l => on.has(l.k));
+  const vals = [0];
+  shown.forEach(l => D.forEach(d => d[l.k] != null && vals.push(d[l.k] * 100)));
+  const vmin = Math.min(...vals), vmax = Math.max(...vals);
+  const step = [1, 2, 5, 10, 20, 25, 50, 100].find(s => (vmax - vmin) / s <= 6) || 100;
+  const lo = Math.floor(vmin / step) * step, hi = Math.ceil(vmax / step) * step;
+  const T = D.map(d => Date.parse(d.date)), t0 = T[0], t1 = T[T.length - 1];
+  const x = t => m.l + (t - t0) / ((t1 - t0) || 1) * (W - m.l - m.r);
+  const y = v => m.t + (hi - v) / ((hi - lo) || 1) * (H - m.t - m.b);
+  const pct = v => (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(1) + '%';
+  const css = 'font:11px var(--mono)';
+  let s = '';
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" ` +
+         `stroke-width="${v === 0 ? 1.5 : 1}" ${v === 0 ? '' : 'stroke-dasharray="2 4"'}/>` +
+         `<text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end" fill="var(--muted)" style="${css}">` +
+         `${v > 0 ? '+' : ''}${v}%</text>`;
+  }
+  const days = (t1 - t0) / 864e5;
+  const every = [7, 14, 30, 60, 90, 180, 365].find(d => days / d <= 6) || 365;
+  const long = days > 300;
+  for (let t = t0; t <= t1 + 1; t += every * 864e5) {
+    const iso = new Date(t).toISOString().slice(0, 10);
+    s += `<line x1="${x(t)}" x2="${x(t)}" y1="${H - m.b}" y2="${H - m.b + 4}" stroke="var(--muted)"/>` +
+         `<text x="${x(t)}" y="${H - 8}" text-anchor="middle" fill="var(--muted)" style="${css}">` +
+         `${long ? iso : iso.slice(5)}</text>`;
+  }
+  [...shown].reverse().forEach(l => {  // book last, so it sits on top
+    const pts = D.map((d, i) => d[l.k] == null ? null : `${x(T[i]).toFixed(1)},${y(d[l.k] * 100).toFixed(1)}`)
+      .filter(Boolean);
+    s += `<polyline fill="none" stroke="${l.color}" stroke-width="${l.k === 'book' ? 2.5 : 1.75}" ` +
+         `stroke-linejoin="round" stroke-linecap="round" ${l.dash ? `stroke-dasharray="${l.dash}"` : ''} ` +
+         `points="${pts.join(' ')}"/>`;
+    const e = pts[pts.length - 1];
+    if (e) s += `<circle cx="${e.split(',')[0]}" cy="${e.split(',')[1]}" r="3.5" fill="${l.color}"/>`;
+  });
+  host.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="${box.dataset.label}">${s}` +
+    `<line class="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--muted)" style="display:none"/>` +
+    `<g class="dots"></g><rect x="${m.l}" y="${m.t}" width="${W - m.l - m.r}" height="${H - m.t - m.b}" ` +
+    `fill="transparent" style="touch-action:pan-y"/></svg><div class="tc-tip" style="display:none"></div>`;
+  const svg = host.firstChild, xh = svg.querySelector('.xh'), dots = svg.querySelector('.dots');
+  const tip = host.querySelector('.tc-tip');
+  const hide = () => { xh.style.display = tip.style.display = 'none'; dots.innerHTML = ''; };
+  svg.querySelector('rect').addEventListener('pointermove', ev => {
+    const px = ev.clientX - svg.getBoundingClientRect().left;
+    let i = 0;
+    T.forEach((t, j) => { if (Math.abs(x(t) - px) < Math.abs(x(T[i]) - px)) i = j; });
+    const d = D[i], rows = shown.filter(l => d[l.k] != null).sort((a, b) => d[b.k] - d[a.k]);
+    xh.setAttribute('x1', x(T[i])); xh.setAttribute('x2', x(T[i])); xh.style.display = '';
+    dots.innerHTML = rows.map(l => `<circle cx="${x(T[i])}" cy="${y(d[l.k] * 100)}" r="4" ` +
+      `fill="${l.color}" stroke="var(--panel)" stroke-width="1.5"/>`).join('');
+    tip.innerHTML = `<b>${d.date}</b>` + rows.map(l => `<div><i style="background:${l.color}"></i>` +
+      `<span>${l.label}</span><b>${pct(d[l.k] * 100)}</b></div>`).join('');
+    tip.style.display = '';
+    const w = tip.offsetWidth;
+    const right = x(T[i]) + 14;
+    tip.style.left = Math.max(0, right + w > W ? x(T[i]) - 14 - w : right) + 'px';
+  });
+  svg.querySelector('rect').addEventListener('pointerleave', hide);
+}
 function trackToggle(btn){
   btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
-  const box = btn.closest('.trackchart'), h = +box.dataset.h, pad = +box.dataset.pad;
-  const on = new Set([...box.querySelectorAll('.chip[aria-pressed=true]')].map(b => b.dataset.k));
-  const lines = [...box.querySelectorAll('polyline')];
-  lines.forEach(p => p.style.display = on.has(p.dataset.k) ? '' : 'none');
-  const vals = [0];
-  lines.filter(p => on.has(p.dataset.k))
-    .forEach(p => p.dataset.v.split(',').forEach(v => v !== '' && vals.push(+v)));
-  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
-  const y = v => pad + (hi - v) * (h - 2 * pad) / span;
-  lines.forEach(p => {
-    const xs = p.getAttribute('points').split(' ').map(q => q.split(',')[0]);
-    const vs = p.dataset.v.split(',').filter(v => v !== '');
-    p.setAttribute('points', vs.map((v, i) => xs[i] + ',' + y(+v).toFixed(1)).join(' '));
-  });
-  const z = box.querySelector('.zero'); z.setAttribute('y1', y(0)); z.setAttribute('y2', y(0));
-  const f = v => (v >= 0 ? '+' : '-') + Math.abs(v * 100).toFixed(1) + '%';
-  const r = box.querySelector('.range span'); let n = 0;
-  r.textContent = r.textContent.replace(/[+-]\d+\.\d%/g, () => f(n++ ? hi : lo));
+  trackDraw(btn.closest('.trackchart'));
 }
+document.querySelectorAll('.trackchart').forEach(box => {
+  let w = 0;
+  new ResizeObserver(() => {
+    const n = box.querySelector('.tc-plot').clientWidth;
+    if (n !== w) { w = n; trackDraw(box); }
+  }).observe(box);
+});
 </script>"""
 
 REPORT_JS = """
@@ -492,8 +547,8 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
 
 
 TRACK_LINES = (("book", "var(--fg)", ""), ("core", "var(--warn)", ""),
-               ("attack", "var(--accent)", ""), ("bench", "var(--muted)", "4 4"))
-INDEX_LINES = (("^SOX", "var(--t-cold)", "4 4"), ("^IXIC", "#a78bfa", "4 4"))
+               ("attack", "var(--accent)", ""), ("bench", "var(--muted)", "5 4"))
+INDEX_LINES = (("^SOX", "var(--t-cold)", "5 4"), ("^IXIC", "#a78bfa", "5 4"))
 
 
 def _ret(x, na: str = "n/a") -> str:
@@ -502,52 +557,26 @@ def _ret(x, na: str = "n/a") -> str:
 
 
 def _track_chart(series: list[dict], lb: dict, benchmark: str = "-", indexes=()) -> str:
-    """Cumulative raw return, one polyline per line, zero line dashed. Each legend entry is a
-    button that hides its line and rescales the rest (trackToggle in TRACK_JS)."""
+    """Cumulative raw return: the data and line styles ride on the container and `trackDraw`
+    (TRACK_JS) draws axes, gridlines, lines and the hover readout at the container's width.
+    Each legend entry is a button that hides its line and rescales the rest."""
     if len(series) < 2:
         return ""
-    lines_ = TRACK_LINES + tuple(x for x in INDEX_LINES if x[0] in indexes)
-    vals = [s[k] for s in series for k, _, _ in lines_ if s.get(k) is not None] + [0.0]
-    lo, hi = min(vals), max(vals)
-    span = (hi - lo) or 1.0
-    w, h, pad = 720, 240, 8
-    dates = [dt.date.fromisoformat(s["date"]) for s in series]
-    duration = max((dates[-1] - dates[0]).days, 1)
-    x = lambda i: pad + (dates[i] - dates[0]).days * (w - 2 * pad) / duration  # noqa: E731
-    y = lambda v: pad + (hi - v) * (h - 2 * pad) / span  # noqa: E731
-    # a line is drawn from the days it has a value; data-v keeps every value for the rescale
-    def polyline(k: str, color: str, dash: str) -> str:
-        have = [(i, s[k]) for i, s in enumerate(series) if s.get(k) is not None]
-        return (
-            f"<polyline data-k='{esc(k)}' data-v='{','.join(str(v) for _, v in have)}' "
-            f"fill='none' stroke='{color}' stroke-width='2' stroke-dasharray='{dash}' "
-            f"points='{' '.join(f'{x(i):.1f},{y(v):.1f}' for i, v in have)}'/>"
-        )
-
-    lines = "".join(polyline(*line) for line in lines_)
+    lines = TRACK_LINES + tuple(x for x in INDEX_LINES if x[0] in indexes)
+    spec = [{"k": k, "color": c, "dash": d, "label": lb["track_" + k].format(bench=benchmark)}
+            for k, c, d in lines]
+    data = [{"date": s["date"], **{k: s.get(k) for k, _, _ in lines}} for s in series]
     legend = "".join(
-        f"<button class='chip' aria-pressed='true' data-k='{esc(k)}' onclick='trackToggle(this)'>"
-        f"<b style='color:{c}'>—</b> {esc(lb['track_' + k].format(bench=benchmark))} "
-        f"{_ret(series[-1].get(k))}</button>"
-        for k, c, _ in lines_
+        f"<button class='chip' aria-pressed='true' data-k='{esc(sp['k'])}' onclick='trackToggle(this)'>"
+        f"<b style='color:{sp['color']}'>—</b> {esc(sp['label'])} {_ret(series[-1].get(sp['k']))}</button>"
+        for sp in spec
     )
-    ticks = "".join(
-        f"<line x1='{x(i):.1f}' x2='{x(i):.1f}' y1='{h}' y2='{h + 5}' stroke='var(--muted)'/>"
-        f"<text x='{x(i):.1f}' y='{h + 22}' text-anchor='{anchor}' "
-        f"fill='var(--muted)' font-size='14'>{esc(series[i]['date'])}</text>"
-        for i, anchor in ((0, "start"), (len(series) // 2, "middle"), (len(series) - 1, "end"))
-        if anchor != "middle" or len(series) > 2
-    )
+    attr = lambda v: esc(json.dumps(v, ensure_ascii=False))  # noqa: E731
     return (
-        f"<div class='trackchart' data-h='{h}' data-pad='{pad}'>"
-        f"<svg viewBox='0 0 {w} {h + 32}' style='width:100%;height:auto' role='img' "
-        f"aria-label='{esc(lb['track_chart'])}'>"
-        f"<line class='zero' x1='0' x2='{w}' y1='{y(0):.1f}' y2='{y(0):.1f}' stroke='var(--line)' "
-        f"stroke-dasharray='2 3'/>"
-        f"{lines}<line x1='{pad}' x2='{w - pad}' y1='{h}' y2='{h}' "
-        f"stroke='var(--line)'/>{ticks}</svg><div class='chips' style='padding:0'>{legend}</div>"
-        f"<div class='meta range'>{esc(series[0]['date'])} → {esc(series[-1]['date'])} · "
-        f"<span>{esc(lb['track_range'].format(lo=lo, hi=hi))}</span></div></div>{TRACK_JS}"
+        f"<div class='trackchart' data-series='{attr(data)}' data-lines='{attr(spec)}' "
+        f"data-label='{esc(lb['track_chart'])}'><div class='tc-plot'></div>"
+        f"<div class='chips'>{legend}</div>"
+        f"<div class='meta'>{esc(series[0]['date'])} → {esc(series[-1]['date'])}</div></div>{TRACK_JS}"
     )
 
 
