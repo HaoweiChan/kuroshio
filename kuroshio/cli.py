@@ -1122,11 +1122,13 @@ def _write_track(book: dict, out: Path, market: str, provider_name: str) -> None
     books = track.load_books(out.parent, current=book)
     bench = get_profile(market).benchmark
     tickers = sorted({t for _, w in books for t in w})
+    indexes = track.INDEXES if market.startswith("us") else ()
     if bench:  # first: providers/yf.py filters the panel to its first resolved ticker
         tickers = [bench] + [t for t in tickers if t != bench]
+    tickers += [t for t in indexes if t not in tickers]
     days = (datetime.date.today() - datetime.date.fromisoformat(books[0][0])).days + 10
     close = get_provider(provider_name).fetch_panel(tickers, days).close
-    tr = track.track(books, close, bench)
+    tr = track.track(books, close, bench, indexes)
     (out / "track.json").write_text(json.dumps(tr, indent=1), encoding="utf-8")
 
 

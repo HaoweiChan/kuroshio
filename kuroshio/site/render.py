@@ -64,6 +64,31 @@ function chipFilter(btn, attr){
 document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => sortTable(th)));
 </script>"""
 
+TRACK_JS = r"""
+<script>
+function trackToggle(btn){
+  btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+  const box = btn.closest('.trackchart'), h = +box.dataset.h, pad = +box.dataset.pad;
+  const on = new Set([...box.querySelectorAll('.chip[aria-pressed=true]')].map(b => b.dataset.k));
+  const lines = [...box.querySelectorAll('polyline')];
+  lines.forEach(p => p.style.display = on.has(p.dataset.k) ? '' : 'none');
+  const vals = [0];
+  lines.filter(p => on.has(p.dataset.k))
+    .forEach(p => p.dataset.v.split(',').forEach(v => v !== '' && vals.push(+v)));
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+  const y = v => pad + (hi - v) * (h - 2 * pad) / span;
+  lines.forEach(p => {
+    const xs = p.getAttribute('points').split(' ').map(q => q.split(',')[0]);
+    const vs = p.dataset.v.split(',').filter(v => v !== '');
+    p.setAttribute('points', vs.map((v, i) => xs[i] + ',' + y(+v).toFixed(1)).join(' '));
+  });
+  const z = box.querySelector('.zero'); z.setAttribute('y1', y(0)); z.setAttribute('y2', y(0));
+  const f = v => (v >= 0 ? '+' : '-') + Math.abs(v * 100).toFixed(1) + '%';
+  const r = box.querySelector('.range span'); let n = 0;
+  r.textContent = r.textContent.replace(/[+-]\d+\.\d%/g, () => f(n++ ? hi : lo));
+}
+</script>"""
+
 REPORT_JS = """
 <script>
 function showTab(btn, id){
@@ -468,6 +493,7 @@ def _alloc_page(book: dict, lb: dict, link) -> str | None:
 
 TRACK_LINES = (("book", "var(--fg)", ""), ("core", "var(--warn)", ""),
                ("attack", "var(--accent)", ""), ("bench", "var(--muted)", "4 4"))
+INDEX_LINES = (("^SOX", "var(--t-cold)", "4 4"), ("^IXIC", "#a78bfa", "4 4"))
 
 
 def _ret(x, na: str = "n/a") -> str:
@@ -475,11 +501,13 @@ def _ret(x, na: str = "n/a") -> str:
     return f"{x:+.1%}" if x is not None else na
 
 
-def _track_chart(series: list[dict], lb: dict, benchmark: str = "-") -> str:
-    """Cumulative raw return, one polyline per line in TRACK_LINES, zero line dashed."""
+def _track_chart(series: list[dict], lb: dict, benchmark: str = "-", indexes=()) -> str:
+    """Cumulative raw return, one polyline per line, zero line dashed. Each legend entry is a
+    button that hides its line and rescales the rest (trackToggle in TRACK_JS)."""
     if len(series) < 2:
         return ""
-    vals = [s[k] for s in series for k, _, _ in TRACK_LINES if s.get(k) is not None] + [0.0]
+    lines_ = TRACK_LINES + tuple(x for x in INDEX_LINES if x[0] in indexes)
+    vals = [s[k] for s in series for k, _, _ in lines_ if s.get(k) is not None] + [0.0]
     lo, hi = min(vals), max(vals)
     span = (hi - lo) or 1.0
     w, h, pad = 720, 240, 8
@@ -487,15 +515,21 @@ def _track_chart(series: list[dict], lb: dict, benchmark: str = "-") -> str:
     duration = max((dates[-1] - dates[0]).days, 1)
     x = lambda i: pad + (dates[i] - dates[0]).days * (w - 2 * pad) / duration  # noqa: E731
     y = lambda v: pad + (hi - v) * (h - 2 * pad) / span  # noqa: E731
-    lines = "".join(
-        f"<polyline fill='none' stroke='{color}' stroke-width='2' stroke-dasharray='{dash}' "
-        f"points='{' '.join(f'{x(i):.1f},{y(s[k]):.1f}' for i, s in enumerate(series))}'/>"
-        for k, color, dash in TRACK_LINES
-    )
+    # a line is drawn from the days it has a value; data-v keeps every value for the rescale
+    def polyline(k: str, color: str, dash: str) -> str:
+        have = [(i, s[k]) for i, s in enumerate(series) if s.get(k) is not None]
+        return (
+            f"<polyline data-k='{esc(k)}' data-v='{','.join(str(v) for _, v in have)}' "
+            f"fill='none' stroke='{color}' stroke-width='2' stroke-dasharray='{dash}' "
+            f"points='{' '.join(f'{x(i):.1f},{y(v):.1f}' for i, v in have)}'/>"
+        )
+
+    lines = "".join(polyline(*line) for line in lines_)
     legend = "".join(
-        f"<span class='meta' style='margin-right:16px'><b style='color:{c}'>—</b> "
-        f"{esc(lb['track_' + k].format(bench=benchmark))} {_ret(series[-1][k])}</span>"
-        for k, c, _ in TRACK_LINES
+        f"<button class='chip' aria-pressed='true' data-k='{esc(k)}' onclick='trackToggle(this)'>"
+        f"<b style='color:{c}'>—</b> {esc(lb['track_' + k].format(bench=benchmark))} "
+        f"{_ret(series[-1].get(k))}</button>"
+        for k, c, _ in lines_
     )
     ticks = "".join(
         f"<line x1='{x(i):.1f}' x2='{x(i):.1f}' y1='{h}' y2='{h + 5}' stroke='var(--muted)'/>"
@@ -505,13 +539,15 @@ def _track_chart(series: list[dict], lb: dict, benchmark: str = "-") -> str:
         if anchor != "middle" or len(series) > 2
     )
     return (
+        f"<div class='trackchart' data-h='{h}' data-pad='{pad}'>"
         f"<svg viewBox='0 0 {w} {h + 32}' style='width:100%;height:auto' role='img' "
         f"aria-label='{esc(lb['track_chart'])}'>"
-        f"<line x1='0' x2='{w}' y1='{y(0):.1f}' y2='{y(0):.1f}' stroke='var(--line)' stroke-dasharray='2 3'/>"
+        f"<line class='zero' x1='0' x2='{w}' y1='{y(0):.1f}' y2='{y(0):.1f}' stroke='var(--line)' "
+        f"stroke-dasharray='2 3'/>"
         f"{lines}<line x1='{pad}' x2='{w - pad}' y1='{h}' y2='{h}' "
-        f"stroke='var(--line)'/>{ticks}</svg><div>{legend}</div>"
-        f"<div class='meta'>{esc(series[0]['date'])} → {esc(series[-1]['date'])} · "
-        f"{esc(lb['track_range'].format(lo=lo, hi=hi))}</div>"
+        f"stroke='var(--line)'/>{ticks}</svg><div class='chips' style='padding:0'>{legend}</div>"
+        f"<div class='meta range'>{esc(series[0]['date'])} → {esc(series[-1]['date'])} · "
+        f"<span>{esc(lb['track_range'].format(lo=lo, hi=hi))}</span></div></div>{TRACK_JS}"
     )
 
 
@@ -564,7 +600,8 @@ def _track_page(tr: dict, book: dict, lb: dict, link) -> str:
         + "".join(f"<div class=stat><b>{v}</b><span>{esc(label)}</span></div>" for v, label in stats)
         + "</div></div>"
         + _section("", lb["track_chart"], lb["track_chart_lede"],
-                   f"<div class='panel chart'>{_track_chart(tr['series'], lb, benchmark)}</div>")
+                   "<div class='panel chart'>"
+                   f"{_track_chart(tr['series'], lb, benchmark, tr.get('indexes', ()))}</div>")
         + _section("", lb["track_eps_head"], lb["track_eps_lede"],
                    "<div class='panel'><div class='toolbar'>"
                    + _chips([("all", lb["all"]), ("core", lb["core"]), ("attack", lb["attack"])], "s")

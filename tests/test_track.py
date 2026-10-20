@@ -86,3 +86,19 @@ def test_chart_positions_follow_calendar_dates_and_label_the_actual_benchmark():
     short = render._track_chart(series[:2], render.labels("en"), "SPY")
     assert short.count("<text ") == 2
     assert render._track_chart([], render.labels("en"), "SPY") == ""
+
+
+def test_index_lines_are_tracked_and_each_legend_entry_is_a_toggle():
+    close = CLOSE.assign(**{"^SOX": [100.0, 110.0, 110.0, 99.0], "^IXIC": [10.0, 10.0, 11.0, 11.0]})
+    tr = track.track(BOOKS, close, "SPY", ("^SOX", "^IXIC", "^MISSING"))
+    assert tr["indexes"] == ["^SOX", "^IXIC"]  # a ticker the panel lacks is dropped
+    assert tr["series"][-1]["^SOX"] == pytest.approx(-0.01)
+    assert tr["series"][-1]["^IXIC"] == pytest.approx(0.10)
+    chart = render._track_chart(tr["series"], render.labels("zh"), "SPY", tr["indexes"])
+    assert "費半 (SOX)" in chart and "那指 (IXIC)" in chart
+    assert chart.count("onclick='trackToggle(this)'") == 6
+    assert chart.count("<polyline data-k=") == 6
+    # a track.json written before indexes existed still renders the original four lines
+    old = render._track_chart([{k: v for k, v in s.items() if not k.startswith("^")} for s in tr["series"]],
+                              render.labels("zh"), "SPY")
+    assert old.count("<polyline data-k=") == 4
