@@ -1,5 +1,6 @@
 """kuroshio/core/track.py — raw-return record of the saved books, and its site page."""
 
+import html
 import json
 import re
 import shutil
@@ -63,29 +64,29 @@ def test_the_site_renders_a_track_page_only_when_track_json_is_there(tmp_path):
     (book_dir / "track.json").write_text(json.dumps(track.track(BOOKS, CLOSE, "SPY")))
     render.render_site(book_dir, FIX / "reports", out, lang="zh")
     page = (out / "track.html").read_text()
-    assert "績效" in page and "BBB" in page and "-20.0%" in page and "<polyline" in page
-    assert page.count("基準 S&amp;P 500 (SPY)") == 2
+    assert "績效" in page and "BBB" in page and "-20.0%" in page and "trackDraw" in page
+    assert page.count("基準 S&amp;P 500 (SPY)") == 3
     for day in DAYS[1:]:
-        assert re.search(r"<text[^>]*>" + day + r"</text>", page)
+        assert day in page  # every day is in the chart's embedded series
     english = (out / "en" / "track.html").read_text()
-    assert english.count("Benchmark S&amp;P 500 (SPY)") == 2
+    assert english.count("Benchmark S&amp;P 500 (SPY)") == 3
     # the attack panel states today's rules: risk-scaled top-up and the hysteresis buffer
     assert "自身權重的 2 倍，最多 10%" in page and "最多 2% NAV" in page
     assert "排名在名額數的 2 倍以內" in page and "只要當天排名還把它放在攻擊倉就留著" not in page
     shutil.rmtree(out)
 
 
-def test_chart_positions_follow_calendar_dates_and_label_the_actual_benchmark():
+def test_chart_carries_its_series_and_labels_the_actual_benchmark():
     series = [dict(date=day, book=0.0, core=0.0, attack=0.0, bench=0.0) for day in DAYS]
     chart = render._track_chart(series, render.labels("en"), "OTHER")
-    points = re.search(r"points='([^']+)'", chart).group(1).split()
-    xs = [float(point.split(",")[0]) for point in points]
-    assert xs[1] - xs[0] == pytest.approx(3 * (xs[2] - xs[1]), abs=0.2)
     assert "Benchmark OTHER" in chart and "SPY" not in chart
-    assert chart.count("<text ") == 3
-    short = render._track_chart(series[:2], render.labels("en"), "SPY")
-    assert short.count("<text ") == 2
+    assert chart.count("onclick='trackToggle(this)'") == 4
+    assert _chart_data(chart)[-1]["date"] == DAYS[-1]
     assert render._track_chart([], render.labels("en"), "SPY") == ""
+
+
+def _chart_data(chart: str) -> list[dict]:
+    return json.loads(html.unescape(re.search(r"data-series='([^']+)'", chart).group(1)))
 
 
 def test_index_lines_are_tracked_and_each_legend_entry_is_a_toggle():
@@ -97,8 +98,8 @@ def test_index_lines_are_tracked_and_each_legend_entry_is_a_toggle():
     chart = render._track_chart(tr["series"], render.labels("zh"), "SPY", tr["indexes"])
     assert "費半 (SOX)" in chart and "那指 (IXIC)" in chart
     assert chart.count("onclick='trackToggle(this)'") == 6
-    assert chart.count("<polyline data-k=") == 6
+    assert set(_chart_data(chart)[-1]) == {"date", "book", "core", "attack", "bench", "^SOX", "^IXIC"}
     # a track.json written before indexes existed still renders the original four lines
     old = render._track_chart([{k: v for k, v in s.items() if not k.startswith("^")} for s in tr["series"]],
                               render.labels("zh"), "SPY")
-    assert old.count("<polyline data-k=") == 4
+    assert old.count("onclick='trackToggle(this)'") == 4
