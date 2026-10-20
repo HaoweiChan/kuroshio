@@ -72,8 +72,8 @@ different scales.
 
 Record *why* you own a position — `setup_type:` (value_dip | pullback_add | trend_add |
 other) plus `entry_price:` and, for the dip setups, `invalidation_price:` — and `propose`
-watches each one on its own terms: a `trend_add` is alerted when it closes under its 50-day
-mean, a `value_dip` never is (looking weak against its MAs is the setup) and is alerted only
+watches each one on its own terms: a `trend_add` is alerted when it closes more than 3% under
+its 50-day mean, a `value_dip` never is (looking weak against its MAs is the setup) and is alerted only
 when it closes at or below the invalidation price you recorded. Add an `entry_date:` and the
 stop moves with the tape: a `trend_add` — and a `pullback_add` once its running high has
 cleared entry + 2R — trails its invalidation price at `caps.trail_atr_mult` ATR14s below the

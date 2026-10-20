@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from kuroshio.core.allocator.signals import BOOK_VOL_WINDOW, MA_TREND
+from kuroshio.core.allocator.signals import BOOK_VOL_WINDOW, MA_TREND, MA_TREND_BUFFER
 from kuroshio.types import Candidate, Holding, ProposalCard
 
 # setup_types that carry a monitoring rule. "other" (and a missing setup_type) carry
@@ -85,12 +85,12 @@ CARD_TEXT: dict[str, dict[str, str]] = {
         "entry_missing": "entry price not recorded",
         "no_ma50": "no MA50 for its trend_add — fewer than {ma_trend} traded sessions",
         "trend_intact": (
-            "its trend is intact — {at}, at or above its 50-day moving "
-            "average of {ma:.2f}"
+            "its trend is intact — {at}, not more than {buffer:.0%} under its 50-day "
+            "moving average of {ma:.2f}"
         ),
         "trend_broken": (
             "{ticker} was opened as a trend_add and the trend has broken: {at}, "
-            "below its 50-day moving average of {ma:.2f} ({entry}). "
+            "more than {buffer:.0%} under its 50-day moving average of {ma:.2f} ({entry}). "
             "The setup that justified the position no longer holds."
         ),
         "trail_known": "{stop:.2f} its stop has ratcheted up to (see the ALERT above)",
@@ -251,10 +251,10 @@ CARD_TEXT: dict[str, dict[str, str]] = {
         "entry_recorded": "進場價 {entry_price:.2f}，目前距進場 {chg:+.1%}",
         "entry_missing": "沒有記錄進場價",
         "no_ma50": "這檔趨勢加碼沒有 MA50 — 交易日數不到 {ma_trend} 天",
-        "trend_intact": "趨勢仍然成立 — {at}，現價在 50 日均線 {ma:.2f} 之上或持平",
+        "trend_intact": "趨勢仍然成立 — {at}，現價沒有低於 50 日均線 {ma:.2f} 超過 {buffer:.0%}",
         "trend_broken": (
             "{ticker} 當初以趨勢加碼進場，趨勢已經走壞：{at}，低於 50 日均線 "
-            "{ma:.2f}（{entry}）。當初進場的理由已經不成立。"
+            "{ma:.2f} 超過 {buffer:.0%}（{entry}）。當初進場的理由已經不成立。"
         ),
         "trail_known": "{stop:.2f}（這次檢查剛把停損上調到這裡，見上方警示）",
         "trail_earlier": "{stop:.2f}（之前的檢查已經把停損上調到這裡）",
@@ -751,10 +751,12 @@ def propose(
             if ma is None:
                 thesis_gap[h.ticker] = T["no_ma50"].format(ma_trend=MA_TREND)
                 continue
-            if price >= ma:
-                thesis_note[h.ticker] = T["trend_intact"].format(at=at, ma=ma)
+            if price >= ma * (1 - MA_TREND_BUFFER):
+                thesis_note[h.ticker] = T["trend_intact"].format(at=at, ma=ma, buffer=MA_TREND_BUFFER)
                 continue
-            reason = T["trend_broken"].format(ticker=h.ticker, at=at, ma=ma, entry=entry)
+            reason = T["trend_broken"].format(
+                ticker=h.ticker, at=at, ma=ma, buffer=MA_TREND_BUFFER, entry=entry,
+            )
             details = {"ma50": ma}
         elif h.setup_type == "trend_add":
             reason = T["trail_breached"].format(ticker=h.ticker, at=at, level=level, entry=entry)

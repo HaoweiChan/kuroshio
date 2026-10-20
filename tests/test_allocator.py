@@ -296,6 +296,18 @@ def test_trend_add_alerts_on_ma_break_and_the_dip_setups_do_not():
     assert set(thesis_alerts(cards)) == {"TREND"}
 
 
+def test_trend_add_breaks_only_past_the_ma50_buffer():
+    """One close a little under the MA50 is noise, not a break: 97.00 against 100.00 holds,
+    96.99 is more than MA_TREND_BUFFER under and EXITs."""
+    def exited(price):
+        cards = propose(thesis_portfolio(), [], make_ips(), "us",
+                        prices={"TREND": price}, ma50={"TREND": 100.0})
+        return "TREND" in thesis_alerts(cards)
+    assert not exited(99.0)
+    assert not exited(97.0)
+    assert exited(96.99)
+
+
 def test_value_dip_alerts_on_invalidation_breach():
     """Acceptance clause 3: the value_dip's own invalidation price is what ends it —
     and the pullback_add answers to the same rule."""
@@ -489,7 +501,7 @@ def test_swap_selling_an_intact_trend_add_says_the_trend_is_intact():
     swap = next(c for c in cards if c.action == "SWAP")
     assert swap.sell == "TREND"
     assert "its trend is intact" in swap.reason
-    assert "at or above its 50-day moving average of 100.00" in swap.reason
+    assert "not more than 3% under its 50-day moving average of 100.00" in swap.reason
     assert "broken" not in swap.reason
 
 
