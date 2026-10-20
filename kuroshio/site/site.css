@@ -159,3 +159,5 @@ header .lang:hover { border-color: var(--accent); color: var(--accent); }
 }
 .hero.small .badge.on { color: var(--fg); font-family: var(--mono); font-size: 13.5px; }
 .hero.small .badge + .badge::before { content: "·"; margin: 0 10px; color: var(--line-2); }
+.trackchart .chips .chip { cursor: pointer; background: transparent; color: var(--fg); border-color: var(--line-2); }
+.trackchart .chips .chip[aria-pressed="false"] { opacity: .4; text-decoration: line-through; }

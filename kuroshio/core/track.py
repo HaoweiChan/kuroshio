@@ -46,11 +46,17 @@ def _day(ts) -> str:
     return pd.Timestamp(ts).date().isoformat()
 
 
-def track(books: list[tuple[str, dict]], close: pd.DataFrame, benchmark: str | None = None) -> dict:
-    """Cumulative raw return of the book, each sleeve and the benchmark, plus every episode."""
+INDEXES = ("^SOX", "^IXIC")  # 費半, 那指: extra reference lines on the US track chart
+
+
+def track(books: list[tuple[str, dict]], close: pd.DataFrame, benchmark: str | None = None,
+          indexes: tuple[str, ...] = ()) -> dict:
+    """Cumulative raw return of the book, each sleeve, the benchmark and any `indexes` present
+    in `close`, plus every episode."""
     close = close.sort_index()
+    indexes = [t for t in indexes if t in close.columns]
     days = [_day(t) for t in close.index]
-    series, cum = [], {"book": 1.0, "core": 1.0, "attack": 1.0, "bench": 1.0}
+    series, cum = [], {"book": 1.0, "core": 1.0, "attack": 1.0, "bench": 1.0, **dict.fromkeys(indexes, 1.0)}
     k = -1  # index of the book in force at the previous close
     for i in range(1, len(days)):
         while k + 1 < len(books) and books[k + 1][0] <= days[i - 1]:
@@ -66,6 +72,9 @@ def track(books: list[tuple[str, dict]], close: pd.DataFrame, benchmark: str | N
                 cum[key] *= 1 + sum(w * r for w, r in held) / sum(w for w, _ in held)
         if benchmark and pd.notna(ret.get(benchmark)):
             cum["bench"] *= 1 + ret[benchmark]
+        for t in indexes:
+            if pd.notna(ret.get(t)):
+                cum[t] *= 1 + ret[t]
         series.append({"date": days[i], **{key: round(v - 1, 5) for key, v in cum.items()}})
 
     def px(ticker: str, day: str) -> float | None:
@@ -97,7 +106,7 @@ def track(books: list[tuple[str, dict]], close: pd.DataFrame, benchmark: str | N
 
     return {
         "since": books[0][0] if books else None, "asof": last, "benchmark": benchmark,
-        "books": len(books), "series": series, "episodes": episodes,
+        "indexes": indexes, "books": len(books), "series": series, "episodes": episodes,
     }
 
 
