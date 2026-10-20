@@ -18,6 +18,11 @@ import pandas as pd
 from kuroshio.types import Holding, Panel
 
 MA_TREND = 50  # the trend_add break window; see engine.propose step 3
+# A trend_add breaks only on a close more than this far under its MA50, not on any close under
+# it. On 181 sampled US names 2014-2026, one close under the line exited 9.1x a year with 59%
+# back above within 5 sessions; 3% under cut that to 4.0x and 25%, median CAGR 3.7% -> 5.3%,
+# same median drawdown. Deeper keeps trading exits for a looser rule (5%: 2.7x, 14%).
+MA_TREND_BUFFER = 0.03
 BOOK_VOL_WINDOW = 20  # trailing-session window book_vol() and engine.propose step 2b share
 ATR_WINDOW = 14  # the ATR the stop ratchet trails by; see engine.propose step 3
 

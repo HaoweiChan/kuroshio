@@ -198,7 +198,8 @@ Pure function. v1 logic:
    letting cash absorb the difference.
 3. **Thesis monitoring**, dispatched on `setup_type` — the ranking in step 4 is a momentum
    composite, so a `value_dip` is *meant* to look weak there and must not be alerted on that:
-   `trend_add` → ALERT when the close is under its 50-day mean (the trend was the thesis);
+   `trend_add` → ALERT when the close is more than 3% under its 50-day mean (the trend was the
+   thesis; `signals.MA_TREND_BUFFER` keeps one close under the line from being a break);
    `value_dip` / `pullback_add` → ALERT only when the close is at or below the
    `invalidation_price` the user recorded, never on MA distance. Cards name the setup_type,
    the level breached, the entry price with the move from it, and the session the price came
