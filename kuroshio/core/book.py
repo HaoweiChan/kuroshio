@@ -14,6 +14,9 @@ The rules, in the order they apply (all of them options on `BookRules`):
   `Underweight` and unrated names are dropped. With a scores ledger (`scores_rows`) a rating
   also dies at the first `fundamentals.next_earnings_date` that falls after it: the print the
   rating did not see. Without one, only the day TTL applies.
+  Blackout (`entry_blackout_days`, off by default): a name not in yesterday's book whose next
+  earnings date is within this many calendar days is not bought, so a rating the print is about
+  to void does not buy for a week and then sell on the void. Incumbents are unaffected.
   A name whose screen close is at or below its effective stop is dropped too: the
   thesis that rating priced is invalidated until a newer rating resets the stop. With a
   price history (`closes`) that holds for any close since the rating date, not just today's:
@@ -98,6 +101,7 @@ class BookRules:
     ttl_days: int = 45
     review_days: int = 21
     earnings_warn_days: int = 7
+    entry_blackout_days: int = 0  # a newcomer reporting within this many days is not bought (0 = off)
 
 
 # --- inputs ------------------------------------------------------------------
@@ -343,6 +347,12 @@ def build_book(
             if hit := stopped_out((closes or {}).get(t), rat["date"], asof, stop, trail):
                 skipped.append((row["rank"], t, ind, f"{rating} stopped out {hit}; needs a new rating"))
                 continue
+            ne = next_earnings.get(t) if t not in held_core | held_overflow else None
+            if rules.entry_blackout_days and ne:
+                days = (dt.date.fromisoformat(ne) - asof_d).days
+                if 0 <= days <= rules.entry_blackout_days:
+                    skipped.append((row["rank"], t, ind, f"earnings in {days} days — no new entry"))
+                    continue
             w, cap = target_weight(entry, stop, t in tier, t in pinned & held_overflow
                                    or per_theme.get(ind, 0) >= rules.core_per_theme)
             if pm_size.get(t, 1.0) < 1.0:
@@ -547,7 +557,8 @@ def build_book(
                                 if (x in attack or x.get("sleeve") == "attack")
                                 and x["ticker"] not in leverage_map]}
            if leverage_map is not None else {}),
-        "rules": {k: v for k, v in vars(rules).items() if k != "core_hold_rank" or v},
+        "rules": {k: v for k, v in vars(rules).items()
+                  if k not in ("core_hold_rank", "entry_blackout_days") or v},
         "lang": getattr(ips, "lang", "en"), "risk_budget": risk_budget,
         # what the site's IPS panel shows, so `kuroshio site` reads the book dir and nothing else
         "ips": {
