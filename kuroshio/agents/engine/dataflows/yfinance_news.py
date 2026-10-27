@@ -96,6 +96,15 @@ def get_news_yfinance(
     try:
         stock = yf.Ticker(canonical)
         news = yf_retry(lambda: stock.get_news(count=article_limit))
+        if not news:
+            # Ticker.get_news posts to Yahoo's /xhr/ncp endpoint, which now 404s
+            # and yfinance turns into [] silently. Search still serves ticker
+            # news (flat shape); keep only articles Yahoo tags with the ticker.
+            search = yf_retry(lambda: yf.Search(query=canonical, news_count=article_limit))
+            news = [
+                a for a in (search.news or [])
+                if canonical in a.get("relatedTickers", [canonical])
+            ]
 
         if not news:
             return f"No news found for {ticker}{resolved}"
