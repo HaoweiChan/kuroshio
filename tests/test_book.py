@@ -954,3 +954,16 @@ def test_ratchet_stop_cli_reads_market_filtered_ledger_best_effort(tmp_path, mon
     else:
         assert _w(book, "AAA") > 0
     assert ("warning: stop ledger read failed:" in capsys.readouterr().err) == (state == "unreadable")
+
+
+def test_entry_blackout_skips_newcomer_keeps_incumbent():
+    screen, ratings = _wide_screen()  # screen 2026-01-05
+    scores = [{"ticker": t, "fundamentals": {"next_earnings_date": "2026-01-12"}} for t in ("T1", "T2")]
+    rules = bk.BookRules(core_n=2, attack_budget_pct=0, entry_blackout_days=7)
+    book = bk.build_book(screen, ratings, _ips(), rules=rules, scores_rows=scores,
+                         prev_book={"core": [{"ticker": "T2"}]})
+    assert [r["ticker"] for r in book["core"]] == ["T2", "T3"]
+    assert (1, "T1", "I1", "earnings in 7 days — no new entry") in [tuple(s) for s in book["skipped"]]
+    off = bk.build_book(screen, ratings, _ips(), rules=dataclasses.replace(rules, entry_blackout_days=0),
+                        scores_rows=scores)
+    assert [r["ticker"] for r in off["core"]] == ["T1", "T2"]
