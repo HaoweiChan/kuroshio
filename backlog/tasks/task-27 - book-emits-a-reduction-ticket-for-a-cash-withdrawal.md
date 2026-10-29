@@ -1,7 +1,7 @@
 ---
 id: TASK-27
 title: 'book emits a reduction ticket for a cash withdrawal'
-status: In Progress
+status: PR
 assignee: []
 created_date: '2026-10-29'
 labels: []
