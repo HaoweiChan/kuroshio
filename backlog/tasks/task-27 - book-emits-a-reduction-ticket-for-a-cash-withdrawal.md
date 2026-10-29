@@ -14,7 +14,7 @@ ordinal: 27000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-The owner withdraws cash from the Schwab account from time to time (first: ~USD 30.9k, 2026-10). The
+The owner withdraws cash from the Schwab account from time to time. The
 book already sizes on the vault NAV, so targets shrink on their own once the debit lands; what is
 missing is the sell list that raises the cash first.
 
