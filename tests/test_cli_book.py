@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -239,3 +240,84 @@ def test_stop_history_reuses_provider_for_etf_quotes(monkeypatch):
     hist = cli._stop_history(str(FIX / "screen.json"), "us", "fake", 45, ["AAAU", "AAAU"])
     assert calls[0].count("AAAU") == 1
     assert hist["AAAU"] == {"2026-01-05": 37.0}
+
+
+# TASK-27: --withdraw writes a pro-rata reduction ticket
+def _withdraw_positions(tmp_path: Path) -> Path:
+    p = tmp_path / "pos.json"
+    p.write_text(json.dumps({"cash": 1000.0, "positions": [
+        {"symbol": "AAA", "asset_type": "EQUITY", "long_qty": 50, "net_qty": 50, "market_value": 5000},
+        {"symbol": "BBB", "asset_type": "EQUITY", "long_qty": 33, "net_qty": 33, "market_value": 3333},
+        {"symbol": "ZZZ", "asset_type": "EQUITY", "long_qty": 100, "net_qty": 100, "market_value": 9000},
+        {"symbol": "OPT1", "asset_type": "OPTION", "long_qty": 4, "net_qty": 4, "market_value": 4000},
+    ]}))
+    return p
+
+
+def _reduction_argv(tmp_path, out, withdraw):
+    return _book_argv(
+        out, "--nav", "100000", "--positions", str(_withdraw_positions(tmp_path)),
+        "--locked", str(FIX / "locked.json"), "--withdraw", str(withdraw),
+    )
+
+
+def test_withdraw_ticket_covers_cash_needed_within_one_share(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_reduction_argv(tmp_path, out, 3000)) == 0
+    text = (out / "reduction.md").read_text()
+    rows = {m[0]: (int(m[1]), float(m[2].replace(",", ""))) for m in
+            re.findall(r"^\| (\w+) \| (\d+) \| ([\d,.]+) \|$", text, re.M)}
+    prices = {"AAA": 100.0, "BBB": 101.0}
+    proceeds = sum(n * prices[s] for s, (n, _) in rows.items())
+    assert proceeds + 1000 >= 3000
+    # pro-rata: need 2000 of 8333 sellable; each name within one share of its exact fraction
+    frac = 2000 / 8333
+    for s, q in (("AAA", 50), ("BBB", 33)):
+        assert 0 <= rows[s][0] - q * frac < 1
+
+
+def test_withdraw_ticket_excludes_locked_and_options(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_reduction_argv(tmp_path, out, 3000)) == 0
+    text = (out / "reduction.md").read_text()
+    assert "ZZZ" not in text and "OPT1" not in text
+
+
+def test_withdraw_above_sellable_total_is_rejected(tmp_path, no_network, capsys):
+    out = tmp_path / "book"
+    assert cli.main(_reduction_argv(tmp_path, out, 50000)) != 0
+    assert "sellable" in capsys.readouterr().err
+    assert not (out / "reduction.md").exists()
+
+
+def test_withdraw_within_cash_needs_no_sale(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_reduction_argv(tmp_path, out, 500)) == 0
+    assert "no sale" in (out / "reduction.md").read_text().lower()
+
+
+def test_no_withdraw_writes_no_reduction(tmp_path, no_network):
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out, "--nav", "100000", "--positions", str(FIX / "positions.csv"))) == 0
+    assert not (out / "reduction.md").exists()
+
+
+def _pos(sym, q, mv):
+    return {"symbol": sym, "quantity": q, "market_value": mv, "asset_type": "EQUITY"}
+
+
+def _ticket_rows(text):
+    return {m[0]: int(m[1]) for m in re.findall(r"^\| (\w+) \| (\d+) \| [\d,.]+ \|$", text, re.M)}
+
+
+def test_fractional_position_ticket_still_covers_the_need():
+    from kuroshio.core.book import render_reduction_md as r
+    rows = [_pos("AAA", 100.0, 10000.0), _pos("SLC", 0.9, 9000.0)]
+    sold = _ticket_rows(r(rows, {}, 5000, 0))
+    assert sold["AAA"] * 100 >= 5000
+
+
+def test_fractional_shortfall_is_rejected():
+    from kuroshio.core.book import render_reduction_md as r
+    with pytest.raises(ValueError, match="sellable"):
+        r([_pos("AAA", 10.5, 1050.0), _pos("SLC", 0.6, 300.0)], {}, 1300, 0)

@@ -136,8 +136,12 @@ def load_positions(path: str | Path | None) -> list[dict]:
     path = Path(path)
     text = path.read_text()
     raw = json.loads(text) if path.suffix == ".json" else list(csv.DictReader(text.splitlines()))
+    if isinstance(raw, dict):  # {"cash": .., "positions": [..]} — a broker snapshot
+        raw = raw["positions"]
     rows = []
     for r in raw:
+        if r.get("quantity") in (None, "") and r.get("long_qty") is not None:
+            r = {**r, "quantity": r["long_qty"]}
         missing = [f for f in _POSITION_FIELDS[:3] if r.get(f) in (None, "")]
         if missing:
             raise ValueError(f"{path}: a position row is missing {', '.join(missing)}: {r!r}")
@@ -149,6 +153,42 @@ def load_positions(path: str | Path | None) -> list[dict]:
             "asset_type": (r.get("asset_type") or "").strip() or None,
         })
     return rows
+
+
+def load_cash(path: str | Path | None) -> float:
+    """Top-level `cash` of a JSON snapshot positions file; 0 for a flat table."""
+    if path is None or Path(path).suffix != ".json":
+        return 0.0
+    raw = json.loads(Path(path).read_text())
+    return float(raw.get("cash") or 0) if isinstance(raw, dict) else 0.0
+
+
+def render_reduction_md(
+    positions: list[dict], locked: dict, withdraw: float, cash: float, lang: str | None = None,
+) -> str:
+    """reduction.md — the sell list that raises `withdraw` cash: the shortfall over `cash`, taken
+    pro-rata from every non-locked, non-option long, whole shares rounded up. Output only."""
+    lb = labels(lang)
+    need = withdraw - cash
+    out = [f"# {lb['reduction_title']}", "", lb["reduction_lede"].format(withdraw=withdraw, cash=cash), ""]
+    if need <= 0:
+        return "\n".join(out + [lb["reduction_none"], ""])
+    pool = [p for p in positions if p["symbol"] not in locked and p["asset_type"] != "OPTION"
+            and p["quantity"] >= 1 and p["market_value"] > 0]
+    # whole shares only: a fractional remainder cannot be sold, so it is not sellable
+    sellable = sum(math.floor(p["quantity"]) * p["market_value"] / p["quantity"] for p in pool)
+    if need > sellable:
+        raise ValueError(f"withdraw needs {need:,.0f} from sales but only {sellable:,.0f} is sellable")
+    frac = need / sellable
+    out += [f"{lb['reduction_need'].format(need=need, frac=frac)}", "",
+            f"| {lb['symbol']} | {lb['shares']} | {lb['reduction_usd']} |", "|---|---|---|"]
+    total = 0.0
+    for p in pool:
+        n = min(math.ceil(math.floor(p["quantity"]) * frac - 1e-9), math.floor(p["quantity"]))
+        usd = n * p["market_value"] / p["quantity"]
+        total += usd
+        out.append(f"| {p['symbol']} | {n} | {usd:,.2f} |")
+    return "\n".join(out + ["", lb["reduction_total"].format(total=total, need=need), ""])
 
 
 # --- the rules ---------------------------------------------------------------
