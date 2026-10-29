@@ -300,3 +300,24 @@ def test_no_withdraw_writes_no_reduction(tmp_path, no_network):
     out = tmp_path / "book"
     assert cli.main(_book_argv(out, "--nav", "100000", "--positions", str(FIX / "positions.csv"))) == 0
     assert not (out / "reduction.md").exists()
+
+
+def _pos(sym, q, mv):
+    return {"symbol": sym, "quantity": q, "market_value": mv, "asset_type": "EQUITY"}
+
+
+def _ticket_rows(text):
+    return {m[0]: int(m[1]) for m in re.findall(r"^\| (\w+) \| (\d+) \| [\d,.]+ \|$", text, re.M)}
+
+
+def test_fractional_position_ticket_still_covers_the_need():
+    from kuroshio.core.book import render_reduction_md as r
+    rows = [_pos("AAA", 100.0, 10000.0), _pos("SLC", 0.9, 9000.0)]
+    sold = _ticket_rows(r(rows, {}, 5000, 0))
+    assert sold["AAA"] * 100 >= 5000
+
+
+def test_fractional_shortfall_is_rejected():
+    from kuroshio.core.book import render_reduction_md as r
+    with pytest.raises(ValueError, match="sellable"):
+        r([_pos("AAA", 10.5, 1050.0), _pos("SLC", 0.6, 300.0)], {}, 1300, 0)

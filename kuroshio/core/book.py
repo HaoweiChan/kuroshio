@@ -174,8 +174,9 @@ def render_reduction_md(
     if need <= 0:
         return "\n".join(out + [lb["reduction_none"], ""])
     pool = [p for p in positions if p["symbol"] not in locked and p["asset_type"] != "OPTION"
-            and p["quantity"] > 0 and p["market_value"] > 0]
-    sellable = sum(p["market_value"] for p in pool)
+            and p["quantity"] >= 1 and p["market_value"] > 0]
+    # whole shares only: a fractional remainder cannot be sold, so it is not sellable
+    sellable = sum(math.floor(p["quantity"]) * p["market_value"] / p["quantity"] for p in pool)
     if need > sellable:
         raise ValueError(f"withdraw needs {need:,.0f} from sales but only {sellable:,.0f} is sellable")
     frac = need / sellable
@@ -183,9 +184,7 @@ def render_reduction_md(
             f"| {lb['symbol']} | {lb['shares']} | {lb['reduction_usd']} |", "|---|---|---|"]
     total = 0.0
     for p in pool:
-        n = min(math.ceil(p["quantity"] * frac - 1e-9), math.floor(p["quantity"]))
-        if n <= 0:
-            continue
+        n = min(math.ceil(math.floor(p["quantity"]) * frac - 1e-9), math.floor(p["quantity"]))
         usd = n * p["market_value"] / p["quantity"]
         total += usd
         out.append(f"| {p['symbol']} | {n} | {usd:,.2f} |")
