@@ -89,6 +89,16 @@ LABELS: dict[str, dict[str, str]] = {
         ),
         "risk_entry": "Entry prices are the {asof} close — real fills will differ.",
         # --- alloc.md / alloc page ---
+        "reduction_title": "Reduction ticket for a cash withdrawal",
+        "reduction_lede": (
+            "Withdraw **{withdraw:,.0f}** against cash **{cash:,.0f}**. Pro-rata over non-locked, "
+            "non-option longs, whole shares rounded up, at the positions file's value per share. "
+            "Output only: no orders are placed."
+        ),
+        "reduction_none": "No sale is needed: the cash on hand covers the withdraw.",
+        "reduction_need": "Cash to raise **{need:,.0f}** = {frac:.2%} of every sellable position.",
+        "reduction_usd": "approx_usd",
+        "reduction_total": "Total approx **{total:,.0f}** (needed {need:,.0f}).",
         "alloc_title": "Book allocation on NAV — screen {asof}",
         "portfolio_head": "Target positions",
         "alloc_lede": (
@@ -337,6 +347,15 @@ LABELS: dict[str, dict[str, str]] = {
             "帳本會把這件事記下來。"
         ),
         "risk_entry": "進場價是 {asof} 收盤，實際成交會不同。",
+        "reduction_title": "提款減碼清單",
+        "reduction_lede": (
+            "提款 **{withdraw:,.0f}**，現金 **{cash:,.0f}**。對未鎖定、非選擇權的多頭部位按比例賣出，"
+            "股數無條件進位，以部位檔的每股市值估算。僅輸出，不下單。"
+        ),
+        "reduction_none": "不需賣出：現有現金已足夠提款。",
+        "reduction_need": "需籌措現金 **{need:,.0f}** = 每個可賣部位的 {frac:.2%}。",
+        "reduction_usd": "約略金額",
+        "reduction_total": "合計約 **{total:,.0f}**（需 {need:,.0f}）。",
         "alloc_title": "Book 在 NAV 上的分配 — 篩選日 {asof}",
         "portfolio_head": "目標部位",
         "alloc_lede": (

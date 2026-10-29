@@ -1216,6 +1216,12 @@ def cmd_book(args: argparse.Namespace) -> int:
             rules=rules,
             ips_name=Path(args.ips).name,
         )
+        reduction = (
+            bookmod.render_reduction_md(
+                bookmod.load_positions(args.positions), bookmod.load_json(args.locked),
+                args.withdraw, bookmod.load_cash(args.positions), args.lang or book.get("lang"),
+            ) if args.withdraw is not None else None
+        )
     except (OSError, ValueError, KeyError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -1252,6 +1258,8 @@ def cmd_book(args: argparse.Namespace) -> int:
         book, out, propose_text=propose_text, lang=args.lang,
         ma50=ma50, book_vol=vol, vol_window=window,
     )
+    if reduction is not None:
+        (out / "reduction.md").write_text(reduction, encoding="utf-8")
     if args.provider:
         try:
             _write_track(book, out, args.market, args.provider)
@@ -1430,6 +1438,10 @@ def main(argv: list[str] | None = None) -> int:
     p_book.add_argument(
         "--positions",
         help="symbol,quantity,market_value,average_price[,asset_type] table (CSV or JSON)",
+    )
+    p_book.add_argument(
+        "--withdraw", type=float,
+        help="USD to withdraw: writes reduction.md, the pro-rata sell list net of the positions' cash",
     )
     p_book.add_argument("--pm-size", help="JSON of {ticker: multiplier} to size a name down")
     p_book.add_argument("--leverage-map", help="YAML of UNDERLYING: ETF_TICKER for 2x attack vehicles")
