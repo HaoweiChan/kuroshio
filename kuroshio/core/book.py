@@ -28,8 +28,11 @@ The rules, in the order they apply (all of them options on `BookRules`):
   size multiplier for that name.
 * **Attack** — names the theme cap pushed out of the core go into an attack sleeve at twice base
   and twice the risk budget, subject to the IPS position cap and PM size multiplier,
-  provided the rating is at or above `attack_floor` (default `overweight`); a name
-  below the floor is skipped and the next qualifying overflow name by rank takes the slot.
+  provided the rating is at or above `attack_floor` (default `overweight`) — and, with
+  `attack_max_age` set, carries a `stop_loss` and is at most that many days old (a 2x slot
+  on a stopless, stale rating has nothing watching it however far it falls); a name
+  failing these is skipped and the next qualifying overflow name by rank takes
+  the slot. The same gate holds for a held attack name and a core doubling.
   Overflow weights shrink to the remaining attack and theme budgets (skipped under 1% room).
   Whatever is left of `attack_budget_pct` (default 30%) raises the highest-ranked core names
   at or above the same `attack_floor` to twice their own weight, capped at twice base —
@@ -95,6 +98,7 @@ class BookRules:
     attack_floor: str = "overweight"
     attack_buffer: int = 2       # an incumbent attack name keeps its slot inside attack slots x this
     attack_hold_rank: int = 0    # an incumbent ranked inside this is held for its rating's life (0 = off)
+    attack_max_age: int = 0      # attack needs a rated stop_loss and a rating this young (0 = off)
     tier_n: int = 0              # the top N core names get the tier base and risk budget (0 = off)
     tier_base_pct: float = 7.5
     tier_risk_pct: float = 1.35
@@ -335,12 +339,22 @@ def build_book(
     # hold: yesterday's sleeve goes down the walk first (the vetoes still apply) and keeps its
     # kind — an overflow name stays overflow even when a core slot opens in its theme, a
     # doubled name keeps its core slot and its top-up
+    def attack_block(rat: dict | None) -> str:
+        """Why this rating cannot carry an attack slot or a doubling, or "" when it can."""
+        if not rules.attack_max_age:
+            return ""
+        if not rat or rat.get("stop_loss") is None:
+            return "no stop on its rating"
+        age = (asof_d - dt.date.fromisoformat(rat["date"])).days
+        return f"rating {age} days old" if age > rules.attack_max_age else ""
+
     def held_rating(t: str) -> str:
         return (ratings.get(t) or {}).get("rating") or "n/a"
 
     pinned = {r["ticker"] for r in screen_rows
               if r["ticker"] in held_overflow | held_doubled and r["rank"] <= rules.attack_hold_rank
-              and verdict_at_least(held_rating(r["ticker"]), rules.attack_floor)}
+              and verdict_at_least(held_rating(r["ticker"]), rules.attack_floor)
+              and not attack_block(ratings.get(r["ticker"]))}
     # core holds share the walk, not the attack sizing/top-up rules. The held attack sleeve
     # still goes first; core incumbents then take the slots left before any newcomer.
     held_core = {x["ticker"] for x in (prev_book or {}).get("core", [])}
@@ -412,11 +426,14 @@ def build_book(
                 slot = "attack"  # held: its slot is not up for the day's ranking
             elif not overflow:
                 slot = "core" if len(core) < rules.core_n else None
-            elif not verdict_at_least(rating, rules.attack_floor):
+            elif not verdict_at_least(rating, rules.attack_floor) or attack_block(rat):
                 # the veto above is the core rule; the floor is an attack-only conviction gate —
                 # a name below it does not take the slot, so the next overflow name by rank does.
                 if len(attack) < rules.attack_n:
-                    skipped.append((row["rank"], t, ind, f"below the attack floor ({rating})"))
+                    why = (f"below the attack floor ({rating})"
+                           if not verdict_at_least(rating, rules.attack_floor)
+                           else f"not attack-eligible: {attack_block(rat)}")
+                    skipped.append((row["rank"], t, ind, why))
                     continue
                 slot = None
             else:
@@ -510,7 +527,8 @@ def build_book(
     # name whose stop sits 24% away tops up to 8.3% instead of flipping between 10% and 4.2%
     # as the price crosses the 20% line (that cliff, not rank noise, drove most daily changes)
     eligible = [r for r in core if not cap_blocks_top_up(r) and "topped" not in r
-                and verdict_at_least(r["rating"], rules.attack_floor)]
+                and verdict_at_least(r["rating"], rules.attack_floor)
+                and not attack_block(ratings.get(r["ticker"]))]
     slots = max(int((budget - used) / base + 1e-9), 0)
     # hysteresis: yesterday's doubled names inside the buffer go first, the rest by rank
     keep = [r for r in eligible[: slots * rules.attack_buffer] if r["ticker"] in held_doubled]

@@ -1080,6 +1080,25 @@ def test_a_value_dip_and_an_other_never_ratchet():
         assert ratchets(cards) == [], setup
 
 
+def test_a_stopless_pullback_trails_and_exits_on_the_trail():
+    """A pullback_add whose rating had no stop_loss had no rule watching it however far it
+    fell. No recorded level -> it trails, no 2R gate;
+    with no entry_date the trail starts from today's price and the ledger carries it."""
+    held = trailed("T", setup_type="pullback_add", entry_price=100.0)
+    move = ratchets(propose([held], [], make_ips(), "us", prices={"T": 140.0},
+                            running_high=TRAIL_HIGH, atr14=TRAIL_ATR))
+    assert [m.details["new_invalidation"] for m in move] == [pytest.approx(135.0)]
+
+    undated = Holding(ticker="T", weight=0.05, score=0.5, setup_type="pullback_add")
+    move = ratchets(propose([undated], [], make_ips(), "us", prices={"T": 140.0}, atr14=TRAIL_ATR))
+    assert [m.details["new_invalidation"] for m in move] == [pytest.approx(125.0)]
+
+    # the next run reads 125 back from the ledger: a close under it is an EXIT
+    cards = propose([undated], [], make_ips(), "us", prices={"T": 110.0}, atr14=TRAIL_ATR,
+                    last_stop={"T": 125.0})
+    assert [c.sell for c in cards if c.action == "EXIT"] == ["T"]
+
+
 def test_mae_decides_on_the_minimum_close_since_entry_after_a_recovery():
     """#4 (DRAFT-37): -25% then back to -5%. The excursion happened, so the card is
     still owed — and it names the low it measured, not the price on the screen."""

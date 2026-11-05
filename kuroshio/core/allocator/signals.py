@@ -92,11 +92,12 @@ def trail_inputs(
 
     "Since entry" is ``entry_date`` inclusive, so a position opened today is measured
     from its own session. A holding without an ``entry_date`` has no such window and is
-    absent from all three dicts: the panel's whole lookback is not "since entry", and
+    absent from the running high and minimum close (ATR14 is still computed): the
+    panel's whole lookback is not "since entry", and
     trailing a stop from a high the user never held through is worse than not trailing.
 
     So is a window the panel does not cover: a holding whose ``entry_date`` predates the
-    panel's first row is absent from all three too, because everything read off it would
+    panel's first row is absent from those two as well, because everything read off it would
     be the provider's fetch window under the name "since entry" — the drawdown or high
     before the first row is simply unread. ``cli.py`` fetches back to the oldest
     ``entry_date`` in the book, so this is the provider coming up short, not the default.
@@ -118,9 +119,17 @@ def trail_inputs(
     seen: set[str] = set()
     for holding in holdings:
         ticker, entry_date = holding.ticker, holding.entry_date
-        if not entry_date or ticker in seen or ticker not in close.columns:
+        if ticker in seen or ticker not in close.columns:
             continue
         seen.add(ticker)
+        # ATR is a panel statistic, not a since-entry one: a holding with no entry_date
+        # still gets it, so the ratchet can trail a position that has no stop at all
+        if have_range and ticker in high.columns and ticker in low.columns:
+            atr = _atr(high[ticker], low[ticker], close[ticker])
+            if atr is not None:
+                atr14[ticker] = atr
+        if not entry_date:
+            continue
         if pd.Timestamp(close.index[0]) > pd.Timestamp(entry_date):
             continue
         since = close[ticker].loc[close.index >= entry_date].dropna()
@@ -132,11 +141,6 @@ def trail_inputs(
             min_close[ticker] = float(since.min())
         if not peaks.empty:
             running_high[ticker] = float(peaks.max())
-        if not have_range or ticker not in high.columns or ticker not in low.columns:
-            continue
-        atr = _atr(high[ticker], low[ticker], close[ticker])
-        if atr is not None:
-            atr14[ticker] = atr
     return running_high, atr14, min_close
 
 
