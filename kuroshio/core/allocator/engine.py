@@ -666,7 +666,11 @@ def propose(
             live_stop[h.ticker] = max(levels)
     moved: set[str] = set()   # tickers this run's ratchet actually raised
     for h in holdings:
-        if h.setup_type not in TRAILED_SETUPS:
+        # A monitored position with no recorded level would otherwise have no stop at all
+        # (a rating with stop_loss null leaves a pullback_add with no rule watching it, however
+        # far it falls). It trails whatever its setup_type — no level is worse than a trail.
+        stopless = h.invalidation_price is None and h.setup_type in MONITORED_SETUPS
+        if h.setup_type not in TRAILED_SETUPS and not stopless:
             continue
         # TASK-20: running_high/atr14 can outlive a session with no price for this
         # ticker (they are read off the panel's whole lookback, not just today's row) —
@@ -675,12 +679,16 @@ def propose(
         if prices.get(h.ticker) is None:
             continue
         peak, atr = running_high.get(h.ticker), atr14.get(h.ticker)
+        if peak is None and stopless:
+            # no entry window to read a high from: trail from today's price, and the stop
+            # ledger carries the highest level across runs from here on
+            peak = prices[h.ticker]
         if peak is None or atr is None:
             # no entry_date to measure a running high from, or a panel with no high/low
             # and so no true range: nothing to trail from, and the recorded level stands.
             continue
         was, entry_price = live_stop.get(h.ticker), _entry_price(h)
-        if h.setup_type == "pullback_add":
+        if h.setup_type == "pullback_add" and not stopless:
             # R is the entry-to-invalidation distance, so without both there is no 2R gate
             # to clear and the pullback keeps the level the user recorded.
             recorded = h.invalidation_price
@@ -701,7 +709,7 @@ def propose(
         alerts.append(ProposalCard(
             action="ALERT",
             reason=T["ratchet_alert"].format(
-                ticker=h.ticker, trail=trail, entry_date=h.entry_date, peak=peak,
+                ticker=h.ticker, trail=trail, entry_date=h.entry_date or asof, peak=peak,
                 mult=ips.caps.trail_atr_mult, atr=atr, was_clause=was_clause,
             ),
             ips_clauses=["caps.trail_atr_mult"],

@@ -107,8 +107,10 @@ def test_trail_inputs_skips_a_holding_with_no_entry_date_and_a_panel_with_no_hig
     from kuroshio.core.allocator.signals import trail_inputs
 
     dated = Holding(ticker="T", weight=0.05, entry_date=_TRAIL_DATES[0])
-    # no entry_date -> no "since entry" window exists, so nothing is reported
-    assert trail_inputs(_ohlc_panel(), [Holding(ticker="T", weight=0.05)]) == ({}, {}, {})
+    # no entry_date -> no "since entry" window exists; ATR14 is a panel statistic and stays,
+    # so the ratchet can still trail a position that has no stop
+    running_high, atr14, min_close = trail_inputs(_ohlc_panel(), [Holding(ticker="T", weight=0.05)])
+    assert (running_high, min_close) == ({}, {}) and "T" in atr14
     # no high/low -> no true range, so no ATR; the close-only numbers still resolve
     running_high, atr14, min_close = trail_inputs(_ohlc_panel(with_high_low=False), [dated])
     assert atr14 == {}
@@ -134,4 +136,5 @@ def test_trail_inputs_skips_a_holding_whose_entry_predates_the_panel():
     from kuroshio.core.allocator.signals import trail_inputs
 
     early = Holding(ticker="T", weight=0.05, entry_date="2023-06-01", entry_price=100.0)
-    assert trail_inputs(_ohlc_panel(), [early]) == ({}, {}, {})
+    running_high, atr14, min_close = trail_inputs(_ohlc_panel(), [early])
+    assert (running_high, min_close) == ({}, {}) and "T" in atr14
