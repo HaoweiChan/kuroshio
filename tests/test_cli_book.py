@@ -321,3 +321,12 @@ def test_fractional_shortfall_is_rejected():
     from kuroshio.core.book import render_reduction_md as r
     with pytest.raises(ValueError, match="sellable"):
         r([_pos("AAA", 10.5, 1050.0), _pos("SLC", 0.6, 300.0)], {}, 1300, 0)
+
+
+def test_events_cli_malformed_file_exits_two(tmp_path, capsys):
+    path = tmp_path / "events.json"
+    path.write_text('{}')
+    out = tmp_path / "book"
+    assert cli.main(_book_argv(out, "--events", str(path))) == 2
+    assert str(path) in capsys.readouterr().err
+    assert not out.exists()
