@@ -969,6 +969,30 @@ def test_entry_blackout_skips_newcomer_keeps_incumbent():
     assert [r["ticker"] for r in off["core"]] == ["T1", "T2"]
 
 
+def test_attack_max_age_keeps_a_stopless_or_stale_rating_out_of_the_attack_sleeve():
+    """A stale Overweight with stop_loss null could hold a 2x attack slot.
+    With attack_max_age set, both a stopless and a too-old rating lose the slot to the
+    next overflow name that qualifies; with it off (default) nothing changes."""
+    screen = [
+        {"ticker": f"W{i}", "date": "2026-01-31", "rank": i, "factors": {"close": 100.0},
+         "industry": "Widgets"} for i in range(1, 5)
+    ]
+    ratings = [
+        {"date": "2026-01-30", "market": "us", "ticker": "W1", "rating": "Buy", "stop_loss": 80.0},
+        {"date": "2026-01-30", "market": "us", "ticker": "W2", "rating": "Buy"},  # no stop
+        {"date": "2026-01-02", "market": "us", "ticker": "W3", "rating": "Buy", "stop_loss": 80.0},
+        {"date": "2026-01-30", "market": "us", "ticker": "W4", "rating": "Buy", "stop_loss": 80.0},
+    ]
+    rules = dict(core_per_theme=1, attack_n=1)
+    off = bk.build_book(screen, ratings, _ips(), rules=bk.BookRules(**rules))
+    assert [r["ticker"] for r in off["attack"]] == ["W2"]
+    on = bk.build_book(screen, ratings, _ips(), rules=bk.BookRules(attack_max_age=21, **rules))
+    assert [r["ticker"] for r in on["attack"]] == ["W4"]
+    why = {r[1]: r[3] for r in on["skipped"]}
+    assert why["W2"] == "not attack-eligible: no stop on its rating"
+    assert why["W3"] == "not attack-eligible: rating 29 days old"
+
+
 def _event_book(events=None, **kwargs):
     return bk.build_book(
         bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
