@@ -131,7 +131,8 @@ LABELS: dict[str, dict[str, str]] = {
         "queue_head": "Research queue",
         "unmapped_attack_head": "Attack names without a 2x ETF mapping",
         "unrated_head": "Unrated in the screened top names",
-        "review_head": "Due for a re-rating (older than {days} days, or earnings within {warn} days)",
+        "review_head": ("Due for a re-rating (older than {days} days, "
+                        "earnings within {warn} days, or macro events)"),
         # --- site ---
         "nav_page_title": "Portfolio",
         "book_page_title": "Book",
@@ -386,7 +387,7 @@ LABELS: dict[str, dict[str, str]] = {
         "queue_head": "研究佇列",
         "unmapped_attack_head": "攻擊倉裡沒有 2x ETF 對照的名字",
         "unrated_head": "篩選前段裡尚未評級的名字",
-        "review_head": "該重評的（評級超過 {days} 天，或 {warn} 天內財報）",
+        "review_head": "該重評的（評級超過 {days} 天、{warn} 天內財報，或總經事件）",
         "nav_page_title": "投資組合",
         "book_page_title": "Book",
         "reports_page_title": "研究報告",
