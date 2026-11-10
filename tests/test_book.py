@@ -991,3 +991,76 @@ def test_attack_max_age_keeps_a_stopless_or_stale_rating_out_of_the_attack_sleev
     why = {r[1]: r[3] for r in on["skipped"]}
     assert why["W2"] == "not attack-eligible: no stop on its rating"
     assert why["W3"] == "not attack-eligible: rating 29 days old"
+
+
+def _event_book(events=None, **kwargs):
+    return bk.build_book(
+        bk.load_screen(FIX / "screen.json"), bk.load_jsonl(FIX / "ratings.jsonl"), _ips(),
+        nav=100000, positions=bk.load_positions(FIX / "positions.csv"),
+        locked=bk.load_json(FIX / "locked.json"), events=events, **kwargs,
+    )
+
+
+def test_events_queue_core_and_attack_without_changing_any_non_review_book_field():
+    newest = {"id": "ban", "date": "2026-01-05", "driver": "data centers"}
+    events = [{**newest, "tickers": ["aaa", "iii", "zzz"]},
+              {"id": "old", "date": "2026-01-03", "driver": "power", "tickers": ["AAA"]}]
+    baseline = _event_book()
+    book = _event_book(events)
+    assert {k: v for k, v in book.items() if k != "review"} == {
+        k: v for k, v in baseline.items() if k != "review"}
+    assert [r["ticker"] for r in book["review"]] == ["AAA", "III"]
+    assert all(r["event"] == newest for r in book["review"])
+    reasons = {r["ticker"]: r["reason"] for r in bk.needs_research(book)["research"]}
+    for ticker in ("AAA", "III"):
+        assert reasons[ticker] == "event ban (2026-01-05) after rating 2026-01-02"
+    for lang, phrase in (("en", "macro events"), ("zh", "總經事件")):
+        rendered = bk.render_alloc_md(book, lang)
+        assert phrase in rendered and reasons["AAA"] in rendered
+
+
+@pytest.mark.parametrize("date,tickers", [
+    ("2026-01-01", ["AAA"]), ("2026-01-02", ["AAA"]),
+    ("2026-01-06", ["AAA"]), ("2026-01-05", ["NOPE"]), ("2026-01-05", []),
+])
+def test_events_outside_rating_window_or_tickers_add_nothing(date, tickers):
+    assert _event_book([{"id": "ban", "date": date, "driver": "power", "tickers": tickers}]) == (
+        _event_book())
+
+
+@pytest.mark.parametrize("earnings,reason", [
+    ("2026-01-10", "earnings in 5 days"),
+    ("2026-02-10", "event ban (2026-01-03) after rating 2026-01-02"),
+])
+def test_events_reason_precedence_over_age_below_near_earnings(earnings, reason):
+    book = _event_book(
+        [{"id": "ban", "date": "2026-01-03", "driver": "power", "tickers": ["AAA"]}],
+        rules=bk.BookRules(review_days=1),
+        scores_rows=[{"ticker": "AAA", "fundamentals": {"next_earnings_date": earnings}}],
+    )
+    assert bk.needs_research(book)["research"][0]["reason"] == reason
+
+
+@pytest.mark.parametrize("payload", [
+    "{", "{}", "[null]", '[{"date":"2026-01-03","driver":"power","tickers":[]}]',
+    *[json.dumps([{**{"id": "ban", "date": "2026-01-03", "driver": "power", "tickers": []},
+                   **bad}]) for bad in [
+        {"id": " "}, {"id": 4}, {"date": "2026-02-30"}, {"date": "20260103"},
+        {"date": "2026-W01-6"}, {"date": None}, {"tickers": "AAA"},
+        {"tickers": [""]}, {"tickers": [" "]}, {"tickers": [2]}, {"driver": None},
+    ]],
+    '[{"id":"ban","date":"2026-01-03","tickers":[]}]',
+])
+def test_events_loader_names_malformed_file(tmp_path, payload):
+    path = tmp_path / "events.json"
+    path.write_text(payload)
+    with pytest.raises(ValueError, match="events.json"):
+        bk.load_events(path)
+
+
+def test_events_loader_valid_and_optional(tmp_path):
+    rows = [{"id": "ban", "date": "2026-01-03", "driver": "power", "tickers": ["aaa"]}]
+    path = tmp_path / "events.json"
+    path.write_text(json.dumps(rows))
+    assert bk.load_events(path) == rows
+    assert bk.load_events(None) == []

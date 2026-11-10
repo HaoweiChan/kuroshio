@@ -129,6 +129,34 @@ def load_json(path: str | Path | None) -> dict:
     return json.loads(Path(path).read_text()) if path else {}
 
 
+def load_events(path: str | Path | None) -> list[dict]:
+    """Read the optional macro/industry events that queue a re-rating."""
+    if path is None:
+        return []
+    try:
+        rows = json.loads(Path(path).read_text())
+        if not isinstance(rows, list):
+            raise ValueError("expected a list of events")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("each event must be an object")
+            if not isinstance(row.get("id"), str) or not row["id"].strip():
+                raise ValueError("event id must be a non-empty string")
+            if not isinstance(row.get("driver"), str):
+                raise ValueError("event driver must be a string")
+            date = row.get("date")
+            if not isinstance(date, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date):
+                raise ValueError("event date must be YYYY-MM-DD")
+            dt.date.fromisoformat(date)
+            if not isinstance(row.get("tickers"), list) or any(
+                not isinstance(t, str) or not t.strip() for t in row["tickers"]
+            ):
+                raise ValueError("event tickers must be a list of non-empty strings")
+        return rows
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+
+
 _POSITION_FIELDS = ("symbol", "quantity", "market_value", "average_price", "asset_type")
 
 
@@ -232,6 +260,7 @@ def build_book(
     meta: dict | None = None,
     scores_rows: list[dict] | None = None,
     stops_rows: list[dict] | None = None,
+    events: list[dict] | None = None,
     positions: list[dict] | None = None,
     nav: float | None = None,
     pm_size: dict | None = None,
@@ -602,9 +631,16 @@ def build_book(
         age = (asof_d - dt.date.fromisoformat(x["rating_date"])).days
         ne = next_earnings.get(x["ticker"])
         soon = ne and 0 <= (dt.date.fromisoformat(ne) - asof_d).days <= rules.earnings_warn_days
-        if age > rules.review_days or soon:
+        event = max(
+            (e for e in events or []
+             if x["rating_date"] < e["date"] <= asof
+             and x["ticker"].upper() in [t.upper() for t in e["tickers"]]),
+            key=lambda e: e["date"], default=None,
+        )
+        if age > rules.review_days or soon or event:
             review.append({
                 "ticker": x["ticker"], "rating_date": x["rating_date"], "age": age, "earnings": ne,
+                **({"event": {k: event[k] for k in ("id", "date", "driver")}} if event else {}),
             })
 
     return {
@@ -646,6 +682,8 @@ def needs_research(book: dict) -> dict:
         # the row carries any known print date; only one inside the warn window is the reason
         if days is not None and 0 <= days <= warn:
             reason = f"earnings in {days} days"
+        elif event := x.get("event"):
+            reason = f"event {event['id']} ({event['date']}) after rating {x['rating_date']}"
         else:
             reason = f"rating {x['age']} days old"
         research.append({

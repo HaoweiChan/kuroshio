@@ -1176,6 +1176,7 @@ def cmd_book(args: argparse.Namespace) -> int:
     )
     try:
         screen = bookmod.load_screen(args.screen)
+        events = bookmod.load_events(args.events)
         leverage_map = None
         if args.leverage_map:
             import yaml
@@ -1204,6 +1205,7 @@ def cmd_book(args: argparse.Namespace) -> int:
             meta=bookmod.load_json(args.meta),
             scores_rows=bookmod.load_jsonl(args.scores),
             stops_rows=stops,
+            events=events,
             positions=bookmod.load_positions(args.positions),
             nav=args.nav,
             pm_size=bookmod.load_json(args.pm_size),
@@ -1444,6 +1446,7 @@ def main(argv: list[str] | None = None) -> int:
         "--withdraw", type=float,
         help="USD to withdraw: writes reduction.md, the pro-rata sell list net of the positions' cash",
     )
+    p_book.add_argument("--events", help="JSON macro/industry events that queue exposed names for re-rating")
     p_book.add_argument("--pm-size", help="JSON of {ticker: multiplier} to size a name down")
     p_book.add_argument("--leverage-map", help="YAML of UNDERLYING: ETF_TICKER for 2x attack vehicles")
     p_book.add_argument("--locked", help="JSON of {ticker: {theme, note}} the book must not resize")

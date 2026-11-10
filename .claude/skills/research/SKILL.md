@@ -68,6 +68,13 @@ owner names one, `MARKET` = `us` unless said otherwise:
    keeps the run cheap and deterministic: one shared set of facts feeds
    every role, so no subagent's own tool call can make two runs diverge.
 
+   When the `cluegarden` MCP server is connected, also call `research_context`
+   in this session for the name's upstream/downstream demand drivers and any
+   event that queued its re-rating (use the review row's event id, date and
+   driver). Hand the cited excerpts to the News analyst and the bull/bear
+   subagent. Generated analysis is not evidence; a missing hit does not prove
+   absence. If cluegarden is unavailable, say so in the News report and continue.
+
 2. **Four analysts — one message, four `sonnet` subagents** (or
    `codex:codex-rescue` on Sol, see below). Each gets the data slice its
    role needs and writes one report, mirroring the intent of
@@ -115,7 +122,9 @@ owner names one, `MARKET` = `us` unless said otherwise:
    `kuroshio evaluate`'s ledger parser expect):
    - `**Rating**:` exactly one of Buy / Overweight / Hold / Underweight / Sell
    - `**Executive Summary**:` entry strategy, sizing, key risk levels, horizon
-   - `**Investment Thesis**:` the reasoning, anchored in the debate
+   - `**Investment Thesis**:` the reasoning, anchored in the debate. For a name
+     queued by an event, address that event: its exposure path and what would
+     falsify the fear.
    - `**Stop Loss**:` a bare number (no currency symbol)
    - `**Price Target**:` a bare number
 
